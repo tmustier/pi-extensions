@@ -1,5 +1,5 @@
 /**
- * Space Invaders game extension - play with /space-invaders
+ * Lobster Invaders game extension - play with /space-invaders
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -10,8 +10,8 @@ const GAME_HEIGHT = 16;
 const PLAYER_Y = GAME_HEIGHT - 1;
 const TICK_MS = 100;
 
-const INVADER_ROWS = 4;
-const INVADER_COLS = 8;
+const INVADER_ROWS = 3;
+const INVADER_COLS = 6;
 const INVADER_START_X = 1;
 const INVADER_START_Y = 1;
 const INVADER_SPACING_X = 2;
@@ -19,18 +19,29 @@ const INVADER_SPACING_Y = 1;
 const INITIAL_INVADER_COUNT = INVADER_ROWS * INVADER_COLS;
 
 const INITIAL_LIVES = 3;
-const BASE_INVADER_DELAY = 6;
-const PLAYER_SHOT_DELAY = 4;
+const BASE_INVADER_DELAY = 8;
+const PLAYER_SHOT_DELAY = 1;
+const MAX_PLAYER_BULLETS = 3;
+const PLAYER_MOVE_STEP = 1;
+const PLAYER_MOVE_HOLD_TICKS = 3;
 const INVADER_FIRE_DELAY = 6;
+const INVADER_BULLET_STEP_TICKS = 2;
 const MAX_INVADER_BULLETS = 2;
 const INVADER_SCORE = 10;
+const INVADER_ROW_SCORES = [30, 20, 10];
+const UFO_SCORE = 50;
+const UFO_BASE_COOLDOWN = 70;
+const READY_TICKS = 20;
 
 const CELL_WIDTH = 2;
 const MIN_RENDER_CELLS = 10;
 
 const SPACE_INVADERS_SAVE_TYPE = "space-invaders-save";
 
+const UFO_Y = 0;
+
 type Direction = -1 | 1;
+type MoveDir = Direction | 0;
 type Point = { x: number; y: number };
 
 type BulletSource = "player" | "invader";
@@ -41,22 +52,36 @@ interface Bullet {
 	from: BulletSource;
 }
 
+interface UfoState {
+	x: number;
+	dir: Direction;
+	active: boolean;
+}
+
 interface GameState {
 	invaders: Point[];
 	invaderDir: Direction;
 	invaderFrame: 0 | 1;
 	invaderMoveDelay: number;
 	invaderMoveCounter: number;
+	invaderOffsetY: number;
 	playerX: number;
-	playerBullet: Bullet | null;
+	playerBullets: Bullet[];
 	invaderBullets: Bullet[];
 	playerCooldown: number;
 	invaderCooldown: number;
+	playerMoveDir: MoveDir;
+	playerMoveHold: number;
+	bulletTick: number;
+	wavePauseTicks: number;
+	pendingWave: boolean;
 	score: number;
 	highScore: number;
 	lives: number;
 	level: number;
 	gameOver: boolean;
+	ufo: UfoState;
+	ufoCooldown: number;
 }
 
 const createInvaders = (): Point[] => {
@@ -78,6 +103,25 @@ const invaderDelayFor = (level: number, remaining: number): number => {
 	return Math.max(2, BASE_INVADER_DELAY - speedUp - levelBoost);
 };
 
+const invaderFireDelayFor = (level: number, remaining: number): number => {
+	const cleared = Math.max(0, INITIAL_INVADER_COUNT - remaining);
+	const speedUp = Math.floor(cleared / 6);
+	const levelBoost = Math.floor((level - 1) / 3);
+	return Math.max(2, INVADER_FIRE_DELAY - speedUp - levelBoost);
+};
+
+const invaderFireChanceFor = (remaining: number): number => {
+	const ratio = 1 - remaining / INITIAL_INVADER_COUNT;
+	return Math.min(0.75, 0.35 + ratio * 0.35);
+};
+
+const invaderRowScoreFor = (invader: Point, offsetY: number): number => {
+	const spacing = 1 + INVADER_SPACING_Y;
+	const rawRow = Math.round((invader.y - offsetY - INVADER_START_Y) / spacing);
+	const row = Math.max(0, Math.min(INVADER_ROW_SCORES.length - 1, rawRow));
+	return INVADER_ROW_SCORES[row] ?? INVADER_SCORE;
+};
+
 const createInitialState = (highScore = 0): GameState => {
 	const invaders = createInvaders();
 	return {
@@ -86,25 +130,52 @@ const createInitialState = (highScore = 0): GameState => {
 		invaderFrame: 0,
 		invaderMoveDelay: invaderDelayFor(1, invaders.length),
 		invaderMoveCounter: 0,
+		invaderOffsetY: 0,
 		playerX: Math.floor(GAME_WIDTH / 2),
-		playerBullet: null,
+		playerBullets: [],
 		invaderBullets: [],
 		playerCooldown: 0,
-		invaderCooldown: INVADER_FIRE_DELAY,
+		invaderCooldown: invaderFireDelayFor(1, invaders.length),
+		playerMoveDir: 0,
+		playerMoveHold: 0,
+		bulletTick: 0,
+		wavePauseTicks: 0,
+		pendingWave: false,
 		score: 0,
 		highScore,
 		lives: INITIAL_LIVES,
 		level: 1,
 		gameOver: false,
+		ufo: { x: 0, dir: 1, active: false },
+		ufoCooldown: UFO_BASE_COOLDOWN,
 	};
 };
 
 const cloneState = (state: GameState): GameState => ({
 	...state,
 	invaders: state.invaders.map((invader) => ({ ...invader })),
-	playerBullet: state.playerBullet ? { ...state.playerBullet } : null,
+	playerBullets: state.playerBullets.map((bullet) => ({ ...bullet })),
 	invaderBullets: state.invaderBullets.map((bullet) => ({ ...bullet })),
+	ufo: { ...state.ufo },
 });
+
+const normalizeState = (state: GameState): GameState => {
+	const invaders = state.invaders ?? createInvaders();
+	const level = state.level ?? 1;
+	return {
+		...state,
+		invaders,
+		ufo: state.ufo ?? { x: 0, dir: 1, active: false },
+		ufoCooldown: state.ufoCooldown ?? UFO_BASE_COOLDOWN,
+		invaderOffsetY: state.invaderOffsetY ?? 0,
+		playerMoveDir: state.playerMoveDir ?? 0,
+		playerMoveHold: state.playerMoveHold ?? 0,
+		bulletTick: state.bulletTick ?? 0,
+		wavePauseTicks: state.wavePauseTicks ?? 0,
+		pendingWave: state.pendingWave ?? false,
+		invaderCooldown: state.invaderCooldown ?? invaderFireDelayFor(level, invaders.length),
+	};
+};
 
 class SpaceInvadersComponent {
 	private state: GameState;
@@ -129,7 +200,7 @@ class SpaceInvadersComponent {
 		this.onSave = onSave;
 
 		if (savedState && !savedState.gameOver) {
-			this.state = savedState;
+			this.state = normalizeState(savedState);
 			this.paused = true;
 		} else {
 			const highScore = savedState?.highScore ?? 0;
@@ -144,8 +215,7 @@ class SpaceInvadersComponent {
 		this.interval = setInterval(() => {
 			if (this.paused || this.state.gameOver) return;
 			this.tick();
-			this.version++;
-			this.tui.requestRender();
+			this.markDirty();
 		}, TICK_MS);
 	}
 
@@ -155,10 +225,26 @@ class SpaceInvadersComponent {
 		this.interval = null;
 	}
 
+	private markDirty(): void {
+		this.version++;
+		this.tui.requestRender();
+	}
+
 	private tick(): void {
+		if (this.state.wavePauseTicks > 0) {
+			this.state.wavePauseTicks -= 1;
+			if (this.state.wavePauseTicks === 0 && this.state.pendingWave) {
+				this.startNextWave();
+			}
+			return;
+		}
+
+		this.state.bulletTick += 1;
 		if (this.state.playerCooldown > 0) this.state.playerCooldown--;
 		if (this.state.invaderCooldown > 0) this.state.invaderCooldown--;
 
+		this.applyHeldMovement();
+		this.updateUfo();
 		this.moveBullets();
 		this.resolveBulletCollisions();
 		if (this.state.gameOver) {
@@ -174,20 +260,63 @@ class SpaceInvadersComponent {
 		this.maybeAdvanceWave();
 	}
 
-	private moveBullets(): void {
-		if (this.state.playerBullet) {
-			this.state.playerBullet = {
-				...this.state.playerBullet,
-				y: this.state.playerBullet.y - 1,
-			};
-			if (this.state.playerBullet.y < 0) {
-				this.state.playerBullet = null;
+	private applyHeldMovement(): void {
+		if (this.state.playerMoveHold <= 0 || this.state.playerMoveDir === 0) return;
+		this.state.playerX = Math.max(
+			0,
+			Math.min(GAME_WIDTH - 1, this.state.playerX + this.state.playerMoveDir * PLAYER_MOVE_STEP),
+		);
+		this.state.playerMoveHold -= 1;
+	}
+
+	private queuePlayerMove(dir: Direction): void {
+		this.state.playerMoveDir = dir;
+		this.state.playerMoveHold = PLAYER_MOVE_HOLD_TICKS;
+		this.state.playerX = Math.max(0, Math.min(GAME_WIDTH - 1, this.state.playerX + dir * PLAYER_MOVE_STEP));
+		this.markDirty();
+	}
+
+	private updateUfo(): void {
+		if (this.state.ufo.active) {
+			this.state.ufo.x += this.state.ufo.dir;
+			if (this.state.ufo.x < 0 || this.state.ufo.x >= GAME_WIDTH) {
+				this.state.ufo.active = false;
+				this.state.ufoCooldown = UFO_BASE_COOLDOWN;
 			}
+			return;
 		}
 
+		if (this.state.ufoCooldown > 0) {
+			this.state.ufoCooldown -= 1;
+			return;
+		}
+
+		if (Math.random() < 0.25) {
+			const dir: Direction = Math.random() < 0.5 ? 1 : -1;
+			this.state.ufo = {
+				x: dir === 1 ? 0 : GAME_WIDTH - 1,
+				dir,
+				active: true,
+			};
+		} else {
+			this.state.ufoCooldown = 10;
+		}
+	}
+
+	private moveBullets(): void {
+		const nextPlayerBullets: Bullet[] = [];
+		for (const bullet of this.state.playerBullets) {
+			const moved = { ...bullet, y: bullet.y - 1 };
+			if (moved.y >= 0) {
+				nextPlayerBullets.push(moved);
+			}
+		}
+		this.state.playerBullets = nextPlayerBullets;
+
+		const shouldMoveInvaderBullets = this.state.bulletTick % INVADER_BULLET_STEP_TICKS === 0;
 		const nextInvaderBullets: Bullet[] = [];
 		for (const bullet of this.state.invaderBullets) {
-			const moved = { ...bullet, y: bullet.y + 1 };
+			const moved = shouldMoveInvaderBullets ? { ...bullet, y: bullet.y + 1 } : { ...bullet };
 			if (moved.y <= PLAYER_Y) {
 				nextInvaderBullets.push(moved);
 			}
@@ -196,34 +325,71 @@ class SpaceInvadersComponent {
 	}
 
 	private resolveBulletCollisions(): void {
-		const playerBullet = this.state.playerBullet;
-		if (playerBullet) {
-			const bulletIndex = this.state.invaderBullets.findIndex(
-				(bullet) => bullet.x === playerBullet.x && bullet.y === playerBullet.y,
-			);
-			if (bulletIndex >= 0) {
-				this.state.invaderBullets.splice(bulletIndex, 1);
-				this.state.playerBullet = null;
-			}
+		const invaderBulletByPos = new Map<string, Bullet>();
+		for (const bullet of this.state.invaderBullets) {
+			invaderBulletByPos.set(`${bullet.x},${bullet.y}`, bullet);
 		}
 
-		const currentPlayerBullet = this.state.playerBullet;
-		if (currentPlayerBullet) {
-			const invaderIndex = this.state.invaders.findIndex(
-				(invader) => invader.x === currentPlayerBullet.x && invader.y === currentPlayerBullet.y,
-			);
-			if (invaderIndex >= 0) {
-				this.state.invaders.splice(invaderIndex, 1);
-				this.state.playerBullet = null;
-				this.state.score += INVADER_SCORE;
+		const invaderIndexByPos = new Map<string, number>();
+		for (let i = 0; i < this.state.invaders.length; i++) {
+			const invader = this.state.invaders[i];
+			invaderIndexByPos.set(`${invader.x},${invader.y}`, i);
+		}
+
+		const afterBulletClash: Bullet[] = [];
+		for (const bullet of this.state.playerBullets) {
+			const key = `${bullet.x},${bullet.y}`;
+			if (invaderBulletByPos.has(key)) {
+				invaderBulletByPos.delete(key);
+				continue;
+			}
+			afterBulletClash.push(bullet);
+		}
+		this.state.invaderBullets = Array.from(invaderBulletByPos.values());
+
+		const hitInvaders = new Map<number, number>();
+		const remainingPlayerBullets: Bullet[] = [];
+		for (const bullet of afterBulletClash) {
+			const key = `${bullet.x},${bullet.y}`;
+			if (this.state.ufo.active && bullet.y === UFO_Y && bullet.x === this.state.ufo.x) {
+				this.state.ufo.active = false;
+				this.state.ufoCooldown = UFO_BASE_COOLDOWN;
+				this.state.score += UFO_SCORE;
 				if (this.state.score > this.state.highScore) {
 					this.state.highScore = this.state.score;
 				}
-				this.state.invaderMoveDelay = invaderDelayFor(this.state.level, this.state.invaders.length);
+				continue;
 			}
+			const invaderIndex = invaderIndexByPos.get(key);
+			if (invaderIndex !== undefined) {
+				if (!hitInvaders.has(invaderIndex)) {
+					const invader = this.state.invaders[invaderIndex];
+					hitInvaders.set(invaderIndex, invaderRowScoreFor(invader, this.state.invaderOffsetY));
+				}
+				continue;
+			}
+			remainingPlayerBullets.push(bullet);
 		}
 
-		const remainingBullets: Bullet[] = [];
+		if (hitInvaders.size > 0) {
+			this.state.invaders = this.state.invaders.filter((_invader, idx) => !hitInvaders.has(idx));
+			let scoreDelta = 0;
+			for (const value of hitInvaders.values()) {
+				scoreDelta += value;
+			}
+			this.state.score += scoreDelta;
+			if (this.state.score > this.state.highScore) {
+				this.state.highScore = this.state.score;
+			}
+			this.state.invaderMoveDelay = invaderDelayFor(this.state.level, this.state.invaders.length);
+			const newFireDelay = invaderFireDelayFor(this.state.level, this.state.invaders.length);
+			if (this.state.invaderCooldown > newFireDelay) {
+				this.state.invaderCooldown = newFireDelay;
+			}
+		}
+		this.state.playerBullets = remainingPlayerBullets;
+
+		const remainingInvaderBullets: Bullet[] = [];
 		for (const bullet of this.state.invaderBullets) {
 			if (bullet.x === this.state.playerX && bullet.y === PLAYER_Y) {
 				this.state.lives -= 1;
@@ -232,9 +398,9 @@ class SpaceInvadersComponent {
 				}
 				continue;
 			}
-			remainingBullets.push(bullet);
+			remainingInvaderBullets.push(bullet);
 		}
-		this.state.invaderBullets = remainingBullets;
+		this.state.invaderBullets = remainingInvaderBullets;
 	}
 
 	private moveInvaders(): void {
@@ -260,6 +426,7 @@ class SpaceInvadersComponent {
 					this.state.gameOver = true;
 				}
 			}
+			this.state.invaderOffsetY += 1;
 		} else {
 			for (const invader of this.state.invaders) {
 				invader.x += dir;
@@ -274,7 +441,8 @@ class SpaceInvadersComponent {
 		if (this.state.invaderBullets.length >= MAX_INVADER_BULLETS) return;
 		if (this.state.invaders.length === 0) return;
 
-		if (Math.random() > 0.6) {
+		const fireChance = invaderFireChanceFor(this.state.invaders.length);
+		if (Math.random() > fireChance) {
 			this.state.invaderCooldown = 1;
 			return;
 		}
@@ -292,22 +460,40 @@ class SpaceInvadersComponent {
 		const shooter = shooterList[Math.floor(Math.random() * shooterList.length)];
 
 		this.state.invaderBullets.push({ x: shooter.x, y: shooter.y + 1, from: "invader" });
-		this.state.invaderCooldown = INVADER_FIRE_DELAY;
+		this.state.invaderCooldown = invaderFireDelayFor(this.state.level, this.state.invaders.length);
 	}
 
 	private maybeAdvanceWave(): void {
 		if (this.state.invaders.length > 0) return;
+		if (this.state.pendingWave) return;
+		this.state.pendingWave = true;
+		this.state.wavePauseTicks = READY_TICKS;
+		this.state.playerBullets = [];
+		this.state.invaderBullets = [];
+		this.state.playerMoveHold = 0;
+		this.state.playerMoveDir = 0;
+		this.state.ufo.active = false;
+	}
+
+	private startNextWave(): void {
 		this.state.level += 1;
 		this.state.invaders = createInvaders();
 		this.state.invaderDir = 1;
 		this.state.invaderFrame = 0;
 		this.state.invaderMoveDelay = invaderDelayFor(this.state.level, this.state.invaders.length);
 		this.state.invaderMoveCounter = 0;
-		this.state.playerBullet = null;
+		this.state.invaderOffsetY = 0;
+		this.state.playerBullets = [];
 		this.state.invaderBullets = [];
 		this.state.playerCooldown = 0;
-		this.state.invaderCooldown = INVADER_FIRE_DELAY;
+		this.state.invaderCooldown = invaderFireDelayFor(this.state.level, this.state.invaders.length);
 		this.state.playerX = Math.floor(GAME_WIDTH / 2);
+		this.state.playerMoveDir = 0;
+		this.state.playerMoveHold = 0;
+		this.state.ufo = { x: 0, dir: 1, active: false };
+		this.state.ufoCooldown = UFO_BASE_COOLDOWN;
+		this.state.wavePauseTicks = 0;
+		this.state.pendingWave = false;
 	}
 
 	private togglePause(): void {
@@ -317,8 +503,7 @@ class SpaceInvadersComponent {
 		} else {
 			this.startLoop();
 		}
-		this.version++;
-		this.tui.requestRender();
+		this.markDirty();
 	}
 
 	private restartGame(): void {
@@ -328,8 +513,7 @@ class SpaceInvadersComponent {
 		this.stopLoop();
 		this.startLoop();
 		this.onSave(null);
-		this.version++;
-		this.tui.requestRender();
+		this.markDirty();
 	}
 
 	handleInput(data: string): void {
@@ -341,8 +525,7 @@ class SpaceInvadersComponent {
 			}
 			this.paused = false;
 			this.startLoop();
-			this.version++;
-			this.tui.requestRender();
+			this.markDirty();
 			return;
 		}
 
@@ -371,25 +554,20 @@ class SpaceInvadersComponent {
 		}
 
 		if (matchesKey(data, "left") || data === "a" || data === "A") {
-			this.state.playerX = Math.max(0, this.state.playerX - 1);
-			this.version++;
-			this.tui.requestRender();
+			this.queuePlayerMove(-1);
 			return;
 		}
 
 		if (matchesKey(data, "right") || data === "d" || data === "D") {
-			this.state.playerX = Math.min(GAME_WIDTH - 1, this.state.playerX + 1);
-			this.version++;
-			this.tui.requestRender();
+			this.queuePlayerMove(1);
 			return;
 		}
 
 		if (data === " " && !this.state.gameOver) {
-			if (this.state.playerCooldown === 0 && !this.state.playerBullet) {
-				this.state.playerBullet = { x: this.state.playerX, y: PLAYER_Y - 1, from: "player" };
+			if (this.state.playerCooldown === 0 && this.state.playerBullets.length < MAX_PLAYER_BULLETS) {
+				this.state.playerBullets.push({ x: this.state.playerX, y: PLAYER_Y - 1, from: "player" });
 				this.state.playerCooldown = PLAYER_SHOT_DELAY;
-				this.version++;
-				this.tui.requestRender();
+				this.markDirty();
 			}
 		}
 	}
@@ -405,7 +583,7 @@ class SpaceInvadersComponent {
 
 		const maxCells = Math.floor((width - 2) / CELL_WIDTH);
 		if (maxCells < MIN_RENDER_CELLS) {
-			const message = "Space Invaders needs a wider terminal";
+			const message = "Lobster Invaders needs a wider terminal";
 			const line = truncateToWidth(message, width);
 			this.cachedLines = [line];
 			this.cachedWidth = width;
@@ -416,29 +594,53 @@ class SpaceInvadersComponent {
 		const renderWidth = Math.min(GAME_WIDTH, maxCells);
 		const boxWidth = renderWidth * CELL_WIDTH;
 
+		const color = (code: string, text: string) => `\x1b[${code}m${text}\x1b[0m`;
+		const dim = (text: string) => color("2", text);
+		const accent = (text: string) => color("1;31", text);
+		const scoreColor = (text: string) => color("33", text);
+		const livesColor = (text: string) => color("32", text);
+		const levelColor = (text: string) => color("35", text);
+		const invaderColor = (text: string) => color("31", text);
+		const playerColor = (text: string) => color("1;36", text);
+		const playerBulletColor = (text: string) => color("33", text);
+		const invaderBulletColor = (text: string) => color("31;1", text);
+		const ufoColor = (text: string) => color("1;37", text);
+
 		const lines: string[] = [];
-		const topBorder = `+${"-".repeat(boxWidth)}+`;
+		const topBorder = dim(`+${"-".repeat(boxWidth)}+`);
 
 		lines.push(this.padLine(topBorder, width));
 
-		const header = `SPACE INVADERS | Score: ${this.state.score} | Lives: ${this.state.lives} | Level: ${this.state.level} | High: ${this.state.highScore}`;
-		lines.push(this.padLine(this.boxLine(header, boxWidth), width));
-		lines.push(this.padLine(this.boxLine("-".repeat(boxWidth), boxWidth), width));
+		const titleLine = `${accent("LOBSTER INVADERS")}  ${dim(`Claws: ${this.state.invaders.length}`)}`;
+		const statsLine =
+			`Score: ${scoreColor(String(this.state.score))}  ` +
+			`Lives: ${livesColor(String(this.state.lives))}  ` +
+			`Level: ${levelColor(String(this.state.level))}  ` +
+			`High: ${dim(String(this.state.highScore))}`;
+
+		lines.push(this.padLine(this.boxLine(titleLine, boxWidth), width));
+		lines.push(this.padLine(this.boxLine(statsLine, boxWidth), width));
+		lines.push(this.padLine(this.boxLine(dim("-".repeat(boxWidth)), boxWidth), width));
 
 		const invaderMap = new Set(this.state.invaders.map((invader) => `${invader.x},${invader.y}`));
 		const invaderBulletMap = new Set(this.state.invaderBullets.map((bullet) => `${bullet.x},${bullet.y}`));
-		const playerBulletKey = this.state.playerBullet ? `${this.state.playerBullet.x},${this.state.playerBullet.y}` : null;
+		const playerBulletMap = new Set(this.state.playerBullets.map((bullet) => `${bullet.x},${bullet.y}`));
 
-		const invaderGlyph = this.state.invaderFrame === 0 ? "MM" : "WW";
-		const playerGlyph = "^^";
-		const playerBulletGlyph = "||";
-		const invaderBulletGlyph = "!!";
+		const invaderGlyph = invaderColor(this.state.invaderFrame === 0 ? "}{" : "><");
+		const playerGlyph = playerColor("/\\");
+		const playerBulletGlyph = playerBulletColor("||");
+		const invaderBulletGlyph = invaderBulletColor("!!");
+		const ufoGlyph = ufoColor("==");
 
 		for (let y = 0; y < GAME_HEIGHT; y++) {
 			let row = "";
 			for (let x = 0; x < renderWidth; x++) {
 				const key = `${x},${y}`;
-				if (playerBulletKey === key) {
+				if (this.state.ufo.active && y === UFO_Y && x === this.state.ufo.x) {
+					row += ufoGlyph;
+					continue;
+				}
+				if (playerBulletMap.has(key)) {
 					row += playerBulletGlyph;
 					continue;
 				}
@@ -459,15 +661,17 @@ class SpaceInvadersComponent {
 			lines.push(this.padLine(`|${row}|`, width));
 		}
 
-		lines.push(this.padLine(this.boxLine("-".repeat(boxWidth), boxWidth), width));
+		lines.push(this.padLine(this.boxLine(dim("-".repeat(boxWidth)), boxWidth), width));
 
 		let footer: string;
-		if (this.paused) {
-			footer = "PAUSED - Press any key to resume, Q to quit";
+		if (this.state.pendingWave && this.state.wavePauseTicks > 0) {
+			footer = `${accent("READY")} - Wave ${this.state.level + 1} incoming`;
+		} else if (this.paused) {
+			footer = `${accent("PAUSED")} - Press any key to resume, ${accent("Q")} to quit`;
 		} else if (this.state.gameOver) {
-			footer = "GAME OVER - Press R to restart, Q to quit";
+			footer = `${color("31;1", "GAME OVER")} - Press ${accent("R")} to restart, ${accent("Q")} to quit`;
 		} else {
-			footer = "Left/Right or A/D move, Space fire, P pause, ESC save, Q quit";
+			footer = `Left/Right or A/D move, ${accent("Space")} fire, ${accent("P")} pause, ${accent("ESC")} save`;
 		}
 		lines.push(this.padLine(this.boxLine(footer, boxWidth), width));
 		lines.push(this.padLine(topBorder, width));
@@ -498,10 +702,10 @@ class SpaceInvadersComponent {
 
 export default function (pi: ExtensionAPI) {
 	pi.registerCommand("space-invaders", {
-		description: "Play Space Invaders!",
+		description: "Play Lobster Invaders!",
 		handler: async (_args, ctx) => {
 			if (!ctx.hasUI) {
-				ctx.ui.notify("Space Invaders requires interactive mode", "error");
+				ctx.ui.notify("Lobster Invaders requires interactive mode", "error");
 				return;
 			}
 

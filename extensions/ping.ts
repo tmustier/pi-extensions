@@ -1,5 +1,5 @@
 /**
- * Paddle Ball game extension - play with /ping (alias /paddle-ball)
+ * Ping game extension - play with /ping
  */
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
@@ -21,7 +21,9 @@ const CELL_WIDTH = 2;
 const PLAYER_STEP = 2;
 const AI_STEP = 1;
 
-const PADDLE_BALL_SAVE_TYPE = "paddle-ball-save";
+const PING_SAVE_TYPE = "ping-save";
+const LEGACY_PING_SAVE_TYPE = "paddle-ball-save";
+const PING_SAVE_TYPES = new Set([PING_SAVE_TYPE, LEGACY_PING_SAVE_TYPE]);
 
 type Direction = -1 | 1;
 
@@ -74,7 +76,7 @@ const cloneState = (state: GameState): GameState => ({
 
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
 
-class PaddleBallComponent {
+class PingComponent {
 	private state: GameState;
 	private interval: ReturnType<typeof setInterval> | null = null;
 	private onClose: () => void;
@@ -439,18 +441,18 @@ export default function (pi: ExtensionAPI) {
 		let savedState: GameState | undefined;
 		for (let i = entries.length - 1; i >= 0; i--) {
 			const entry = entries[i];
-			if (entry.type === "custom" && entry.customType === PADDLE_BALL_SAVE_TYPE) {
+			if (entry.type === "custom" && PING_SAVE_TYPES.has(entry.customType)) {
 				savedState = entry.data as GameState;
 				break;
 			}
 		}
 
 		await ctx.ui.custom((tui, _theme, done) => {
-			return new PaddleBallComponent(
+			return new PingComponent(
 				tui,
 				() => done(undefined),
 				(state) => {
-					pi.appendEntry(PADDLE_BALL_SAVE_TYPE, state);
+					pi.appendEntry(PING_SAVE_TYPE, state);
 				},
 				savedState,
 			);
@@ -462,8 +464,4 @@ export default function (pi: ExtensionAPI) {
 		handler: runGame,
 	});
 
-	pi.registerCommand("paddle-ball", {
-		description: "Alias for /ping",
-		handler: runGame,
-	});
 }
