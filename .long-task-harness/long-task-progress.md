@@ -410,7 +410,7 @@ Adjust Pi paddle speed to land between 1 and 2 tick updates.
 
 ---
 
-### Session 15 | 2026-01-06 | Commits: none
+### Session 15 | 2026-01-06 | Commits: 8f905f7
 
 #### Metadata
 - **Features**: invaders-001 (progressed)
@@ -418,7 +418,7 @@ Adjust Pi paddle speed to land between 1 and 2 tick updates.
   - `extensions/space-invaders.ts` (+/-) - boss intro/enrage updates
   - `.long-task-harness/long-task-progress.md` (+/-) - session log update
   - `.long-task-harness/features.json` (+/-) - invaders-001 history
-- **Commit Summary**: (uncommitted)
+- **Commit Summary**: `feat: deepen clawd boss encounter`
 
 #### Goal
 Refine clawd boss behavior and intro sequence.
