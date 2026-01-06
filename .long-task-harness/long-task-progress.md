@@ -24,9 +24,11 @@
 ### What's Working
 - `extensions/tab-status.ts` updates the terminal tab title
 - `extensions/space-invaders.ts` implemented with /space-invaders command (needs manual run)
+- `extensions/paddle-ball.ts` implemented with /paddle-ball command (needs manual run)
 
 ### What's Not Working
 - Space Invaders gameplay not validated in a terminal yet
+- Paddle Ball gameplay not validated in a terminal yet
 
 ### Blocked On
 - None
@@ -67,6 +69,141 @@ Initialize long-task-harness tracking and add a Space Invaders extension.
 #### Next Steps
 1. Run `/space-invaders` in an interactive session to validate controls and rendering
 2. Update feature status once the game is verified
+
+---
+
+### Session 2 | 2026-01-06 | Commits: none
+
+#### Metadata
+- **Features**: paddle-001 (started), harness-001 (progressed)
+- **Files Changed**: 
+  - `extensions/paddle-ball.ts` (+/-) - Paddle Ball TUI extension
+  - `README.md` (+/-) - documented Paddle Ball extension
+  - `.long-task-harness/features.json` (+/-) - tracked paddle-001 feature
+  - `.long-task-harness/long-task-progress.md` (+/-) - session log update
+- **Commit Summary**: (uncommitted)
+
+#### Goal
+Add a classic Paddle Ball game extension for interactive play.
+
+#### Accomplished
+- [x] Implemented Paddle Ball (Pong-style) TUI game with save/resume behavior
+- [x] Documented the new extension in README
+- [x] Updated long-task-harness tracking for paddle-001
+
+#### Decisions
+- None
+
+#### Context & Learnings
+- Game uses ASCII-only glyphs with a fixed grid to keep rendering consistent.
+
+#### Next Steps
+1. Run `/paddle-ball` in an interactive session to validate controls and rendering -> likely affects: paddle-001
+2. Run `/space-invaders` to validate gameplay -> likely affects: invaders-001
+
+---
+
+### Session 3 | 2026-01-06 | Commits: none
+
+#### Metadata
+- **Features**: paddle-001 (progressed)
+- **Files Changed**: 
+  - `extensions/paddle-ball.ts` (+/-) - increased paddle movement step
+- **Commit Summary**: (uncommitted)
+
+#### Goal
+Make the Paddle Ball paddle feel more responsive.
+
+#### Accomplished
+- [x] Increased player paddle movement step for snappier control
+
+#### Decisions
+- None
+
+#### Context & Learnings
+- Snappiness is now driven by a larger per-input step (PLAYER_STEP = 2).
+
+#### Next Steps
+1. Run `/paddle-ball` in an interactive session to validate the new feel -> likely affects: paddle-001
+
+---
+
+### Session 4 | 2026-01-06 | Commits: none
+
+#### Metadata
+- **Features**: paddle-001 (progressed)
+- **Files Changed**: 
+  - `extensions/paddle-ball.ts` (+/-) - label opponent as PI
+- **Commit Summary**: (uncommitted)
+
+#### Goal
+Adjust Paddle Ball UI to refer to the opponent as PI.
+
+#### Accomplished
+- [x] Updated scoreboard label from AI to PI
+
+#### Decisions
+- None
+
+#### Context & Learnings
+- Labeling only; internal state still uses ai naming.
+
+#### Next Steps
+1. Run `/paddle-ball` to confirm labeling in the UI -> likely affects: paddle-001
+
+---
+
+### Session 5 | 2026-01-06 | Commits: none
+
+#### Metadata
+- **Features**: paddle-001 (progressed), harness-001 (progressed)
+- **Files Changed**: 
+  - `extensions/paddle-ball.ts` (+/-) - /ping command alias, ball speed variation, pi glyph
+  - `README.md` (+/-) - updated command name/alias
+  - `.long-task-harness/long-task-progress.md` (+/-) - session log update
+- **Commit Summary**: (uncommitted)
+
+#### Goal
+Make Paddle Ball feel more responsive and rename the command to /ping.
+
+#### Accomplished
+- [x] Added /ping command (kept /paddle-ball alias) and updated title/labels
+- [x] Vary ball speed based on center vs edge paddle hits
+- [x] Updated ball glyph to the pi symbol and tweaked miss handling
+
+#### Decisions
+- None
+
+#### Context & Learnings
+- Ball now only scores after leaving the playfield, reducing the "teleport" feel near paddles.
+
+#### Next Steps
+1. Run `/ping` to validate the new ball speed, glyph rendering, and serve behavior -> likely affects: paddle-001
+
+---
+
+### Session 6 | 2026-01-06 | Commits: none
+
+#### Metadata
+- **Features**: paddle-001 (progressed)
+- **Files Changed**: 
+  - `extensions/paddle-ball.ts` (+/-) - enlarge ball glyph
+- **Commit Summary**: (uncommitted)
+
+#### Goal
+Make the Ping ball more visually prominent.
+
+#### Accomplished
+- [x] Increased ball glyph size to double-pi
+
+#### Decisions
+- None
+
+#### Context & Learnings
+- Uses "ππ" for a wider 2-cell ball while staying within the 2-char cell width.
+
+#### Next Steps
+1. Run `/ping` to confirm the larger glyph renders cleanly -> likely affects: paddle-001
 
 ---
 

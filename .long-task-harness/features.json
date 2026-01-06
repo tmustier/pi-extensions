@@ -5,7 +5,7 @@
     "project_name": "pi-extensions",
     "created": "2026-01-06",
     "last_updated": "2026-01-06",
-    "total_features": 2,
+    "total_features": 3,
     "completed_features": 0
   },
   "features": [
@@ -27,6 +27,18 @@
             "date": "2026-01-06",
             "action": "started",
             "summary": "Initialized harness files"
+          },
+          {
+            "session": 2,
+            "date": "2026-01-06",
+            "action": "progressed",
+            "summary": "Updated progress log and added paddle-001 tracking"
+          },
+          {
+            "session": 5,
+            "date": "2026-01-06",
+            "action": "progressed",
+            "summary": "Updated progress log for /ping changes"
           }
         ],
         "files": [
@@ -67,6 +79,58 @@
             "decision": "Use ASCII glyphs and fixed grid size to avoid Unicode rendering issues"
           }
         ]
+      }
+    },
+    {
+      "id": "paddle-001",
+      "name": "Paddle Ball extension",
+      "description": "Add a playable Paddle Ball (Pong-style) TUI extension for Pi",
+      "steps": [
+        "Implement /ping command (alias /paddle-ball) with game loop and input handling",
+        "Render paddles, ball, and score with ASCII grid",
+        "Persist game state across sessions",
+        "Document installation instructions"
+      ],
+      "passes": false,
+      "notes": "",
+      "history": {
+        "sessions": [
+          {
+            "session": 2,
+            "date": "2026-01-06",
+            "action": "started",
+            "summary": "Added Paddle Ball extension"
+          },
+          {
+            "session": 3,
+            "date": "2026-01-06",
+            "action": "progressed",
+            "summary": "Increased player paddle movement step"
+          },
+          {
+            "session": 4,
+            "date": "2026-01-06",
+            "action": "progressed",
+            "summary": "Updated scoreboard label to Pi"
+          },
+          {
+            "session": 5,
+            "date": "2026-01-06",
+            "action": "progressed",
+            "summary": "Added /ping alias, ball speed variation, and pi glyph"
+          },
+          {
+            "session": 6,
+            "date": "2026-01-06",
+            "action": "progressed",
+            "summary": "Enlarged ball glyph to double-pi"
+          }
+        ],
+        "files": [
+          "extensions/paddle-ball.ts",
+          "README.md"
+        ],
+        "decisions": []
       }
     }
   ]
