@@ -721,14 +721,14 @@ class MarioComponent {
 		const { state } = this;
 
 		// Quit
-		if (matchesKey(key, { key: "q" }) || matchesKey(key, { key: "escape" })) {
+		if (matchesKey(key, "escape") || key === "q" || key === "Q") {
 			this.onSave(state);
 			this.onClose();
 			return true;
 		}
 
 		// New game
-		if (matchesKey(key, { key: "n" })) {
+		if (key === "n" || key === "N") {
 			Object.assign(this.state, createInitialState());
 			this.version++;
 			this.tui.requestRender();
@@ -736,7 +736,7 @@ class MarioComponent {
 		}
 
 		// Pause
-		if (matchesKey(key, { key: "p" })) {
+		if (key === "p" || key === "P") {
 			state.paused = !state.paused;
 			this.version++;
 			this.tui.requestRender();
@@ -746,13 +746,13 @@ class MarioComponent {
 		if (state.gameOver || state.paused) return true;
 
 		// Movement keys - track held state
-		if (matchesKey(key, { key: "left" }) || matchesKey(key, { key: "a" }) || matchesKey(key, { key: "h" })) {
+		if (matchesKey(key, "left") || key === "a" || key === "h") {
 			this.keys.add("left");
 			this.keys.delete("right");
-		} else if (matchesKey(key, { key: "right" }) || matchesKey(key, { key: "d" }) || matchesKey(key, { key: "l" })) {
+		} else if (matchesKey(key, "right") || key === "d" || key === "l") {
 			this.keys.add("right");
 			this.keys.delete("left");
-		} else if (matchesKey(key, { key: "up" }) || matchesKey(key, { key: "w" }) || matchesKey(key, { key: "k" }) || matchesKey(key, { key: " " })) {
+		} else if (matchesKey(key, "up") || key === "w" || key === "k" || key === " ") {
 			this.keys.add("jump");
 		}
 		
