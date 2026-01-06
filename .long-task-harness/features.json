@@ -1,0 +1,73 @@
+{
+  "version": "2.0",
+  "description": "Feature checklist with history tracking for session continuity",
+  "metadata": {
+    "project_name": "pi-extensions",
+    "created": "2026-01-06",
+    "last_updated": "2026-01-06",
+    "total_features": 2,
+    "completed_features": 0
+  },
+  "features": [
+    {
+      "id": "harness-001",
+      "name": "Long-task-harness setup",
+      "description": "Add long-task-harness tracking files and baseline project context",
+      "steps": [
+        "Initialize .long-task-harness files",
+        "Update progress log with project overview",
+        "Define initial feature list"
+      ],
+      "passes": false,
+      "notes": "Keep these files up to date after each session.",
+      "history": {
+        "sessions": [
+          {
+            "session": 1,
+            "date": "2026-01-06",
+            "action": "started",
+            "summary": "Initialized harness files"
+          }
+        ],
+        "files": [
+          ".long-task-harness/long-task-progress.md",
+          ".long-task-harness/features.json"
+        ],
+        "decisions": []
+      }
+    },
+    {
+      "id": "invaders-001",
+      "name": "Space Invaders extension",
+      "description": "Add a playable Space Invaders TUI extension for Pi",
+      "steps": [
+        "Implement /space-invaders command with game loop and input handling",
+        "Render invaders, player, and bullets with ASCII grid",
+        "Persist game state across sessions",
+        "Document installation instructions"
+      ],
+      "passes": false,
+      "notes": "",
+      "history": {
+        "sessions": [
+          {
+            "session": 1,
+            "date": "2026-01-06",
+            "action": "started",
+            "summary": "Implemented initial Space Invaders extension"
+          }
+        ],
+        "files": [
+          "extensions/space-invaders.ts",
+          "README.md"
+        ],
+        "decisions": [
+          {
+            "session": 1,
+            "decision": "Use ASCII glyphs and fixed grid size to avoid Unicode rendering issues"
+          }
+        ]
+      }
+    }
+  ]
+}
