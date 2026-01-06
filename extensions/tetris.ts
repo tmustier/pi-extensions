@@ -192,10 +192,6 @@ class TetrisComponent {
 	private cachedVersion = -1;
 	private paused: boolean;
 
-	private dasDirection: -1 | 0 | 1 = 0;
-	private dasCounter = 0;
-	private arrCounter = 0;
-
 	constructor(
 		tui: { requestRender: () => void },
 		onClose: () => void,
@@ -234,18 +230,6 @@ class TetrisComponent {
 			this.version++;
 			this.tui.requestRender();
 			return;
-		}
-
-		// DAS (Delayed Auto Shift)
-		if (this.dasDirection !== 0) {
-			this.dasCounter++;
-			if (this.dasCounter >= 8) {
-				this.arrCounter++;
-				if (this.arrCounter >= 2) {
-					this.tryMove(0, this.dasDirection);
-					this.arrCounter = 0;
-				}
-			}
 		}
 
 		this.state.tickCounter++;
@@ -451,16 +435,10 @@ class TetrisComponent {
 		// Movement - left
 		if (matchesKey(data, "left") || data === "a" || data === "A" || data === "h" || data === "H") {
 			this.tryMove(0, -1);
-			this.dasDirection = -1;
-			this.dasCounter = 0;
-			this.arrCounter = 0;
 		}
 		// Movement - right
 		else if (matchesKey(data, "right") || data === "d" || data === "D" || data === "l" || data === "L") {
 			this.tryMove(0, 1);
-			this.dasDirection = 1;
-			this.dasCounter = 0;
-			this.arrCounter = 0;
 		}
 		// Soft drop - single step per keypress
 		else if (matchesKey(data, "down") || data === "s" || data === "S" || data === "j" || data === "J") {
@@ -468,7 +446,6 @@ class TetrisComponent {
 				this.state.score += 1;
 				this.state.lockDelay = 0;
 			}
-			this.dasDirection = 0; // Stop horizontal DAS when dropping
 		}
 		// Rotate clockwise
 		else if (matchesKey(data, "up") || data === "w" || data === "W" || data === "k" || data === "K") {
