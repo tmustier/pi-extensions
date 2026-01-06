@@ -103,24 +103,24 @@ const OPPOSITE: Record<Direction, Direction> = {
 	right: "left",
 };
 
-// ANSI colors
+// ANSI colors (using bright variants for better visibility)
 const RESET = "\x1b[0m";
-const YELLOW = "\x1b[93m";
-const BLUE = "\x1b[34m";
-const WHITE = "\x1b[97m";
+const YELLOW = "\x1b[1;93m"; // Bold bright yellow
+const BLUE = "\x1b[1;34m";   // Bold blue for walls
+const WHITE = "\x1b[1;97m";  // Bold white
 const DIM = "\x1b[2m";
-const RED = "\x1b[91m";
-const PINK = "\x1b[95m";
-const CYAN = "\x1b[96m";
-const ORANGE = "\x1b[93m";
-const SCARED_COLOR = "\x1b[94m"; // Blue when scared
+const RED = "\x1b[1;91m";    // Bold bright red (Blinky)
+const PINK = "\x1b[1;95m";   // Bold bright magenta (Pinky)
+const CYAN = "\x1b[1;96m";   // Bold bright cyan (Inky)
+const ORANGE = "\x1b[1;33m"; // Bold yellow/orange (Clyde)
+const SCARED_COLOR = "\x1b[1;94m"; // Bold bright blue when scared
 
-// Ghost configs - each has color and 2-char ASCII glyph
+// Ghost configs - each has color and 2-char glyph
 const GHOST_CONFIGS = [
-	{ color: RED, glyph: "MM", name: "Blinky" },
-	{ color: PINK, glyph: "WW", name: "Pinky" },
-	{ color: CYAN, glyph: "AA", name: "Inky" },
-	{ color: ORANGE, glyph: "VV", name: "Clyde" },
+	{ color: RED, glyph: "/\\", name: "Blinky" },
+	{ color: PINK, glyph: "/\\", name: "Pinky" },
+	{ color: CYAN, glyph: "/\\", name: "Inky" },
+	{ color: ORANGE, glyph: "/\\", name: "Clyde" },
 ];
 
 const createMaze = (): string[][] => {
@@ -598,8 +598,8 @@ class PacmanComponent {
 
 		// Header
 		lines.push("");
-		const livesStr = Array(state.lives).fill("<3").join(" ");
-		const scoreText = `Score: ${state.score}  Hi: ${state.highScore}  Lv: ${state.level}  ${livesStr}`;
+		const livesStr = Array(state.lives).fill(`${YELLOW}@${RESET}`).join(" ");
+		const scoreText = `Score: ${WHITE}${state.score}${RESET}  Hi: ${state.highScore}  Lv: ${state.level}  Lives: ${livesStr}`;
 		lines.push(this.padLine(`${YELLOW}PAC-MAN${RESET}  ${scoreText}`, width));
 		lines.push("");
 
@@ -656,7 +656,7 @@ class PacmanComponent {
 							const isScared = state.powerMode > 0;
 							const isBlinking = isScared && state.powerMode < 15 && state.tickCount % 4 < 2;
 							const color = isBlinking ? WHITE : (isScared ? SCARED_COLOR : ghost.color);
-							const glyph = isScared ? "~~" : ghost.glyph;
+							const glyph = isScared ? "vv" : ghost.glyph;
 							row += `${color}${glyph}${RESET}`;
 							rendered = true;
 							break;
@@ -668,13 +668,13 @@ class PacmanComponent {
 				if (!rendered) {
 					switch (cell) {
 						case WALL:
-							row += `${BLUE}##${RESET}`;
+							row += `${BLUE}██${RESET}`;
 							break;
 						case DOT:
-							row += ` .`;
+							row += ` •`;
 							break;
 						case POWER:
-							row += `${WHITE} O${RESET}`;
+							row += `${WHITE}<>${RESET}`;
 							break;
 						case EMPTY:
 						default:
@@ -702,12 +702,12 @@ class PacmanComponent {
 
 	// All glyphs are exactly 2 characters
 	private getPacmanGlyph(dir: Direction, mouthOpen: boolean): string {
-		if (!mouthOpen) return "()";
+		if (!mouthOpen) return "@@";
 		switch (dir) {
-			case "right": return "(>";
-			case "left": return "<)";
-			case "up": return "(^";
-			case "down": return "(v";
+			case "right": return "@>";
+			case "left": return "<@";
+			case "up": return "@^";
+			case "down": return "@v";
 		}
 	}
 

@@ -169,8 +169,10 @@ const getPieceCells = (piece: FallingPiece): [number, number][] => {
 const isValidPosition = (board: (string | null)[][], piece: FallingPiece): boolean => {
 	const cells = getPieceCells(piece);
 	for (const [r, c] of cells) {
-		if (r < 0 || r >= BOARD_HEIGHT || c < 0 || c >= BOARD_WIDTH) return false;
-		if (board[r][c] !== null) return false;
+		// Allow cells above board (r < 0) - they're in the spawn zone
+		if (r >= BOARD_HEIGHT || c < 0 || c >= BOARD_WIDTH) return false;
+		// Only check board collision for cells that are on the board
+		if (r >= 0 && board[r][c] !== null) return false;
 	}
 	return true;
 };
