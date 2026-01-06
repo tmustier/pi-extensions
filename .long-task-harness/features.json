@@ -5,7 +5,7 @@
     "project_name": "pi-extensions",
     "created": "2026-01-06",
     "last_updated": "2026-01-06",
-    "total_features": 3,
+    "total_features": 5,
     "completed_features": 0
   },
   "features": [
@@ -134,6 +134,64 @@
         ],
         "files": [
           "extensions/paddle-ball.ts",
+          "README.md"
+        ],
+        "decisions": []
+      }
+    },
+    {
+      "id": "pacman-001",
+      "name": "Pac-Man extension",
+      "description": "Add a playable Pac-Man TUI extension for Pi",
+      "steps": [
+        "Implement /pacman command with game loop and input handling",
+        "Render maze, Pac-Man, ghosts, dots, and power pellets",
+        "Implement ghost AI with distinct personalities",
+        "Persist game state across sessions",
+        "Document installation instructions"
+      ],
+      "passes": false,
+      "notes": "",
+      "history": {
+        "sessions": [
+          {
+            "session": 16,
+            "date": "2026-01-06",
+            "action": "started",
+            "summary": "Implemented full Pac-Man extension with maze, ghosts, power pellets"
+          }
+        ],
+        "files": [
+          "extensions/pacman.ts",
+          "README.md"
+        ],
+        "decisions": []
+      }
+    },
+    {
+      "id": "tetris-001",
+      "name": "Tetris extension",
+      "description": "Add a playable Tetris TUI extension for Pi",
+      "steps": [
+        "Implement /tetris command with game loop and input handling",
+        "Render board, tetrominoes, ghost piece, and preview queue",
+        "Implement hold piece, line clearing, and scoring",
+        "Persist game state across sessions",
+        "Document installation instructions"
+      ],
+      "passes": false,
+      "notes": "",
+      "history": {
+        "sessions": [
+          {
+            "session": 17,
+            "date": "2026-01-06",
+            "action": "started",
+            "summary": "Implemented full Tetris extension with all 7 pieces, hold, preview, ghost, and scoring"
+          }
+        ],
+        "files": [
+          "extensions/tetris.ts",
           "README.md"
         ],
         "decisions": []

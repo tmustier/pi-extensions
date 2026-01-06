@@ -25,10 +25,14 @@
 - `extensions/tab-status.ts` updates the terminal tab title
 - `extensions/space-invaders.ts` implemented with /space-invaders command (needs manual run)
 - `extensions/ping.ts` implemented with /ping command (needs manual run)
+- `extensions/pacman.ts` implemented with /pacman command (needs manual run)
+- `extensions/tetris.ts` implemented with /tetris command (needs manual run)
 
 ### What's Not Working
 - Space Invaders gameplay not validated in a terminal yet
 - Ping gameplay not validated in a terminal yet
+- Pac-Man gameplay not validated in a terminal yet
+- Tetris gameplay not validated in a terminal yet
 
 ### Blocked On
 - None
@@ -437,6 +441,82 @@ Refine clawd boss behavior and intro sequence.
 
 #### Next Steps
 1. Run `/space-invaders` to validate boss intro/enrage flow and bullet behavior -> likely affects: invaders-001
+
+---
+
+### Session 16 | 2026-01-06 | Commits: none
+
+#### Metadata
+- **Features**: pacman-001 (started)
+- **Files Changed**: 
+  - `extensions/pacman.ts` (+new) - full Pac-Man game implementation
+  - `.long-task-harness/long-task-progress.md` (+/-) - session log update
+- **Commit Summary**: (uncommitted)
+
+#### Goal
+Add Pac-Man to round out the arcade game collection.
+
+#### Accomplished
+- [x] Implemented full Pac-Man game with classic maze layout
+- [x] 4 ghosts with distinct AI personalities (Blinky, Pinky, Inky, Clyde)
+- [x] Power pellets that enable ghost eating
+- [x] Tunnel wrapping, lives, levels, score/high-score
+- [x] Death/level-complete animations
+- [x] Save/resume state support
+- [x] Arrow/vim/WASD controls
+
+#### Decisions
+- None
+
+#### Context & Learnings
+- Maze is 21x21 using 2-char wide cells for terminal display
+- Ghost AI: Blinky direct-chases, Pinky targets ahead, Clyde runs when close
+- Power mode makes ghosts blue and flee; they blink when wearing off
+
+#### Next Steps
+1. Run `/pacman` to validate gameplay and ghost behavior -> likely affects: pacman-001
+2. Consider adding Snake if not already present to complete classic arcade set
+
+---
+
+### Session 17 | 2026-01-06 | Commits: 228ffc5..staged
+
+#### Metadata
+- **Features**: tetris-001 (started)
+- **Files Changed**: 
+  - `extensions/tetris.ts` (+new) - full Tetris game implementation
+  - `README.md` (+/-) - added tetris to extension list
+  - `.long-task-harness/features.json` (+/-) - added tetris-001 feature
+  - `.long-task-harness/long-task-progress.md` (+/-) - session log update
+- **Commit Summary**: (uncommitted)
+
+#### Goal
+Add Tetris to complete the arcade game collection.
+
+#### Accomplished
+- [x] Implemented full Tetris game with all 7 tetrominoes (I, O, T, S, Z, J, L)
+- [x] Ghost piece preview showing where piece will land
+- [x] Hold piece functionality (C key)
+- [x] Next piece preview queue (3 pieces)
+- [x] Line clearing with flash animation
+- [x] Scoring: soft drop bonus, hard drop bonus, line clear multipliers
+- [x] Level progression (every 10 lines)
+- [x] DAS (Delayed Auto Shift) for smooth lateral movement
+- [x] Wall kick rotation system
+- [x] Arrow/vim/WASD controls plus SPACE for hard drop
+- [x] Save/resume state support
+
+#### Decisions
+- None
+
+#### Context & Learnings
+- Board is 10x20 standard Tetris dimensions
+- Uses 7-bag randomizer for fair piece distribution
+- Ghost piece renders as dim "░░" characters
+
+#### Next Steps
+1. Run `/tetris` to validate gameplay and controls -> likely affects: tetris-001
+2. Consider adding Snake as the remaining classic arcade game
 
 ---
 
