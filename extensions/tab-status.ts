@@ -22,6 +22,7 @@ export default function (pi: ExtensionAPI) {
 	let sawCommit = false;
 	let running = false;
 	let timeoutId: ReturnType<typeof setTimeout> | undefined;
+	const nativeClearTimeout = globalThis.clearTimeout;
 
 	const cwdBase = (ctx: ExtensionContext) => basename(ctx.cwd || "pi");
 
@@ -31,14 +32,14 @@ export default function (pi: ExtensionAPI) {
 		ctx.ui.setTitle(`pi${STATUS_TEXT[next]} - ${cwdBase(ctx)}`);
 	};
 
-	const clearTimeout = () => {
-		if (!timeoutId) return;
-		clearTimeout(timeoutId);
+	const clearTabTimeout = () => {
+		if (timeoutId === undefined) return;
+		nativeClearTimeout(timeoutId);
 		timeoutId = undefined;
 	};
 
 	const scheduleTimeout = (ctx: ExtensionContext) => {
-		clearTimeout();
+		clearTabTimeout();
 		timeoutId = setTimeout(() => {
 			if (running && state === "running") {
 				setTitle(ctx, "timeout");
@@ -57,7 +58,7 @@ export default function (pi: ExtensionAPI) {
 	const reset = (ctx: ExtensionContext, next: StatusState) => {
 		running = false;
 		sawCommit = false;
-		clearTimeout();
+		clearTabTimeout();
 		setTitle(ctx, next);
 	};
 
@@ -96,12 +97,12 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("agent_end", async (_event, ctx) => {
 		running = false;
-		clearTimeout();
+		clearTabTimeout();
 		setTitle(ctx, sawCommit ? "doneCommitted" : "doneNoCommit");
 	});
 
 	pi.on("session_shutdown", async (_event, ctx) => {
-		clearTimeout();
+		clearTabTimeout();
 		if (!ctx.hasUI) return;
 		ctx.ui.setTitle(`pi - ${cwdBase(ctx)}`);
 	});
