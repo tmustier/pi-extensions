@@ -5,14 +5,15 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { matchesKey, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 
-// Grid dimensions (maze is 21x21 but we use 2-char wide cells)
+// Grid dimensions (maze is 21x21, each cell renders as 2 chars)
 const MAZE_WIDTH = 21;
 const MAZE_HEIGHT = 21;
-const CELL_WIDTH = 2;
-const TICK_MS = 120;
+const TICK_MS = 100;
 const POWER_DURATION = 50; // ticks
 const GHOST_RESPAWN_TICKS = 30;
 const INITIAL_LIVES = 3;
+const GHOST_MOVE_INTERVAL = 2; // ghosts move every N ticks
+const PACMAN_MOVE_INTERVAL = 1; // pacman moves every tick
 
 const PACMAN_SAVE_TYPE = "pacman-save";
 
@@ -23,7 +24,6 @@ const WALL = "#";
 const DOT = ".";
 const POWER = "O";
 const EMPTY = " ";
-const GHOST_HOUSE = "G";
 
 // Classic Pac-Man inspired maze (simplified for terminal)
 const MAZE_TEMPLATE = [
@@ -60,6 +60,7 @@ interface Ghost {
 	y: number;
 	direction: Direction;
 	color: string;
+	glyph: string;
 	name: string;
 	eaten: boolean;
 	respawnTimer: number;
@@ -83,9 +84,9 @@ interface GameState {
 	won: boolean;
 	paused: boolean;
 	mouthOpen: boolean;
-	mouthTimer: number;
 	deathAnimation: number;
 	levelCompleteTimer: number;
+	tickCount: number;
 }
 
 const DIRECTIONS: Record<Direction, Position> = {
@@ -102,14 +103,25 @@ const OPPOSITE: Record<Direction, Direction> = {
 	right: "left",
 };
 
-const GHOST_COLORS = [
-	"\x1b[91m", // Red (Blinky)
-	"\x1b[95m", // Pink (Pinky)
-	"\x1b[96m", // Cyan (Inky)
-	"\x1b[93m", // Orange (Clyde)
-];
+// ANSI colors
+const RESET = "\x1b[0m";
+const YELLOW = "\x1b[93m";
+const BLUE = "\x1b[34m";
+const WHITE = "\x1b[97m";
+const DIM = "\x1b[2m";
+const RED = "\x1b[91m";
+const PINK = "\x1b[95m";
+const CYAN = "\x1b[96m";
+const ORANGE = "\x1b[93m";
+const SCARED_COLOR = "\x1b[94m"; // Blue when scared
 
-const GHOST_NAMES = ["Blinky", "Pinky", "Inky", "Clyde"];
+// Ghost configs - each has color and 2-char ASCII glyph
+const GHOST_CONFIGS = [
+	{ color: RED, glyph: "MM", name: "Blinky" },
+	{ color: PINK, glyph: "WW", name: "Pinky" },
+	{ color: CYAN, glyph: "AA", name: "Inky" },
+	{ color: ORANGE, glyph: "VV", name: "Clyde" },
+];
 
 const createMaze = (): string[][] => {
 	return MAZE_TEMPLATE.map((row) => row.split(""));
@@ -151,8 +163,9 @@ const createGhosts = (): Ghost[] => {
 		x: pos.x,
 		y: pos.y,
 		direction: "up" as Direction,
-		color: GHOST_COLORS[i % GHOST_COLORS.length],
-		name: GHOST_NAMES[i % GHOST_NAMES.length],
+		color: GHOST_CONFIGS[i % GHOST_CONFIGS.length].color,
+		glyph: GHOST_CONFIGS[i % GHOST_CONFIGS.length].glyph,
+		name: GHOST_CONFIGS[i % GHOST_CONFIGS.length].name,
 		eaten: false,
 		respawnTimer: 0,
 		homeX: pos.x,
@@ -188,9 +201,9 @@ const createInitialState = (highScore = 0): GameState => {
 		won: false,
 		paused: false,
 		mouthOpen: true,
-		mouthTimer: 0,
 		deathAnimation: 0,
 		levelCompleteTimer: 0,
+		tickCount: 0,
 	};
 };
 
@@ -378,11 +391,9 @@ const movePacman = (state: GameState): void => {
 		}
 	}
 
-	// Animate mouth
-	state.mouthTimer++;
-	if (state.mouthTimer >= 3) {
+	// Animate mouth every few ticks
+	if (state.tickCount % 3 === 0) {
 		state.mouthOpen = !state.mouthOpen;
-		state.mouthTimer = 0;
 	}
 };
 
@@ -407,13 +418,6 @@ const checkCollisions = (state: GameState): void => {
 		}
 	}
 };
-
-const RESET = "\x1b[0m";
-const YELLOW = "\x1b[93m";
-const BLUE = "\x1b[94m";
-const WHITE = "\x1b[97m";
-const DIM = "\x1b[2m";
-const SCARED_GHOST = "\x1b[34m"; // Blue when scared
 
 class PacmanComponent {
 	private state: GameState;
@@ -455,6 +459,8 @@ class PacmanComponent {
 		const { state } = this;
 		if (state.paused || state.gameOver) return;
 
+		state.tickCount++;
+
 		// Death animation
 		if (state.deathAnimation > 0) {
 			state.deathAnimation--;
@@ -491,12 +497,14 @@ class PacmanComponent {
 			state.powerMode--;
 		}
 
-		// Move Pac-Man
-		movePacman(state);
+		// Move Pac-Man every tick
+		if (state.tickCount % PACMAN_MOVE_INTERVAL === 0) {
+			movePacman(state);
+		}
 
-		// Move ghosts (slower based on level)
-		const ghostSpeed = Math.max(1, 3 - Math.floor(state.level / 2));
-		if (Math.random() < 1 / ghostSpeed) {
+		// Move ghosts at fixed intervals (faster at higher levels)
+		const ghostInterval = Math.max(1, GHOST_MOVE_INTERVAL - Math.floor(state.level / 3));
+		if (state.tickCount % ghostInterval === 0) {
 			for (const ghost of state.ghosts) {
 				moveGhost(ghost, state);
 			}
@@ -559,7 +567,7 @@ class PacmanComponent {
 
 	render(width: number, height: number): string[] {
 		// Check minimum width
-		const minWidth = MAZE_WIDTH * CELL_WIDTH + 4;
+		const minWidth = MAZE_WIDTH * 2 + 4;
 		if (width < minWidth) {
 			if (!this.autoPausedForWidth && !this.state.paused) {
 				this.state.paused = true;
@@ -590,11 +598,12 @@ class PacmanComponent {
 
 		// Header
 		lines.push("");
-		const scoreText = `Score: ${state.score}  High: ${state.highScore}  Level: ${state.level}  Lives: ${"❤".repeat(state.lives)}`;
+		const livesStr = Array(state.lives).fill("<3").join(" ");
+		const scoreText = `Score: ${state.score}  Hi: ${state.highScore}  Lv: ${state.level}  ${livesStr}`;
 		lines.push(this.padLine(`${YELLOW}PAC-MAN${RESET}  ${scoreText}`, width));
 		lines.push("");
 
-		// Game over / Win message
+		// Game over message
 		if (state.gameOver) {
 			lines.push(this.padLine(`${YELLOW}GAME OVER${RESET}`, width));
 			lines.push(this.padLine(`Final Score: ${state.score}`, width));
@@ -622,21 +631,21 @@ class PacmanComponent {
 
 		// Death animation
 		if (state.deathAnimation > 0) {
-			lines.push(this.padLine(`${YELLOW}💀 OUCH!${RESET}`, width));
+			lines.push(this.padLine(`${RED}OUCH!${RESET}`, width));
 			lines.push("");
 		}
 
-		// Render maze
+		// Render maze - all cells are exactly 2 characters wide
 		for (let y = 0; y < state.maze.length; y++) {
 			let row = "";
 			for (let x = 0; x < state.maze[y].length; x++) {
-				let cell = state.maze[y][x];
+				const cell = state.maze[y][x];
 				let rendered = false;
 
 				// Check if Pac-Man is here
 				if (state.pacman.x === x && state.pacman.y === y && state.deathAnimation === 0) {
-					const pacChar = this.getPacmanChar(state.pacmanDir, state.mouthOpen);
-					row += `${YELLOW}${pacChar}${RESET}`;
+					const pacGlyph = this.getPacmanGlyph(state.pacmanDir, state.mouthOpen);
+					row += `${YELLOW}${pacGlyph}${RESET}`;
 					rendered = true;
 				}
 
@@ -644,26 +653,28 @@ class PacmanComponent {
 				if (!rendered) {
 					for (const ghost of state.ghosts) {
 						if (ghost.x === x && ghost.y === y && !ghost.eaten) {
-							const ghostColor = state.powerMode > 0 ? SCARED_GHOST : ghost.color;
-							const blinking = state.powerMode > 0 && state.powerMode < 15 && state.powerMode % 2 === 0;
-							const color = blinking ? WHITE : ghostColor;
-							row += `${color}👻${RESET}`;
+							const isScared = state.powerMode > 0;
+							const isBlinking = isScared && state.powerMode < 15 && state.tickCount % 4 < 2;
+							const color = isBlinking ? WHITE : (isScared ? SCARED_COLOR : ghost.color);
+							const glyph = isScared ? "~~" : ghost.glyph;
+							row += `${color}${glyph}${RESET}`;
 							rendered = true;
 							break;
 						}
 					}
 				}
 
+				// Render cell
 				if (!rendered) {
 					switch (cell) {
 						case WALL:
-							row += `${BLUE}██${RESET}`;
+							row += `${BLUE}##${RESET}`;
 							break;
 						case DOT:
-							row += `${WHITE}·${RESET} `;
+							row += ` .`;
 							break;
 						case POWER:
-							row += `${WHITE}●${RESET} `;
+							row += `${WHITE} O${RESET}`;
 							break;
 						case EMPTY:
 						default:
@@ -678,8 +689,8 @@ class PacmanComponent {
 		// Controls
 		lines.push("");
 		const controls = state.powerMode > 0
-			? `${YELLOW}POWER MODE!${RESET} [←↑↓→/HJKL] Move  [SPACE] Pause  [Q] Quit`
-			: `[←↑↓→/HJKL] Move  [SPACE] Pause  [N] New  [Q] Quit`;
+			? `${YELLOW}POWER!${RESET} [Arrows/HJKL] Move  [SPACE] Pause  [Q] Quit`
+			: `[Arrows/HJKL] Move  [SPACE] Pause  [N] New  [Q] Quit`;
 		lines.push(this.padLine(controls, width));
 		lines.push("");
 
@@ -689,17 +700,14 @@ class PacmanComponent {
 		return lines;
 	}
 
-	private getPacmanChar(dir: Direction, mouthOpen: boolean): string {
-		if (!mouthOpen) return "●";
+	// All glyphs are exactly 2 characters
+	private getPacmanGlyph(dir: Direction, mouthOpen: boolean): string {
+		if (!mouthOpen) return "()";
 		switch (dir) {
-			case "right":
-				return "ᗧ";
-			case "left":
-				return "ᗤ";
-			case "up":
-				return "ᗢ";
-			case "down":
-				return "ᗣ";
+			case "right": return "(>";
+			case "left": return "<)";
+			case "up": return "(^";
+			case "down": return "(v";
 		}
 	}
 
