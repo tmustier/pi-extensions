@@ -24,11 +24,11 @@
 ### What's Working
 - `extensions/tab-status.ts` updates the terminal tab title
 - `extensions/space-invaders.ts` implemented with /space-invaders command (needs manual run)
-- `extensions/paddle-ball.ts` implemented with /paddle-ball command (needs manual run)
+- `extensions/ping.ts` implemented with /ping command (needs manual run)
 
 ### What's Not Working
 - Space Invaders gameplay not validated in a terminal yet
-- Paddle Ball gameplay not validated in a terminal yet
+- Ping gameplay not validated in a terminal yet
 
 ### Blocked On
 - None
@@ -407,6 +407,36 @@ Adjust Pi paddle speed to land between 1 and 2 tick updates.
 
 #### Next Steps
 1. Run `/ping` to verify AI difficulty feels balanced -> likely affects: paddle-001
+
+---
+
+### Session 15 | 2026-01-06 | Commits: none
+
+#### Metadata
+- **Features**: invaders-001 (progressed)
+- **Files Changed**: 
+  - `extensions/space-invaders.ts` (+/-) - boss intro/enrage updates
+  - `.long-task-harness/long-task-progress.md` (+/-) - session log update
+  - `.long-task-harness/features.json` (+/-) - invaders-001 history
+- **Commit Summary**: (uncommitted)
+
+#### Goal
+Refine clawd boss behavior and intro sequence.
+
+#### Accomplished
+- [x] Boss HP scales with level and enrages at 50% HP
+- [x] Enrage pause with blinking "BOILING MAD LOBSTER" message
+- [x] Boss speed/fire rate increase on enrage; purple unblockable bullets
+- [x] Boss intro sequence with scatter and descent
+
+#### Decisions
+- None
+
+#### Context & Learnings
+- Boss visuals now use a center-to-edge red gradient during enrage for stronger feedback.
+
+#### Next Steps
+1. Run `/space-invaders` to validate boss intro/enrage flow and bullet behavior -> likely affects: invaders-001
 
 ---
 

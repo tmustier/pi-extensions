@@ -67,6 +67,12 @@
             "date": "2026-01-06",
             "action": "started",
             "summary": "Implemented initial Space Invaders extension"
+          },
+          {
+            "session": 15,
+            "date": "2026-01-06",
+            "action": "progressed",
+            "summary": "Added clawd boss intro, enrage pause, and level-scaled boss tuning"
           }
         ],
         "files": [
