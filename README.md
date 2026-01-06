@@ -9,7 +9,7 @@ Small set of personal extensions for the Pi coding agent.
 - `extensions/ping.ts`: Ping (Pong-style) game extension (`/ping`).
 - `extensions/pacman.ts`: Pac-Man game extension (`/pacman`).
 - `extensions/tetris.ts`: Tetris game extension (`/tetris`).
-- `extensions/mario.ts`: Super Mario Bros-style platformer (`/mario`).
+- `extensions/badlogic-game.ts`: Side-scrolling platformer (`/badlogic-game`).
 
 ## Install
 
@@ -23,7 +23,7 @@ Add the extension path(s) to `~/.pi/agent/settings.json`:
     "~/pi-extensions/extensions/ping.ts",
     "~/pi-extensions/extensions/pacman.ts",
     "~/pi-extensions/extensions/tetris.ts",
-    "~/pi-extensions/extensions/mario.ts"
+    "~/pi-extensions/extensions/badlogic-game.ts"
   ]
 }
 ```
