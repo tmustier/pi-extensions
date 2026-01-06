@@ -207,6 +207,209 @@ Make the Ping ball more visually prominent.
 
 ---
 
+### Session 7 | 2026-01-06 | Commits: none
+
+#### Metadata
+- **Features**: paddle-001 (progressed)
+- **Files Changed**: 
+  - `extensions/ping.ts` (+/-) - pause on narrow terminals, vim speed boost
+- **Commit Summary**: (uncommitted)
+
+#### Goal
+Make /ping pause gracefully on narrow terminals and add a vim key speed boost.
+
+#### Accomplished
+- [x] Auto-pause the game loop when the terminal is too narrow and resume on resize
+- [x] Add a vim-only speed boost for player paddle hits
+
+#### Decisions
+- None
+
+#### Context & Learnings
+- ESC/Q handling works while auto-paused so players can still save or quit.
+
+#### Next Steps
+1. Run `/ping` to validate auto-pause behavior and the vim speed boost -> likely affects: paddle-001
+
+---
+
+### Session 8 | 2026-01-06 | Commits: none
+
+#### Metadata
+- **Features**: paddle-001 (progressed)
+- **Files Changed**: 
+  - `extensions/ping.ts` (+/-) - stronger vim boost ball speed
+- **Commit Summary**: (uncommitted)
+
+#### Goal
+Make the vim key speed boost much faster for /ping.
+
+#### Accomplished
+- [x] Added a multi-tick ball speed boost after player vim hits
+- [x] Cleared boost state on score/restart
+
+#### Decisions
+- None
+
+#### Context & Learnings
+- Boost only applies while the ball is moving toward the AI to avoid a too-fast return.
+
+#### Next Steps
+1. Run `/ping` to confirm the stronger vim boost makes the game winnable -> likely affects: paddle-001
+
+---
+
+### Session 9 | 2026-01-06 | Commits: none
+
+#### Metadata
+- **Features**: paddle-001 (progressed)
+- **Files Changed**: 
+  - `extensions/ping.ts` (+/-) - point pause score display, win footer
+- **Commit Summary**: (uncommitted)
+
+#### Goal
+Add a point pause with centered score and show a green win message.
+
+#### Accomplished
+- [x] Pause briefly after each point and render a centered score above the ball
+- [x] Show a green win message instead of GAME OVER when the player wins
+
+#### Decisions
+- None
+
+#### Context & Learnings
+- Point pause only delays the loop; ball still resets to center for the next serve.
+
+#### Next Steps
+1. Run `/ping` to validate the score pause overlay and win footer -> likely affects: paddle-001
+
+---
+
+### Session 10 | 2026-01-06 | Commits: none
+
+#### Metadata
+- **Features**: paddle-001 (progressed)
+- **Files Changed**: 
+  - `extensions/ping.ts` (+/-) - raise default ball speed
+- **Commit Summary**: (uncommitted)
+
+#### Goal
+Make normal ball speed as fast as the previous fast setting.
+
+#### Accomplished
+- [x] Raised the default ball delay to match the fast speed
+
+#### Decisions
+- None
+
+#### Context & Learnings
+- The vim boost still adds extra steps per tick, so it remains faster than normal.
+
+#### Next Steps
+1. Run `/ping` to confirm normal mode is winnable and vim boost still feels distinct -> likely affects: paddle-001
+
+---
+
+### Session 11 | 2026-01-06 | Commits: none
+
+#### Metadata
+- **Features**: paddle-001 (progressed)
+- **Files Changed**: 
+  - `extensions/ping.ts` (+/-) - slow AI paddle reaction
+- **Commit Summary**: (uncommitted)
+
+#### Goal
+Slow Pi's paddle so scoring is possible in normal play.
+
+#### Accomplished
+- [x] Throttled AI paddle updates to every other tick
+
+#### Decisions
+- None
+
+#### Context & Learnings
+- AI speed now depends on `AI_MOVE_TICKS`, so it can be tuned without changing movement step size.
+
+#### Next Steps
+1. Run `/ping` to confirm normal points are possible and AI feels fair -> likely affects: paddle-001
+
+---
+
+### Session 12 | 2026-01-06 | Commits: none
+
+#### Metadata
+- **Features**: paddle-001 (progressed)
+- **Files Changed**: 
+  - `extensions/ping.ts` (+/-) - require front-face paddle hits
+- **Commit Summary**: (uncommitted)
+
+#### Goal
+Only allow paddle bounces when the ball hits the front face.
+
+#### Accomplished
+- [x] Require front-face contact for paddle bounces; misses now pass out of bounds
+
+#### Decisions
+- None
+
+#### Context & Learnings
+- Misses at the paddle line still take one tick to exit, preserving the grace behavior.
+
+#### Next Steps
+1. Run `/ping` to confirm edge/past-paddle hits no longer bounce -> likely affects: paddle-001
+
+---
+
+### Session 13 | 2026-01-06 | Commits: none
+
+#### Metadata
+- **Features**: paddle-001 (progressed)
+- **Files Changed**: 
+  - `extensions/ping.ts` (+/-) - speed up AI paddle updates
+- **Commit Summary**: (uncommitted)
+
+#### Goal
+Make the Pi paddle a bit faster.
+
+#### Accomplished
+- [x] Increased AI update frequency to move every tick
+
+#### Decisions
+- None
+
+#### Context & Learnings
+- AI speed can still be tuned via `AI_MOVE_TICKS` without changing movement step size.
+
+#### Next Steps
+1. Run `/ping` to confirm the AI feels challenging but fair -> likely affects: paddle-001
+
+---
+
+### Session 14 | 2026-01-06 | Commits: none
+
+#### Metadata
+- **Features**: paddle-001 (progressed)
+- **Files Changed**: 
+  - `extensions/ping.ts` (+/-) - fractional AI move rate
+- **Commit Summary**: (uncommitted)
+
+#### Goal
+Adjust Pi paddle speed to land between 1 and 2 tick updates.
+
+#### Accomplished
+- [x] Switched AI movement to a fractional accumulator for ~1.5-tick moves
+
+#### Decisions
+- None
+
+#### Context & Learnings
+- AI speed is now controlled by `AI_MOVE_RATE` and can be tuned without changing step size.
+
+#### Next Steps
+1. Run `/ping` to verify AI difficulty feels balanced -> likely affects: paddle-001
+
+---
+
 <!--
 =============================================================================
 SESSION TEMPLATE - Copy below this line for new sessions

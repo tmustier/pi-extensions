@@ -14,12 +14,15 @@ const TICK_MS = 90;
 const WIN_SCORE = 5;
 
 const BALL_DELAY_FAST = 1;
-const BALL_DELAY_SLOW = 2;
+const BALL_DELAY_SLOW = 1;
+const VIM_BOOST_TICKS = 12;
+const POINT_PAUSE_TICKS = 10;
 
 const CELL_WIDTH = 2;
 
 const PLAYER_STEP = 2;
 const AI_STEP = 1;
+const AI_MOVE_RATE = 2 / 3;
 
 const PING_SAVE_TYPE = "ping-save";
 const LEGACY_PING_SAVE_TYPE = "paddle-ball-save";
@@ -44,6 +47,7 @@ interface GameState {
 	aiScore: number;
 	rally: number;
 	highRally: number;
+	pointPauseTicks: number;
 	gameOver: boolean;
 }
 
@@ -66,6 +70,7 @@ const createInitialState = (highRally = 0): GameState => ({
 	aiScore: 0,
 	rally: 0,
 	highRally,
+	pointPauseTicks: 0,
 	gameOver: false,
 });
 
@@ -87,6 +92,11 @@ class PingComponent {
 	private version = 0;
 	private cachedVersion = -1;
 	private paused: boolean;
+	private autoPausedForWidth = false;
+	private resumeAfterWidth = false;
+	private vimBoostPending = false;
+	private playerBoostTicks = 0;
+	private aiMoveAccumulator = 0;
 
 	constructor(
 		tui: { requestRender: () => void },
@@ -103,6 +113,7 @@ class PingComponent {
 				...savedState,
 				ballDelay: savedState.ballDelay ?? BALL_DELAY_SLOW,
 				ballCounter: savedState.ballCounter ?? 0,
+				pointPauseTicks: savedState.pointPauseTicks ?? 0,
 			};
 			this.paused = true;
 		} else {
@@ -129,7 +140,31 @@ class PingComponent {
 		this.interval = null;
 	}
 
+	private pauseForWidth(): void {
+		if (this.autoPausedForWidth) return;
+		this.autoPausedForWidth = true;
+		this.resumeAfterWidth = !this.paused && !this.state.gameOver;
+		if (this.resumeAfterWidth) {
+			this.paused = true;
+			this.stopLoop();
+		}
+	}
+
+	private resumeFromWidthPause(): void {
+		if (!this.autoPausedForWidth) return;
+		this.autoPausedForWidth = false;
+		if (this.resumeAfterWidth && !this.state.gameOver) {
+			this.paused = false;
+			this.startLoop();
+		}
+		this.resumeAfterWidth = false;
+	}
+
 	private tick(): void {
+		if (this.state.pointPauseTicks > 0) {
+			this.state.pointPauseTicks -= 1;
+			return;
+		}
 		this.updateAI();
 		if (this.state.ballCounter < this.state.ballDelay - 1) {
 			this.state.ballCounter += 1;
@@ -139,10 +174,29 @@ class PingComponent {
 		this.moveBall();
 		if (this.state.gameOver) {
 			this.stopLoop();
+			return;
+		}
+		if (this.playerBoostTicks > 0) {
+			if (this.state.ball.vx > 0) {
+				this.playerBoostTicks -= 1;
+				this.moveBall();
+				if (this.state.gameOver) {
+					this.stopLoop();
+					return;
+				}
+			} else {
+				this.playerBoostTicks = 0;
+			}
 		}
 	}
 
 	private updateAI(): void {
+		this.aiMoveAccumulator += AI_MOVE_RATE;
+		if (this.aiMoveAccumulator < 1) {
+			return;
+		}
+		this.aiMoveAccumulator -= 1;
+
 		const center = Math.floor((GAME_HEIGHT - PADDLE_HEIGHT) / 2);
 		const target = this.state.ball.vx > 0 ? this.state.ball.y : center;
 		const desired = clamp(target - Math.floor(PADDLE_HEIGHT / 2), 0, GAME_HEIGHT - PADDLE_HEIGHT);
@@ -165,23 +219,23 @@ class PingComponent {
 		}
 
 		if (ball.vx < 0 && nextX <= PLAYER_X) {
-			if (this.isPaddleHit(this.state.playerY, nextY)) {
+			if (nextX === PLAYER_X && this.isPaddleHit(this.state.playerY, nextY)) {
 				ball.vx = 1;
 				ball.vy = this.deflect(ball.vy, this.state.playerY, nextY);
-				this.applyHitSpeed(this.state.playerY, nextY);
+				this.applyPlayerHitSpeed(this.state.playerY, nextY);
 				ball.x = PLAYER_X + 1;
 				ball.y = nextY;
 				this.bumpRally();
 				return;
 			}
-			if (nextX < 0) {
+			if (nextX < PLAYER_X) {
 				this.scorePoint("ai");
 				return;
 			}
 		}
 
 		if (ball.vx > 0 && nextX >= AI_X) {
-			if (this.isPaddleHit(this.state.aiY, nextY)) {
+			if (nextX === AI_X && this.isPaddleHit(this.state.aiY, nextY)) {
 				ball.vx = -1;
 				ball.vy = this.deflect(ball.vy, this.state.aiY, nextY);
 				this.applyHitSpeed(this.state.aiY, nextY);
@@ -221,6 +275,17 @@ class PingComponent {
 		return BALL_DELAY_FAST;
 	}
 
+	private applyPlayerHitSpeed(paddleY: number, ballY: number): void {
+		if (this.vimBoostPending) {
+			this.state.ballDelay = BALL_DELAY_FAST;
+			this.state.ballCounter = 0;
+			this.playerBoostTicks = VIM_BOOST_TICKS;
+			this.vimBoostPending = false;
+			return;
+		}
+		this.applyHitSpeed(paddleY, ballY);
+	}
+
 	private applyHitSpeed(paddleY: number, ballY: number): void {
 		this.state.ballDelay = this.ballDelayForHit(paddleY, ballY);
 		this.state.ballCounter = 0;
@@ -246,6 +311,10 @@ class PingComponent {
 		this.state.ball = createBall(direction);
 		this.state.ballDelay = BALL_DELAY_SLOW;
 		this.state.ballCounter = 0;
+		this.state.pointPauseTicks = POINT_PAUSE_TICKS;
+		this.playerBoostTicks = 0;
+		this.vimBoostPending = false;
+		this.aiMoveAccumulator = 0;
 
 		if (this.state.playerScore >= WIN_SCORE || this.state.aiScore >= WIN_SCORE) {
 			this.state.gameOver = true;
@@ -267,6 +336,9 @@ class PingComponent {
 		const highRally = this.state.highRally;
 		this.state = createInitialState(highRally);
 		this.paused = false;
+		this.vimBoostPending = false;
+		this.playerBoostTicks = 0;
+		this.aiMoveAccumulator = 0;
 		this.stopLoop();
 		this.startLoop();
 		this.onSave(null);
@@ -276,6 +348,21 @@ class PingComponent {
 
 	handleInput(data: string): void {
 		if (this.paused) {
+			if (this.autoPausedForWidth) {
+				if (matchesKey(data, "escape")) {
+					this.dispose();
+					this.onSave(cloneState(this.state));
+					this.onClose();
+					return;
+				}
+				if (data === "q" || data === "Q") {
+					this.dispose();
+					this.onSave(null);
+					this.onClose();
+					return;
+				}
+				return;
+			}
 			if (matchesKey(data, "escape") || data === "q" || data === "Q") {
 				this.dispose();
 				this.onClose();
@@ -312,15 +399,29 @@ class PingComponent {
 			return;
 		}
 
-		if (matchesKey(data, "up") || data === "w" || data === "W") {
+		if (
+			matchesKey(data, "up") ||
+			data === "w" ||
+			data === "W" ||
+			data === "k" ||
+			data === "K"
+		) {
 			this.state.playerY = clamp(this.state.playerY - PLAYER_STEP, 0, GAME_HEIGHT - PADDLE_HEIGHT);
+			this.vimBoostPending = data === "k" || data === "K";
 			this.version++;
 			this.tui.requestRender();
 			return;
 		}
 
-		if (matchesKey(data, "down") || data === "s" || data === "S") {
+		if (
+			matchesKey(data, "down") ||
+			data === "s" ||
+			data === "S" ||
+			data === "j" ||
+			data === "J"
+		) {
 			this.state.playerY = clamp(this.state.playerY + PLAYER_STEP, 0, GAME_HEIGHT - PADDLE_HEIGHT);
+			this.vimBoostPending = data === "j" || data === "J";
 			this.version++;
 			this.tui.requestRender();
 			return;
@@ -338,13 +439,16 @@ class PingComponent {
 
 		const maxCells = Math.floor((width - 2) / CELL_WIDTH);
 		if (maxCells < GAME_WIDTH) {
-			const message = "Ping needs a wider terminal";
+			this.pauseForWidth();
+			const message = "Ping needs a wider terminal. Resize to resume.";
 			const line = truncateToWidth(message, width);
 			this.cachedLines = [line];
 			this.cachedWidth = width;
 			this.cachedVersion = this.version;
 			return this.cachedLines;
 		}
+
+		this.resumeFromWidthPause();
 
 		const renderWidth = Math.min(GAME_WIDTH, maxCells);
 		const boxWidth = renderWidth * CELL_WIDTH;
@@ -373,24 +477,43 @@ class PingComponent {
 		lines.push(this.padLine(this.boxLine(scoreLine, boxWidth), width));
 		lines.push(this.padLine(this.boxLine(dim("-".repeat(boxWidth)), boxWidth), width));
 
+		const showPointScore = this.state.pointPauseTicks > 0 && this.state.ball.y > 0;
+		const pointScoreCells = showPointScore
+			? [
+					playerColor(String(this.state.playerScore).padEnd(CELL_WIDTH)),
+					dim("- "),
+					aiColor(String(this.state.aiScore).padEnd(CELL_WIDTH)),
+			  ]
+			: [];
+
 		for (let y = 0; y < GAME_HEIGHT; y++) {
-			let row = "";
+			const rowCells: string[] = [];
 			for (let x = 0; x < renderWidth; x++) {
 				if (x === this.state.ball.x && y === this.state.ball.y) {
-					row += ballGlyph;
+					rowCells.push(ballGlyph);
 					continue;
 				}
 				if (x === PLAYER_X && y >= this.state.playerY && y < this.state.playerY + PADDLE_HEIGHT) {
-					row += playerColor("||");
+					rowCells.push(playerColor("||"));
 					continue;
 				}
 				if (x === AI_X && y >= this.state.aiY && y < this.state.aiY + PADDLE_HEIGHT) {
-					row += aiColor("||");
+					rowCells.push(aiColor("||"));
 					continue;
 				}
-				row += "  ";
+				rowCells.push("  ");
 			}
-			lines.push(this.padLine(`|${row}|`, width));
+			if (showPointScore && y === this.state.ball.y - 1) {
+				const start = clamp(
+					this.state.ball.x - Math.floor(pointScoreCells.length / 2),
+					0,
+					renderWidth - pointScoreCells.length,
+				);
+				for (let i = 0; i < pointScoreCells.length; i++) {
+					rowCells[start + i] = pointScoreCells[i];
+				}
+			}
+			lines.push(this.padLine(`|${rowCells.join("")}|`, width));
 		}
 
 		lines.push(this.padLine(this.boxLine(dim("-".repeat(boxWidth)), boxWidth), width));
@@ -399,7 +522,11 @@ class PingComponent {
 		if (this.paused) {
 			footer = `${accent("PAUSED")} - Press any key to resume, ${accent("Q")} to quit`;
 		} else if (this.state.gameOver) {
-			footer = `${color("31;1", "GAME OVER")} - Press ${accent("R")} to restart, ${accent("Q")} to quit`;
+			if (this.state.playerScore >= WIN_SCORE) {
+				footer = `${playerColor("YOU WIN!")} - Press ${accent("R")} to restart, ${accent("Q")} to quit`;
+			} else {
+				footer = `${color("31;1", "GAME OVER")} - Press ${accent("R")} to restart, ${accent("Q")} to quit`;
+			}
 		} else {
 			footer = `Up/Down or W/S move, ${accent("P")} pause, ${accent("ESC")} save`;
 		}
