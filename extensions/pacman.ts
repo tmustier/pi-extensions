@@ -1,5 +1,5 @@
 /**
- * Pac-Man game extension - play with /pacman
+ * Picman game extension - play with /picman
  */
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
@@ -15,7 +15,7 @@ const INITIAL_LIVES = 3;
 const GHOST_MOVE_INTERVAL = 2; // ghosts move every N ticks
 const PACMAN_MOVE_INTERVAL = 1; // pacman moves every tick
 
-const PACMAN_SAVE_TYPE = "pacman-save";
+const PICMAN_SAVE_TYPE = "picman-save";
 
 type Direction = "up" | "down" | "left" | "right";
 
@@ -575,7 +575,7 @@ class PacmanComponent {
 			}
 			return [
 				"",
-				this.padLine(`${YELLOW}PAC-MAN${RESET}`, width),
+				this.padLine(`${YELLOW}PICMAN${RESET}`, width),
 				"",
 				this.padLine(`Terminal too narrow`, width),
 				this.padLine(`Need ${minWidth} cols, have ${width}`, width),
@@ -600,7 +600,7 @@ class PacmanComponent {
 		lines.push("");
 		const livesStr = Array(state.lives).fill(`${YELLOW}@${RESET}`).join(" ");
 		const scoreText = `Score: ${WHITE}${state.score}${RESET}  Hi: ${state.highScore}  Lv: ${state.level}  Lives: ${livesStr}`;
-		lines.push(this.padLine(`${YELLOW}PAC-MAN${RESET}  ${scoreText}`, width));
+		lines.push(this.padLine(`${YELLOW}PICMAN${RESET}  ${scoreText}`, width));
 		lines.push("");
 
 		// Game over message
@@ -725,7 +725,7 @@ class PacmanComponent {
 export default function (pi: ExtensionAPI) {
 	const runGame = async (_args: string, ctx: ExtensionCommandContext) => {
 		if (!ctx.hasUI) {
-			ctx.ui.notify("Pac-Man requires interactive mode", "error");
+			ctx.ui.notify("Picman requires interactive mode", "error");
 			return;
 		}
 
@@ -733,7 +733,7 @@ export default function (pi: ExtensionAPI) {
 		let savedState: GameState | undefined;
 		for (let i = entries.length - 1; i >= 0; i--) {
 			const entry = entries[i];
-			if (entry.type === "custom" && entry.customType === PACMAN_SAVE_TYPE) {
+			if (entry.type === "custom" && entry.customType === PICMAN_SAVE_TYPE) {
 				savedState = entry.data as GameState;
 				break;
 			}
@@ -744,15 +744,15 @@ export default function (pi: ExtensionAPI) {
 				tui,
 				() => done(undefined),
 				(state) => {
-					pi.appendEntry(PACMAN_SAVE_TYPE, state);
+					pi.appendEntry(PICMAN_SAVE_TYPE, state);
 				},
 				savedState,
 			);
 		});
 	};
 
-	pi.registerCommand("pacman", {
-		description: "Play Pac-Man! Eat dots, avoid ghosts, get power pellets!",
+	pi.registerCommand("picman", {
+		description: "Play Picman! Eat dots, avoid ghosts, get power pellets!",
 		handler: runGame,
 	});
 }

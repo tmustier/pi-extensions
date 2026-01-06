@@ -1,86 +1,174 @@
 /**
- * Badlogic Platformer - a side-scrolling platformer
+ * Badlogic Platformer - a side-scrolling platformer with half-block pixel graphics
  * Play with /badlogic-game
+ * 
+ * Uses half-block characters (▀▄█) with fg/bg colors for 2x vertical resolution
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { matchesKey, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 
-// Display
-const VIEWPORT_WIDTH = 50;
-const VIEWPORT_HEIGHT = 16;
-const CELL_WIDTH = 2;
-const TICK_MS = 50;
+// Display - internal pixel grid is 2x taller than character grid
+const VIEW_COLS = 60;  // Characters wide
+const VIEW_ROWS = 24;  // Character rows (= 48 pixel rows)
+const PIXEL_H = VIEW_ROWS * 2;  // Pixel height
+const TICK_MS = 40;
 
-// Physics
-const GRAVITY = 0.32;
-const JUMP_VELOCITY = -1.7;
-const MOVE_ACCEL = 0.22;
-const MAX_SPEED = 0.7;
-const FRICTION = 0.78;
-const MAX_FALL = 1.1;
+// Physics (in pixels)
+const GRAVITY = 0.4;
+const JUMP_VEL = -2.8;
+const MOVE_SPEED = 0.35;
+const MAX_SPEED = 1.2;
+const FRICTION = 0.82;
+const MAX_FALL = 2.0;
 
-// Gameplay
+const PLAYER_W = 6;  // pixels
+const PLAYER_H = 8;  // pixels
+
 const INITIAL_LIVES = 3;
-const SAVE_TYPE = "badlogic-save";
+const SAVE_TYPE = "badlogic-save-v2";
 
-// Tile types
-const EMPTY = " ";
-const GROUND = "#";
-const BRICK = "B";
-const COIN = "o";
-const SPIKE = "^";
-const GOAL = "G";
-const PLAYER_START = "P";
-const ENEMY = "E";
-const CLOUD = "~";
-const BUSH = "*";
-const WATER = "w";
+// Palette indices
+const COL_SKY = 0;
+const COL_GROUND = 1;
+const COL_GRASS = 2;
+const COL_BRICK = 3;
+const COL_COIN = 4;
+const COL_PLAYER1 = 5;
+const COL_PLAYER2 = 6;
+const COL_ENEMY = 7;
+const COL_SPIKE = 8;
+const COL_CLOUD = 9;
+const COL_GOAL = 10;
+const COL_BLACK = 11;
+const COL_WATER1 = 12;
+const COL_WATER2 = 13;
+const COL_SKY2 = 14;
 
-// ANSI Colors
-const c = (code: string, text: string) => `\x1b[${code}m${text}\x1b[0m`;
-const RESET = "\x1b[0m";
-
-// Color helpers
-const dim = (t: string) => c("2", t);
-const bold = (t: string) => c("1", t);
-const red = (t: string) => c("91", t);
-const green = (t: string) => c("92", t);
-const yellow = (t: string) => c("93", t);
-const blue = (t: string) => c("94", t);
-const magenta = (t: string) => c("95", t);
-const cyan = (t: string) => c("96", t);
-const white = (t: string) => c("97", t);
-const brown = (t: string) => c("33", t);
-const darkGreen = (t: string) => c("32", t);
-const bgCyan = (t: string) => c("46", t);
-const bgBlue = (t: string) => c("44", t);
-
-// Player sprites (2 chars wide, direction-dependent)
-const PLAYER_STAND_R = ["▶◆", "█▌"];
-const PLAYER_STAND_L = ["◆◀", "▐█"];
-const PLAYER_RUN_R = [["▶◇", "█▄"], ["▶◆", "▄█"]];
-const PLAYER_RUN_L = [["◇◀", "▄█"], ["◆◀", "█▄"]];
-const PLAYER_JUMP_R = ["▶★", "█ "];
-const PLAYER_JUMP_L = ["★◀", " █"];
-const PLAYER_DEAD = ["💀", "  "];
-
-// Enemy sprites (animated)
-const ENEMY_FRAMES = [
-	["◄●", "██"],
-	["●►", "██"],
+// ANSI 256-color palette
+const PALETTE: string[] = [
+	"117",  // 0: sky blue
+	"94",   // 1: ground brown
+	"34",   // 2: grass green
+	"130",  // 3: brick orange-brown
+	"220",  // 4: coin gold
+	"196",  // 5: player red
+	"223",  // 6: player skin
+	"90",   // 7: enemy purple
+	"160",  // 8: spike red
+	"255",  // 9: cloud white
+	"46",   // 10: goal green
+	"16",   // 11: black
+	"27",   // 12: water blue
+	"33",   // 13: water light blue
+	"75",   // 14: sky gradient
 ];
 
-// Particle types
+// Tile types in level data
+const T_EMPTY = " ";
+const T_GROUND = "#";
+const T_BRICK = "B";
+const T_COIN = "o";
+const T_SPIKE = "^";
+const T_GOAL = "G";
+const T_PLAYER = "P";
+const T_ENEMY = "E";
+const T_WATER = "~";
+
+// Pixel sprite data: arrays of [relX, relY, colorIndex]
+// Player standing (6x8 pixels)
+const SPR_PLAYER_STAND: number[][] = [
+	// Head (skin color)
+	[1, 0, COL_PLAYER2], [2, 0, COL_PLAYER2], [3, 0, COL_PLAYER2], [4, 0, COL_PLAYER2],
+	[1, 1, COL_PLAYER2], [2, 1, COL_PLAYER2], [3, 1, COL_PLAYER2], [4, 1, COL_PLAYER2],
+	// Body (red)
+	[0, 2, COL_PLAYER1], [1, 2, COL_PLAYER1], [2, 2, COL_PLAYER1], [3, 2, COL_PLAYER1], [4, 2, COL_PLAYER1], [5, 2, COL_PLAYER1],
+	[0, 3, COL_PLAYER1], [1, 3, COL_PLAYER1], [2, 3, COL_PLAYER1], [3, 3, COL_PLAYER1], [4, 3, COL_PLAYER1], [5, 3, COL_PLAYER1],
+	[1, 4, COL_PLAYER1], [2, 4, COL_PLAYER1], [3, 4, COL_PLAYER1], [4, 4, COL_PLAYER1],
+	[1, 5, COL_PLAYER1], [2, 5, COL_PLAYER1], [3, 5, COL_PLAYER1], [4, 5, COL_PLAYER1],
+	// Legs (red)
+	[1, 6, COL_PLAYER1], [2, 6, COL_PLAYER1], [3, 6, COL_PLAYER1], [4, 6, COL_PLAYER1],
+	[0, 7, COL_PLAYER1], [1, 7, COL_PLAYER1], [4, 7, COL_PLAYER1], [5, 7, COL_PLAYER1],
+];
+
+const SPR_PLAYER_RUN1: number[][] = [
+	[1, 0, COL_PLAYER2], [2, 0, COL_PLAYER2], [3, 0, COL_PLAYER2], [4, 0, COL_PLAYER2],
+	[1, 1, COL_PLAYER2], [2, 1, COL_PLAYER2], [3, 1, COL_PLAYER2], [4, 1, COL_PLAYER2],
+	[0, 2, COL_PLAYER1], [1, 2, COL_PLAYER1], [2, 2, COL_PLAYER1], [3, 2, COL_PLAYER1], [4, 2, COL_PLAYER1], [5, 2, COL_PLAYER1],
+	[0, 3, COL_PLAYER1], [1, 3, COL_PLAYER1], [2, 3, COL_PLAYER1], [3, 3, COL_PLAYER1], [4, 3, COL_PLAYER1], [5, 3, COL_PLAYER1],
+	[1, 4, COL_PLAYER1], [2, 4, COL_PLAYER1], [3, 4, COL_PLAYER1], [4, 4, COL_PLAYER1],
+	[1, 5, COL_PLAYER1], [2, 5, COL_PLAYER1], [3, 5, COL_PLAYER1], [4, 5, COL_PLAYER1],
+	// Running legs - spread
+	[0, 6, COL_PLAYER1], [1, 6, COL_PLAYER1], [4, 6, COL_PLAYER1], [5, 6, COL_PLAYER1],
+	[-1, 7, COL_PLAYER1], [0, 7, COL_PLAYER1], [5, 7, COL_PLAYER1], [6, 7, COL_PLAYER1],
+];
+
+const SPR_PLAYER_RUN2: number[][] = [
+	[1, 0, COL_PLAYER2], [2, 0, COL_PLAYER2], [3, 0, COL_PLAYER2], [4, 0, COL_PLAYER2],
+	[1, 1, COL_PLAYER2], [2, 1, COL_PLAYER2], [3, 1, COL_PLAYER2], [4, 1, COL_PLAYER2],
+	[0, 2, COL_PLAYER1], [1, 2, COL_PLAYER1], [2, 2, COL_PLAYER1], [3, 2, COL_PLAYER1], [4, 2, COL_PLAYER1], [5, 2, COL_PLAYER1],
+	[0, 3, COL_PLAYER1], [1, 3, COL_PLAYER1], [2, 3, COL_PLAYER1], [3, 3, COL_PLAYER1], [4, 3, COL_PLAYER1], [5, 3, COL_PLAYER1],
+	[1, 4, COL_PLAYER1], [2, 4, COL_PLAYER1], [3, 4, COL_PLAYER1], [4, 4, COL_PLAYER1],
+	[1, 5, COL_PLAYER1], [2, 5, COL_PLAYER1], [3, 5, COL_PLAYER1], [4, 5, COL_PLAYER1],
+	// Running legs - together
+	[1, 6, COL_PLAYER1], [2, 6, COL_PLAYER1], [3, 6, COL_PLAYER1], [4, 6, COL_PLAYER1],
+	[1, 7, COL_PLAYER1], [2, 7, COL_PLAYER1], [3, 7, COL_PLAYER1], [4, 7, COL_PLAYER1],
+];
+
+const SPR_PLAYER_JUMP: number[][] = [
+	[1, 0, COL_PLAYER2], [2, 0, COL_PLAYER2], [3, 0, COL_PLAYER2], [4, 0, COL_PLAYER2],
+	[1, 1, COL_PLAYER2], [2, 1, COL_PLAYER2], [3, 1, COL_PLAYER2], [4, 1, COL_PLAYER2],
+	// Arms up
+	[-1, 2, COL_PLAYER1], [0, 2, COL_PLAYER1], [1, 2, COL_PLAYER1], [2, 2, COL_PLAYER1], [3, 2, COL_PLAYER1], [4, 2, COL_PLAYER1], [5, 2, COL_PLAYER1], [6, 2, COL_PLAYER1],
+	[0, 3, COL_PLAYER1], [1, 3, COL_PLAYER1], [2, 3, COL_PLAYER1], [3, 3, COL_PLAYER1], [4, 3, COL_PLAYER1], [5, 3, COL_PLAYER1],
+	[1, 4, COL_PLAYER1], [2, 4, COL_PLAYER1], [3, 4, COL_PLAYER1], [4, 4, COL_PLAYER1],
+	[1, 5, COL_PLAYER1], [2, 5, COL_PLAYER1], [3, 5, COL_PLAYER1], [4, 5, COL_PLAYER1],
+	// Legs tucked
+	[0, 6, COL_PLAYER1], [1, 6, COL_PLAYER1], [4, 6, COL_PLAYER1], [5, 6, COL_PLAYER1],
+	[0, 7, COL_PLAYER1], [1, 7, COL_PLAYER1], [4, 7, COL_PLAYER1], [5, 7, COL_PLAYER1],
+];
+
+// Enemy sprite (6x6 pixels)
+const SPR_ENEMY1: number[][] = [
+	[1, 0, COL_ENEMY], [2, 0, COL_ENEMY], [3, 0, COL_ENEMY], [4, 0, COL_ENEMY],
+	[0, 1, COL_ENEMY], [1, 1, COL_ENEMY], [2, 1, COL_ENEMY], [3, 1, COL_ENEMY], [4, 1, COL_ENEMY], [5, 1, COL_ENEMY],
+	[0, 2, COL_ENEMY], [1, 2, COL_BLACK], [2, 2, COL_ENEMY], [3, 2, COL_ENEMY], [4, 2, COL_BLACK], [5, 2, COL_ENEMY],
+	[0, 3, COL_ENEMY], [1, 3, COL_ENEMY], [2, 3, COL_ENEMY], [3, 3, COL_ENEMY], [4, 3, COL_ENEMY], [5, 3, COL_ENEMY],
+	[1, 4, COL_ENEMY], [2, 4, COL_ENEMY], [3, 4, COL_ENEMY], [4, 4, COL_ENEMY],
+	[0, 5, COL_ENEMY], [2, 5, COL_ENEMY], [3, 5, COL_ENEMY], [5, 5, COL_ENEMY],
+];
+
+const SPR_ENEMY2: number[][] = [
+	[1, 0, COL_ENEMY], [2, 0, COL_ENEMY], [3, 0, COL_ENEMY], [4, 0, COL_ENEMY],
+	[0, 1, COL_ENEMY], [1, 1, COL_ENEMY], [2, 1, COL_ENEMY], [3, 1, COL_ENEMY], [4, 1, COL_ENEMY], [5, 1, COL_ENEMY],
+	[0, 2, COL_BLACK], [1, 2, COL_ENEMY], [2, 2, COL_ENEMY], [3, 2, COL_ENEMY], [4, 2, COL_ENEMY], [5, 2, COL_BLACK],
+	[0, 3, COL_ENEMY], [1, 3, COL_ENEMY], [2, 3, COL_ENEMY], [3, 3, COL_ENEMY], [4, 3, COL_ENEMY], [5, 3, COL_ENEMY],
+	[1, 4, COL_ENEMY], [2, 4, COL_ENEMY], [3, 4, COL_ENEMY], [4, 4, COL_ENEMY],
+	[1, 5, COL_ENEMY], [2, 5, COL_ENEMY], [3, 5, COL_ENEMY], [4, 5, COL_ENEMY],
+];
+
+// Coin sprite (4x4 pixels, animated)
+const SPR_COIN1: number[][] = [
+	[1, 0, COL_COIN], [2, 0, COL_COIN],
+	[0, 1, COL_COIN], [1, 1, COL_COIN], [2, 1, COL_COIN], [3, 1, COL_COIN],
+	[0, 2, COL_COIN], [1, 2, COL_COIN], [2, 2, COL_COIN], [3, 2, COL_COIN],
+	[1, 3, COL_COIN], [2, 3, COL_COIN],
+];
+
+const SPR_COIN2: number[][] = [
+	[1, 0, COL_COIN], [2, 0, COL_COIN],
+	[1, 1, COL_COIN], [2, 1, COL_COIN],
+	[1, 2, COL_COIN], [2, 2, COL_COIN],
+	[1, 3, COL_COIN], [2, 3, COL_COIN],
+];
+
 interface Particle {
 	x: number;
 	y: number;
 	vx: number;
 	vy: number;
-	char: string;
-	color: string;
+	color: number;
 	life: number;
-	maxLife: number;
 }
 
 interface Entity {
@@ -95,12 +183,12 @@ interface Entity {
 interface Cloud {
 	x: number;
 	y: number;
+	w: number;
+	h: number;
 	speed: number;
-	size: number;
 }
 
 interface GameState {
-	// Player
 	px: number;
 	py: number;
 	vx: number;
@@ -115,7 +203,6 @@ interface GameState {
 	invincible: number;
 	runFrame: number;
 
-	// World
 	level: number;
 	tiles: string[][];
 	levelWidth: number;
@@ -124,115 +211,102 @@ interface GameState {
 	particles: Particle[];
 	cameraX: number;
 
-	// Stats
 	score: number;
 	coins: number;
 	lives: number;
 	time: number;
 
-	// Meta
 	paused: boolean;
 	gameOver: boolean;
 	frame: number;
 }
 
-// Level data
+// Level definitions (1 tile = 4x4 pixels)
+const TILE_SIZE = 4;
+
 const LEVELS: string[][] = [
-	// Level 1 - Grassy plains
 	[
-		"          ~                    ~                           ~                                      ~                ",
-		"                     ~                          ~                       ~                                          ",
-		"     ~                              ~                                            ~                          ~      ",
-		"                                                                                                                    ",
-		"                                                                                                     G              ",
-		"                                                                                                  #####            ",
-		"                              o o o                                      o   o                   ##   ##           ",
-		"                             BBBBBBB                      BBB           BB   BB        *        ##     ##    *     ",
-		"               o      *                       BBB                      ##     ##       *       ##       ##   *     ",
-		"              BBB     *         E                         E           ##       ##  E   *      ##         ##  *     ",
-		"P    *                *                                              ##         ##     *     ##           ## *  G  ",
-		"###########       #########       #######     ######    ######     ###           #####################################",
-		"###########       #########       #######     ######    ######     ###############################################",
-		"###########wwwwwww#########wwwwwww#######wwwww######wwww######wwwww################################################",
-		"###########wwwwwww#########wwwwwww#######wwwww######wwww######wwwww################################################",
-		"###########wwwwwww#########wwwwwww#######wwwww######wwww######wwwww################################################",
+		"                                                                                                                                                ",
+		"                                                                                                                                                ",
+		"                                                                                                                                                ",
+		"                                                                                                                                                ",
+		"                                                                                                                      G                         ",
+		"                                                                                                                  #####                         ",
+		"                               o   o   o                                              o       o                  ##   ##                        ",
+		"                              BBBBBBBBBBB                           BBB              BB       BB       o        ##     ##                       ",
+		"                o                                                                   ##         ##     BBB      ##       ##                      ",
+		"               BBB       E                     E            E                      ##           ##           ###         ###                    ",
+		"P                                                                                 ##             ##    E                                     G  ",
+		"################      ###############      ###########    ############    ########                ########################################### ##",
+		"################      ###############      ###########    ############    #######################################################################",
+		"################~~~~~~###############~~~~~~###########~~~~############~~~~#######################################################################",
 	],
-	// Level 2 - Underground
 	[
-		"####################################################################################################",
-		"#                                                                                                  #",
-		"#       o                                                        o o o                       G     #",
-		"#      BBB                                                      BBBBBBB                    ###     #",
-		"#                         o   o   o                                              *                 #",
-		"#                        BBB BBB BBB                  E                          *       ###       #",
-		"#            o                                       ###        E                *                 #",
-		"#           BBB                         ^^                     ###        ^^     *      ###        #",
-		"#                    E                 ####     E                         ####   *                 #",
-		"#                   ###       ^^              ####        ^^                     *     ###         #",
-		"#P                           ####                        ####     E              *                G#",
-		"#######       #######       ######     ####      ####   ######   ###    #####################################",
-		"#######       #######       ######     ####      ####   ######   ###    #####################################",
-		"#######       #######       ######     ####      ####   ######   ###    #####################################",
-		"#######       #######       ######     ####      ####   ######   ###    #####################################",
-		"#######       #######       ######     ####      ####   ######   ###    #####################################",
+		"                                                                                                                                                ",
+		"                                                                                                                                                ",
+		"                                                                                                                      G                         ",
+		"                                                                                                                  #####                         ",
+		"                                                                        o   o   o                                ##                             ",
+		"                                                                       BBBBBBBBB                         E      ##                              ",
+		"                          o       o                                                        o            ###    ##                               ",
+		"                         BB       BB              E                 E            E        BB                   ##                               ",
+		"           o                                     ###      ^^       ###          ###                           ##                                ",
+		"          BBB      E                 ^^                   ####                                    ^^         ##                                 ",
+		"P                                   ####    E                           E                        ####       ##                               G  ",
+		"###########      ##########        ######  ###    ####         ###     ###     ###      ###     ######    ########################################",
+		"###########      ##########        ######  ###    ####         ###     ###     ###      ###     ######    ########################################",
+		"###########~~~~~~##########~~~~~~~~######~~###~~~~####~~~~~~~~~###~~~~~###~~~~~###~~~~~~###~~~~~######~~~~########################################",
 	],
-	// Level 3 - Sky fortress
 	[
-		"          ~           ~                    ~              ~                    ~                    ~              ",
-		"     ~          ~               ~                   ~              ~                     ~                   ~     ",
-		"                         ~                                   ~                                    ~                ",
-		"                                                                                           G                       ",
-		"                                                                                         #####                     ",
-		"                                          o o o                                                                    ",
-		"                                         BBBBBBB                   E                                               ",
-		"                     o                              ^^            ###                    ###                       ",
-		"                    BB          E                  ####                      E                                     ",
-		"          o                    ###     ^^                   ^^              ###                                    ",
-		"         BB     E             ####    ####       ####      ####                     E                           G  ",
-		"P       ####   ###       ###       ####     ###       ###       ###       ###      ###    ########################",
-		"##     ######                                                                                                      ",
-		"                                                                                                                   ",
-		"                                                                                                                   ",
-		"                                                                                                                   ",
+		"                                                                                                                                                ",
+		"                                                                                                                                                ",
+		"                                                                                                                                                ",
+		"                                                                                                                G                               ",
+		"                                                                                          o                  ####                               ",
+		"                                                       o   o   o                         BB        E                                            ",
+		"                                                      BBBBBBBBB                   E               ###                                           ",
+		"                           o                                              E      ###                                                            ",
+		"                          BB       E         ^^                 ^^       ###                                                                    ",
+		"              o                   ###       ####       E       ####                   E         ^^                                              ",
+		"P            BB      E                              ####                            ###        ####                                          G  ",
+		"#######     ####    ###       ###      ####       ######    ####      ###      ####      ###  ######    #############################################",
+		"#######     ####    ###       ###      ####       ######    ####      ###      ####      ###  ######    #############################################",
+		"#######~~~~~####~~~~###~~~~~~~###~~~~~~####~~~~~~~######~~~~####~~~~~~###~~~~~~####~~~~~~###~~######~~~~#############################################",
 	],
 ];
 
-const parseLevel = (levelNum: number): { tiles: string[][], width: number, enemies: Entity[], startX: number, startY: number } => {
-	const template = LEVELS[Math.min(levelNum - 1, LEVELS.length - 1)];
-	const tiles = template.map(row => {
-		// Pad rows to consistent length
-		const padded = row.padEnd(120, " ");
-		return padded.split("");
-	});
+const parseLevel = (n: number): { tiles: string[][], width: number, enemies: Entity[], startX: number, startY: number } => {
+	const template = LEVELS[Math.min(n - 1, LEVELS.length - 1)];
+	const tiles = template.map(r => r.padEnd(150, " ").split(""));
 	const width = tiles[0].length;
 	const enemies: Entity[] = [];
 	let startX = 1, startY = 10;
 
 	for (let y = 0; y < tiles.length; y++) {
 		for (let x = 0; x < tiles[y].length; x++) {
-			const ch = tiles[y][x];
-			if (ch === PLAYER_START) {
-				startX = x;
-				startY = y;
-				tiles[y][x] = EMPTY;
-			} else if (ch === ENEMY) {
-				enemies.push({ x, y, vx: -0.25, vy: 0, alive: true, frame: 0 });
-				tiles[y][x] = EMPTY;
+			const c = tiles[y][x];
+			if (c === T_PLAYER) {
+				startX = x * TILE_SIZE;
+				startY = y * TILE_SIZE;
+				tiles[y][x] = T_EMPTY;
+			} else if (c === T_ENEMY) {
+				enemies.push({ x: x * TILE_SIZE, y: y * TILE_SIZE - 2, vx: -0.5, vy: 0, alive: true, frame: 0 });
+				tiles[y][x] = T_EMPTY;
 			}
 		}
 	}
-
 	return { tiles, width, enemies, startX, startY };
 };
 
-const createClouds = (width: number): Cloud[] => {
+const createClouds = (w: number): Cloud[] => {
 	const clouds: Cloud[] = [];
-	for (let i = 0; i < 8; i++) {
+	for (let i = 0; i < 12; i++) {
 		clouds.push({
-			x: Math.random() * width,
-			y: Math.random() * 4,
-			speed: 0.02 + Math.random() * 0.03,
-			size: 1 + Math.floor(Math.random() * 3),
+			x: Math.random() * w * TILE_SIZE,
+			y: 2 + Math.random() * 10,
+			w: 8 + Math.floor(Math.random() * 12),
+			h: 3 + Math.floor(Math.random() * 3),
+			speed: 0.05 + Math.random() * 0.1,
 		});
 	}
 	return clouds;
@@ -241,377 +315,339 @@ const createClouds = (width: number): Cloud[] => {
 const createInitialState = (): GameState => {
 	const { tiles, width, enemies, startX, startY } = parseLevel(1);
 	return {
-		px: startX,
-		py: startY,
-		vx: 0,
-		vy: 0,
-		onGround: false,
-		facingRight: true,
-		jumpHeld: false,
-		dead: false,
-		deadTimer: 0,
-		won: false,
-		wonTimer: 0,
-		invincible: 0,
-		runFrame: 0,
-		level: 1,
-		tiles,
-		levelWidth: width,
-		enemies,
-		clouds: createClouds(width),
-		particles: [],
+		px: startX, py: startY,
+		vx: 0, vy: 0,
+		onGround: false, facingRight: true, jumpHeld: false,
+		dead: false, deadTimer: 0, won: false, wonTimer: 0, invincible: 0, runFrame: 0,
+		level: 1, tiles, levelWidth: width,
+		enemies, clouds: createClouds(width), particles: [],
 		cameraX: 0,
-		score: 0,
-		coins: 0,
-		lives: INITIAL_LIVES,
-		time: 300,
-		paused: false,
-		gameOver: false,
-		frame: 0,
+		score: 0, coins: 0, lives: INITIAL_LIVES, time: 300,
+		paused: false, gameOver: false, frame: 0,
 	};
 };
 
-const loadLevel = (state: GameState, levelNum: number): void => {
-	const { tiles, width, enemies, startX, startY } = parseLevel(levelNum);
-	state.level = levelNum;
-	state.tiles = tiles;
-	state.levelWidth = width;
-	state.enemies = enemies;
-	state.clouds = createClouds(width);
-	state.particles = [];
-	state.px = startX;
-	state.py = startY;
-	state.vx = 0;
-	state.vy = 0;
-	state.onGround = false;
-	state.dead = false;
-	state.deadTimer = 0;
-	state.won = false;
-	state.wonTimer = 0;
-	state.cameraX = 0;
-	state.time = 300;
+const loadLevel = (s: GameState, n: number): void => {
+	const { tiles, width, enemies, startX, startY } = parseLevel(n);
+	Object.assign(s, {
+		level: n, tiles, levelWidth: width, enemies,
+		clouds: createClouds(width), particles: [],
+		px: startX, py: startY, vx: 0, vy: 0,
+		onGround: false, dead: false, deadTimer: 0, won: false, wonTimer: 0,
+		cameraX: 0, time: 300,
+	});
 };
 
-const isSolid = (ch: string): boolean => ch === GROUND || ch === BRICK;
-
-const getTile = (state: GameState, x: number, y: number): string => {
-	const ix = Math.floor(x);
-	const iy = Math.floor(y);
-	if (iy < 0 || iy >= state.tiles.length) return EMPTY;
-	if (ix < 0 || ix >= state.levelWidth) return EMPTY;
-	return state.tiles[iy]?.[ix] ?? EMPTY;
+const getTile = (s: GameState, px: number, py: number): string => {
+	const tx = Math.floor(px / TILE_SIZE);
+	const ty = Math.floor(py / TILE_SIZE);
+	if (ty < 0 || ty >= s.tiles.length || tx < 0 || tx >= s.levelWidth) return T_EMPTY;
+	return s.tiles[ty]?.[tx] ?? T_EMPTY;
 };
 
-const setTile = (state: GameState, x: number, y: number, val: string): void => {
-	const ix = Math.floor(x);
-	const iy = Math.floor(y);
-	if (iy >= 0 && iy < state.tiles.length && ix >= 0 && ix < state.levelWidth) {
-		state.tiles[iy][ix] = val;
+const setTile = (s: GameState, px: number, py: number, v: string): void => {
+	const tx = Math.floor(px / TILE_SIZE);
+	const ty = Math.floor(py / TILE_SIZE);
+	if (ty >= 0 && ty < s.tiles.length && tx >= 0 && tx < s.levelWidth) {
+		s.tiles[ty][tx] = v;
 	}
 };
 
-const spawnParticle = (state: GameState, x: number, y: number, char: string, color: string, vx = 0, vy = 0, life = 20): void => {
-	state.particles.push({ x, y, vx, vy, char, color, life, maxLife: life });
-};
+const isSolid = (t: string): boolean => t === T_GROUND || t === T_BRICK;
 
-const spawnCoinParticles = (state: GameState, x: number, y: number): void => {
-	for (let i = 0; i < 5; i++) {
-		const angle = (Math.PI * 2 * i) / 5;
-		spawnParticle(state, x, y, "✦", "93", Math.cos(angle) * 0.5, Math.sin(angle) * 0.5 - 0.5, 15);
-	}
-	spawnParticle(state, x, y - 0.5, "+100", "93", 0, -0.3, 25);
-};
-
-const spawnBrickParticles = (state: GameState, x: number, y: number): void => {
-	for (let i = 0; i < 4; i++) {
-		spawnParticle(state, x + Math.random(), y, "▪", "33", (Math.random() - 0.5) * 1.5, -Math.random() * 1.5, 25);
+const spawnParticles = (s: GameState, x: number, y: number, count: number, color: number, spread: number): void => {
+	for (let i = 0; i < count; i++) {
+		s.particles.push({
+			x, y,
+			vx: (Math.random() - 0.5) * spread,
+			vy: -Math.random() * spread,
+			color,
+			life: 15 + Math.floor(Math.random() * 10),
+		});
 	}
 };
 
-const spawnDeathParticles = (state: GameState, x: number, y: number): void => {
-	for (let i = 0; i < 6; i++) {
-		const angle = (Math.PI * 2 * i) / 6;
-		spawnParticle(state, x, y, "★", "91", Math.cos(angle) * 0.8, Math.sin(angle) * 0.8, 20);
-	}
+const killPlayer = (s: GameState): void => {
+	if (s.invincible > 0 || s.dead) return;
+	s.dead = true;
+	s.deadTimer = 50;
+	s.vy = -3;
+	s.lives--;
+	spawnParticles(s, s.px + PLAYER_W / 2, s.py + PLAYER_H / 2, 12, COL_PLAYER1, 3);
 };
 
-const spawnEnemyDeathParticles = (state: GameState, x: number, y: number): void => {
-	spawnParticle(state, x, y - 0.5, "+50", "92", 0, -0.3, 25);
-	for (let i = 0; i < 4; i++) {
-		spawnParticle(state, x, y, "×", "91", (Math.random() - 0.5) * 1, -Math.random() * 1, 15);
-	}
-};
+const updatePlayer = (s: GameState, left: boolean, right: boolean, jump: boolean): void => {
+	if (s.dead || s.won) return;
 
-const spawnDustParticle = (state: GameState, x: number, y: number): void => {
-	spawnParticle(state, x, y + 0.8, ".", "2", (Math.random() - 0.5) * 0.3, -0.1, 10);
-};
+	// Horizontal
+	if (left) { s.vx -= MOVE_SPEED; s.facingRight = false; }
+	if (right) { s.vx += MOVE_SPEED; s.facingRight = true; }
+	s.vx *= FRICTION;
+	if (Math.abs(s.vx) < 0.05) s.vx = 0;
+	s.vx = Math.max(-MAX_SPEED, Math.min(MAX_SPEED, s.vx));
 
-const killPlayer = (state: GameState): void => {
-	if (state.invincible > 0 || state.dead) return;
-	state.dead = true;
-	state.deadTimer = 50;
-	state.vy = -1.8;
-	state.lives--;
-	spawnDeathParticles(state, state.px, state.py);
-};
-
-const updatePlayer = (state: GameState, left: boolean, right: boolean, jump: boolean): void => {
-	if (state.dead || state.won) return;
-
-	const wasOnGround = state.onGround;
-
-	// Horizontal input
-	if (left && !right) {
-		state.vx -= MOVE_ACCEL;
-		state.facingRight = false;
-	} else if (right && !left) {
-		state.vx += MOVE_ACCEL;
-		state.facingRight = true;
-	}
-
-	// Friction
-	state.vx *= FRICTION;
-	if (Math.abs(state.vx) < 0.01) state.vx = 0;
-	state.vx = Math.max(-MAX_SPEED, Math.min(MAX_SPEED, state.vx));
-
-	// Running animation
-	if (Math.abs(state.vx) > 0.1 && state.onGround) {
-		state.runFrame = (state.runFrame + 1) % 8;
-		// Dust particles when running
-		if (state.frame % 6 === 0) {
-			spawnDustParticle(state, state.px, state.py);
-		}
+	// Animation
+	if (Math.abs(s.vx) > 0.2 && s.onGround) {
+		s.runFrame = (s.runFrame + 1) % 12;
 	} else {
-		state.runFrame = 0;
+		s.runFrame = 0;
 	}
 
-	// Jumping
-	if (jump && state.onGround && !state.jumpHeld) {
-		state.vy = JUMP_VELOCITY;
-		state.onGround = false;
-		state.jumpHeld = true;
-		// Jump dust
-		spawnDustParticle(state, state.px - 0.3, state.py);
-		spawnDustParticle(state, state.px + 0.3, state.py);
+	// Jump
+	if (jump && s.onGround && !s.jumpHeld) {
+		s.vy = JUMP_VEL;
+		s.onGround = false;
+		s.jumpHeld = true;
 	}
 	if (!jump) {
-		state.jumpHeld = false;
-		if (state.vy < -0.3) {
-			state.vy *= 0.65;
-		}
+		s.jumpHeld = false;
+		if (s.vy < -0.5) s.vy *= 0.7;
 	}
 
 	// Gravity
-	state.vy += GRAVITY;
-	state.vy = Math.min(state.vy, MAX_FALL);
+	s.vy += GRAVITY;
+	s.vy = Math.min(s.vy, MAX_FALL);
 
 	// Horizontal collision
-	const newX = state.px + state.vx;
-	const top = state.py;
-	const bot = state.py + 0.9;
-
+	const nx = s.px + s.vx;
 	let hitX = false;
-	const probeX = state.vx > 0 ? newX + 0.8 : newX;
-	if (isSolid(getTile(state, probeX, top)) || isSolid(getTile(state, probeX, bot))) {
-		hitX = true;
+	const probeX = s.vx > 0 ? nx + PLAYER_W - 1 : nx;
+	for (let py = s.py; py < s.py + PLAYER_H; py += TILE_SIZE / 2) {
+		if (isSolid(getTile(s, probeX, py))) { hitX = true; break; }
 	}
-
-	if (!hitX && newX >= 0) {
-		state.px = newX;
-	} else {
-		state.vx = 0;
-	}
+	if (!hitX && nx >= 0) s.px = nx; else s.vx = 0;
 
 	// Vertical collision
-	const newY = state.py + state.vy;
-	state.onGround = false;
-
-	if (state.vy >= 0) {
-		const probeY = newY + 0.99;
-		const leftX = state.px;
-		const rightX = state.px + 0.8;
-		if (isSolid(getTile(state, leftX, probeY)) || isSolid(getTile(state, rightX, probeY))) {
-			state.py = Math.floor(newY);
-			state.vy = 0;
-			state.onGround = true;
-			// Land dust
-			if (!wasOnGround) {
-				spawnDustParticle(state, state.px, state.py);
+	const ny = s.py + s.vy;
+	s.onGround = false;
+	if (s.vy >= 0) {
+		const probeY = ny + PLAYER_H;
+		for (let px = s.px; px < s.px + PLAYER_W; px += TILE_SIZE / 2) {
+			if (isSolid(getTile(s, px, probeY))) {
+				s.py = Math.floor(probeY / TILE_SIZE) * TILE_SIZE - PLAYER_H;
+				s.vy = 0;
+				s.onGround = true;
+				break;
 			}
-		} else {
-			state.py = newY;
 		}
+		if (!s.onGround) s.py = ny;
 	} else {
-		const probeY = newY;
-		const leftX = state.px;
-		const rightX = state.px + 0.8;
-		const headTileL = getTile(state, leftX, probeY);
-		const headTileR = getTile(state, rightX, probeY);
-
-		if (isSolid(headTileL) || isSolid(headTileR)) {
-			state.vy = 0;
-			if (headTileL === BRICK) {
-				setTile(state, leftX, probeY, EMPTY);
-				state.score += 10;
-				spawnBrickParticles(state, Math.floor(leftX), Math.floor(probeY));
+		const probeY = ny;
+		let headHit = false;
+		for (let px = s.px; px < s.px + PLAYER_W; px += TILE_SIZE / 2) {
+			const t = getTile(s, px, probeY);
+			if (isSolid(t)) {
+				headHit = true;
+				if (t === T_BRICK) {
+					setTile(s, px, probeY, T_EMPTY);
+					s.score += 10;
+					spawnParticles(s, px, probeY, 6, COL_BRICK, 2);
+				}
 			}
-			if (headTileR === BRICK) {
-				setTile(state, rightX, probeY, EMPTY);
-				state.score += 10;
-				spawnBrickParticles(state, Math.floor(rightX), Math.floor(probeY));
-			}
-		} else {
-			state.py = newY;
 		}
+		if (headHit) s.vy = 0; else s.py = ny;
 	}
 
 	// Collect coins
-	const coinX = state.px + 0.4;
-	const coinY = state.py + 0.4;
-	const coinTile = getTile(state, coinX, coinY);
-	if (coinTile === COIN) {
-		setTile(state, coinX, coinY, EMPTY);
-		state.coins++;
-		state.score += 100;
-		spawnCoinParticles(state, Math.floor(coinX), Math.floor(coinY));
+	const cx = s.px + PLAYER_W / 2;
+	const cy = s.py + PLAYER_H / 2;
+	if (getTile(s, cx, cy) === T_COIN) {
+		setTile(s, cx, cy, T_EMPTY);
+		s.coins++;
+		s.score += 100;
+		spawnParticles(s, cx, cy, 8, COL_COIN, 2);
 	}
 
-	// Hit spikes?
-	const floorL = getTile(state, state.px, state.py + 1);
-	const floorR = getTile(state, state.px + 0.8, state.py + 1);
-	if (floorL === SPIKE || floorR === SPIKE) {
-		killPlayer(state);
+	// Spikes
+	const footY = s.py + PLAYER_H;
+	if (getTile(s, s.px, footY) === T_SPIKE || getTile(s, s.px + PLAYER_W - 1, footY) === T_SPIKE) {
+		killPlayer(s);
 	}
 
-	// Hit water?
-	const waterCheck = getTile(state, state.px + 0.4, state.py + 0.5);
-	if (waterCheck === WATER) {
-		killPlayer(state);
+	// Water
+	if (getTile(s, cx, cy) === T_WATER) {
+		killPlayer(s);
 	}
 
-	// Fell off?
-	if (state.py > state.tiles.length + 2) {
-		killPlayer(state);
+	// Fall off
+	if (s.py > s.tiles.length * TILE_SIZE + 20) {
+		killPlayer(s);
 	}
 
-	// Reach goal?
-	const goalCheck = getTile(state, state.px + 0.4, state.py + 0.4);
-	if (goalCheck === GOAL) {
-		state.won = true;
-		state.wonTimer = 60;
-		state.score += 500 + state.time * 5;
-		// Victory particles
-		for (let i = 0; i < 10; i++) {
-			spawnParticle(state, state.px, state.py, "★", "93", (Math.random() - 0.5) * 2, -Math.random() * 2, 30);
-		}
+	// Goal
+	if (getTile(s, cx, cy) === T_GOAL) {
+		s.won = true;
+		s.wonTimer = 60;
+		s.score += 500 + s.time * 5;
+		spawnParticles(s, cx, cy, 20, COL_GOAL, 4);
 	}
 
-	if (state.invincible > 0) state.invincible--;
+	if (s.invincible > 0) s.invincible--;
 };
 
-const updateEnemies = (state: GameState): void => {
-	for (const e of state.enemies) {
+const updateEnemies = (s: GameState): void => {
+	for (const e of s.enemies) {
 		if (!e.alive) continue;
+		e.frame++;
 
-		e.frame = (e.frame + 1) % 16;
-
-		e.vy += GRAVITY * 0.5;
+		e.vy += GRAVITY * 0.6;
 		e.vy = Math.min(e.vy, MAX_FALL);
 
-		const newX = e.x + e.vx;
-		const probeX = e.vx > 0 ? newX + 0.9 : newX;
-		if (isSolid(getTile(state, probeX, e.y)) || isSolid(getTile(state, probeX, e.y + 0.9))) {
-			e.vx = -e.vx;
-		} else {
-			e.x = newX;
+		// Horizontal
+		const nx = e.x + e.vx;
+		const probeX = e.vx > 0 ? nx + 5 : nx;
+		let hitX = false;
+		for (let py = e.y; py < e.y + 6; py += 2) {
+			if (isSolid(getTile(s, probeX, py))) { hitX = true; break; }
 		}
+		if (hitX) e.vx = -e.vx; else e.x = nx;
 
-		const aheadX = e.vx > 0 ? e.x + 1.2 : e.x - 0.2;
-		if (!isSolid(getTile(state, aheadX, e.y + 1.2))) {
-			e.vx = -e.vx;
-		}
+		// Edge detection
+		const aheadX = e.vx > 0 ? e.x + 8 : e.x - 2;
+		if (!isSolid(getTile(s, aheadX, e.y + 8))) e.vx = -e.vx;
 
-		const newY = e.y + e.vy;
-		const probeY = newY + 0.99;
-		if (isSolid(getTile(state, e.x, probeY)) || isSolid(getTile(state, e.x + 0.9, probeY))) {
-			e.y = Math.floor(newY);
-			e.vy = 0;
-		} else {
-			e.y = newY;
+		// Vertical
+		const ny = e.y + e.vy;
+		const probeY = ny + 6;
+		let onGround = false;
+		for (let px = e.x; px < e.x + 6; px += 2) {
+			if (isSolid(getTile(s, px, probeY))) { onGround = true; break; }
 		}
+		if (onGround) { e.y = Math.floor(probeY / TILE_SIZE) * TILE_SIZE - 6; e.vy = 0; }
+		else e.y = ny;
 
-		if (e.y > state.tiles.length + 2) {
-			e.alive = false;
-		}
+		if (e.y > s.tiles.length * TILE_SIZE + 20) e.alive = false;
 	}
 };
 
-const checkEnemyCollisions = (state: GameState): void => {
-	if (state.dead || state.invincible > 0) return;
-
-	const pLeft = state.px;
-	const pRight = state.px + 0.8;
-	const pTop = state.py;
-	const pBot = state.py + 0.9;
-
-	for (const e of state.enemies) {
+const checkEnemyCollisions = (s: GameState): void => {
+	if (s.dead || s.invincible > 0) return;
+	for (const e of s.enemies) {
 		if (!e.alive) continue;
-
-		const eLeft = e.x;
-		const eRight = e.x + 0.9;
-		const eTop = e.y;
-		const eBot = e.y + 0.9;
-
-		if (pRight > eLeft && pLeft < eRight && pBot > eTop && pTop < eBot) {
-			if (state.vy > 0 && pBot < eTop + 0.5) {
+		// Simple AABB
+		if (s.px + PLAYER_W > e.x && s.px < e.x + 6 &&
+			s.py + PLAYER_H > e.y && s.py < e.y + 6) {
+			// Stomping?
+			if (s.vy > 0 && s.py + PLAYER_H < e.y + 4) {
 				e.alive = false;
-				state.vy = -1.0;
-				state.score += 50;
-				spawnEnemyDeathParticles(state, e.x, e.y);
+				s.vy = -2;
+				s.score += 50;
+				spawnParticles(s, e.x + 3, e.y + 3, 8, COL_ENEMY, 2);
 			} else {
-				killPlayer(state);
+				killPlayer(s);
 			}
 		}
 	}
 };
 
-const updateClouds = (state: GameState): void => {
-	for (const cloud of state.clouds) {
-		cloud.x += cloud.speed;
-		if (cloud.x > state.levelWidth + 5) {
-			cloud.x = -5;
-		}
+const updateClouds = (s: GameState): void => {
+	for (const c of s.clouds) {
+		c.x += c.speed;
+		if (c.x > s.levelWidth * TILE_SIZE + 20) c.x = -c.w - 10;
 	}
 };
 
-const updateParticles = (state: GameState): void => {
-	for (const p of state.particles) {
+const updateParticles = (s: GameState): void => {
+	for (const p of s.particles) {
 		p.x += p.vx;
 		p.y += p.vy;
-		p.vy += 0.05;
+		p.vy += 0.15;
 		p.life--;
 	}
-	state.particles = state.particles.filter(p => p.life > 0);
+	s.particles = s.particles.filter(p => p.life > 0);
 };
 
-const updateCamera = (state: GameState): void => {
-	const targetX = state.px - VIEWPORT_WIDTH / 3;
-	const newCam = Math.max(0, Math.min(targetX, state.levelWidth - VIEWPORT_WIDTH));
-	// Smooth camera
-	state.cameraX += (newCam - state.cameraX) * 0.1;
+const updateCamera = (s: GameState): void => {
+	const target = s.px - VIEW_COLS * 0.3;
+	const maxCam = s.levelWidth * TILE_SIZE - VIEW_COLS;
+	const newCam = Math.max(0, Math.min(target, maxCam));
+	s.cameraX += (newCam - s.cameraX) * 0.08;
 };
+
+// ===== HALF-BLOCK RENDERER =====
+// Each character cell represents 2 vertical pixels using ▀ (upper) ▄ (lower) █ (both)
+
+class PixelBuffer {
+	width: number;
+	height: number;
+	pixels: number[];  // Color index per pixel, -1 = transparent
+
+	constructor(w: number, h: number) {
+		this.width = w;
+		this.height = h;
+		this.pixels = new Array(w * h).fill(-1);
+	}
+
+	clear(): void {
+		this.pixels.fill(-1);
+	}
+
+	setPixel(x: number, y: number, color: number): void {
+		const ix = Math.floor(x);
+		const iy = Math.floor(y);
+		if (ix >= 0 && ix < this.width && iy >= 0 && iy < this.height) {
+			this.pixels[iy * this.width + ix] = color;
+		}
+	}
+
+	getPixel(x: number, y: number): number {
+		if (x < 0 || x >= this.width || y < 0 || y >= this.height) return -1;
+		return this.pixels[y * this.width + x];
+	}
+
+	drawSprite(sprite: number[][], x: number, y: number, flipX: boolean = false): void {
+		for (const [dx, dy, c] of sprite) {
+			const px = flipX ? x + (5 - dx) : x + dx;
+			this.setPixel(px, y + dy, c);
+		}
+	}
+
+	drawRect(x: number, y: number, w: number, h: number, color: number): void {
+		for (let py = y; py < y + h; py++) {
+			for (let px = x; px < x + w; px++) {
+				this.setPixel(px, py, color);
+			}
+		}
+	}
+
+	// Render to half-block string
+	render(bgColor: number = COL_SKY): string[] {
+		const lines: string[] = [];
+		for (let row = 0; row < this.height; row += 2) {
+			let line = "";
+			for (let col = 0; col < this.width; col++) {
+				const top = this.getPixel(col, row);
+				const bot = this.getPixel(col, row + 1);
+				const topC = top >= 0 ? top : bgColor;
+				const botC = bot >= 0 ? bot : bgColor;
+
+				if (topC === botC) {
+					// Same color - full block with fg color
+					line += `\x1b[38;5;${PALETTE[topC]}m█\x1b[0m`;
+				} else {
+					// Different - upper half block with fg=top, bg=bot
+					line += `\x1b[38;5;${PALETTE[topC]};48;5;${PALETTE[botC]}m▀\x1b[0m`;
+				}
+			}
+			lines.push(line);
+		}
+		return lines;
+	}
+}
 
 class BadlogicComponent {
 	private state: GameState;
+	private buffer: PixelBuffer;
 	private interval: ReturnType<typeof setInterval> | null = null;
 	private timeInterval: ReturnType<typeof setInterval> | null = null;
 	private onClose: () => void;
-	private onSave: (state: GameState | null) => void;
+	private onSave: (s: GameState | null) => void;
 	private tui: { requestRender: () => void };
 
 	private leftHeld = false;
 	private rightHeld = false;
 	private jumpHeld = false;
+	private releaseTimers: Record<string, ReturnType<typeof setTimeout> | null> = {};
 
 	private version = 0;
 	private cachedVersion = -1;
@@ -621,13 +657,14 @@ class BadlogicComponent {
 	constructor(
 		tui: { requestRender: () => void },
 		onClose: () => void,
-		onSave: (state: GameState | null) => void,
+		onSave: (s: GameState | null) => void,
 		savedState?: GameState,
 	) {
 		this.tui = tui;
 		this.onClose = onClose;
 		this.onSave = onSave;
 		this.state = savedState ? { ...savedState, paused: true } : createInitialState();
+		this.buffer = new PixelBuffer(VIEW_COLS, PIXEL_H);
 		this.startLoop();
 	}
 
@@ -636,9 +673,7 @@ class BadlogicComponent {
 		this.timeInterval = setInterval(() => {
 			if (!this.state.paused && !this.state.gameOver && !this.state.dead && !this.state.won) {
 				this.state.time = Math.max(0, this.state.time - 1);
-				if (this.state.time <= 0) {
-					killPlayer(this.state);
-				}
+				if (this.state.time <= 0) killPlayer(this.state);
 			}
 		}, 1000);
 	}
@@ -646,17 +681,13 @@ class BadlogicComponent {
 	private stopLoop(): void {
 		if (this.interval) clearInterval(this.interval);
 		if (this.timeInterval) clearInterval(this.timeInterval);
-		this.interval = null;
-		this.timeInterval = null;
 	}
 
 	private tick(): void {
 		const s = this.state;
 		if (s.paused || s.gameOver) return;
-
 		s.frame++;
 
-		// Always update visual elements
 		updateClouds(s);
 		updateParticles(s);
 
@@ -665,38 +696,22 @@ class BadlogicComponent {
 			s.py += s.vy;
 			s.deadTimer--;
 			if (s.deadTimer <= 0) {
-				if (s.lives <= 0) {
-					s.gameOver = true;
-				} else {
-					loadLevel(s, s.level);
-				}
+				if (s.lives <= 0) s.gameOver = true;
+				else loadLevel(s, s.level);
 			}
-			this.markDirty();
-			return;
-		}
-
-		if (s.won) {
+		} else if (s.won) {
 			s.wonTimer--;
 			if (s.wonTimer <= 0) {
-				if (s.level >= LEVELS.length) {
-					s.gameOver = true;
-				} else {
-					loadLevel(s, s.level + 1);
-				}
+				if (s.level >= LEVELS.length) s.gameOver = true;
+				else loadLevel(s, s.level + 1);
 			}
-			this.markDirty();
-			return;
+		} else {
+			updatePlayer(s, this.leftHeld, this.rightHeld, this.jumpHeld);
+			updateEnemies(s);
+			checkEnemyCollisions(s);
+			updateCamera(s);
 		}
 
-		updatePlayer(s, this.leftHeld, this.rightHeld, this.jumpHeld);
-		updateEnemies(s);
-		checkEnemyCollisions(s);
-		updateCamera(s);
-
-		this.markDirty();
-	}
-
-	private markDirty(): void {
 		this.version++;
 		this.tui.requestRender();
 	}
@@ -713,25 +728,25 @@ class BadlogicComponent {
 
 		if (key === "r" || key === "R") {
 			Object.assign(this.state, createInitialState());
-			this.markDirty();
+			this.version++;
+			this.tui.requestRender();
 			return;
 		}
 
 		if (key === "p" || key === "P") {
 			s.paused = !s.paused;
-			this.markDirty();
+			this.version++;
+			this.tui.requestRender();
 			return;
 		}
 
 		if (s.paused || s.gameOver) return;
 
 		if (matchesKey(key, "left") || key === "a" || key === "A" || key === "h") {
-			this.leftHeld = true;
-			this.rightHeld = false;
+			this.leftHeld = true; this.rightHeld = false;
 			this.scheduleRelease("left");
 		} else if (matchesKey(key, "right") || key === "d" || key === "D" || key === "l") {
-			this.rightHeld = true;
-			this.leftHeld = false;
+			this.rightHeld = true; this.leftHeld = false;
 			this.scheduleRelease("right");
 		} else if (matchesKey(key, "up") || key === "w" || key === "W" || key === "k" || key === " ") {
 			this.jumpHeld = true;
@@ -739,28 +754,19 @@ class BadlogicComponent {
 		}
 	}
 
-	private releaseTimers: Record<string, ReturnType<typeof setTimeout> | null> = {};
-
-	private scheduleRelease(type: "left" | "right" | "jump"): void {
+	private scheduleRelease(type: string): void {
 		if (this.releaseTimers[type]) clearTimeout(this.releaseTimers[type]!);
-		const delay = type === "jump" ? 100 : 160;
 		this.releaseTimers[type] = setTimeout(() => {
 			if (type === "left") this.leftHeld = false;
 			else if (type === "right") this.rightHeld = false;
 			else if (type === "jump") this.jumpHeld = false;
-		}, delay);
+		}, type === "jump" ? 100 : 150);
 	}
 
 	render(width: number, height: number): string[] {
-		const minWidth = VIEWPORT_WIDTH * 2 + 4;
-		if (width < minWidth) {
-			return [
-				"",
-				this.pad(`${magenta(bold("BADLOGIC GAME"))}`, width),
-				"",
-				this.pad(dim(`Terminal too narrow (need ${minWidth})`), width),
-				this.pad(dim(`[Q] Quit`), width),
-			];
+		const minW = VIEW_COLS + 4;
+		if (width < minW) {
+			return ["", `  Terminal too narrow (need ${minW})`, "", "  [Q] Quit"];
 		}
 
 		if (this.version === this.cachedVersion && width === this.cachedWidth) {
@@ -768,210 +774,166 @@ class BadlogicComponent {
 		}
 
 		const s = this.state;
-		const lines: string[] = [];
-		const boxWidth = VIEWPORT_WIDTH * 2;
+		const buf = this.buffer;
+		buf.clear();
 
-		// Border helper
-		const border = dim(`+${"-".repeat(boxWidth)}+`);
-		const boxLine = (content: string): string => {
-			const t = truncateToWidth(content, boxWidth);
-			const p = Math.max(0, boxWidth - visibleWidth(t));
-			return dim("|") + t + " ".repeat(p) + dim("|");
-		};
+		const camX = Math.floor(s.cameraX);
+
+		// Draw sky gradient
+		for (let y = 0; y < PIXEL_H; y++) {
+			const skyCol = y < 12 ? COL_SKY : (y < 24 ? COL_SKY2 : COL_SKY);
+			for (let x = 0; x < VIEW_COLS; x++) {
+				buf.setPixel(x, y, skyCol);
+			}
+		}
+
+		// Draw clouds (parallax)
+		const parallax = camX * 0.3;
+		for (const c of s.clouds) {
+			const cx = Math.floor(c.x - parallax) - camX;
+			for (let dy = 0; dy < c.h; dy++) {
+				for (let dx = 0; dx < c.w; dx++) {
+					buf.setPixel(cx + dx, Math.floor(c.y) + dy, COL_CLOUD);
+				}
+			}
+		}
+
+		// Draw tiles
+		const startTX = Math.floor(camX / TILE_SIZE);
+		const endTX = startTX + Math.ceil(VIEW_COLS / TILE_SIZE) + 1;
+
+		for (let ty = 0; ty < s.tiles.length; ty++) {
+			for (let tx = startTX; tx <= endTX && tx < s.levelWidth; tx++) {
+				const t = s.tiles[ty]?.[tx];
+				if (!t || t === T_EMPTY) continue;
+
+				const px = tx * TILE_SIZE - camX;
+				const py = ty * TILE_SIZE;
+
+				if (t === T_GROUND) {
+					// Grass on top?
+					const above = ty > 0 ? s.tiles[ty - 1]?.[tx] : T_EMPTY;
+					if (above !== T_GROUND && above !== T_BRICK) {
+						buf.drawRect(px, py, TILE_SIZE, 1, COL_GRASS);
+						buf.drawRect(px, py + 1, TILE_SIZE, TILE_SIZE - 1, COL_GROUND);
+					} else {
+						buf.drawRect(px, py, TILE_SIZE, TILE_SIZE, COL_GROUND);
+					}
+				} else if (t === T_BRICK) {
+					buf.drawRect(px, py, TILE_SIZE, TILE_SIZE, COL_BRICK);
+					// Brick pattern
+					if (s.frame % 3 === 0) {
+						buf.setPixel(px + 1, py + 1, COL_GROUND);
+					}
+				} else if (t === T_COIN) {
+					const coinSpr = s.frame % 20 < 10 ? SPR_COIN1 : SPR_COIN2;
+					buf.drawSprite(coinSpr, px, py, false);
+				} else if (t === T_SPIKE) {
+					// Triangle spike
+					buf.setPixel(px + 1, py + 2, COL_SPIKE);
+					buf.setPixel(px + 2, py + 2, COL_SPIKE);
+					buf.setPixel(px, py + 3, COL_SPIKE);
+					buf.setPixel(px + 1, py + 3, COL_SPIKE);
+					buf.setPixel(px + 2, py + 3, COL_SPIKE);
+					buf.setPixel(px + 3, py + 3, COL_SPIKE);
+				} else if (t === T_GOAL) {
+					const goalCol = s.frame % 10 < 5 ? COL_GOAL : COL_COIN;
+					buf.drawRect(px + 1, py, 2, TILE_SIZE, goalCol);
+				} else if (t === T_WATER) {
+					const wave = (s.frame + tx) % 8 < 4;
+					buf.drawRect(px, py, TILE_SIZE, TILE_SIZE, wave ? COL_WATER1 : COL_WATER2);
+				}
+			}
+		}
+
+		// Draw enemies
+		for (const e of s.enemies) {
+			if (!e.alive) continue;
+			const ex = Math.floor(e.x) - camX;
+			const ey = Math.floor(e.y);
+			const spr = e.frame % 16 < 8 ? SPR_ENEMY1 : SPR_ENEMY2;
+			buf.drawSprite(spr, ex, ey, e.vx > 0);
+		}
+
+		// Draw player
+		if (!s.dead || s.deadTimer > 40) {
+			const ppx = Math.floor(s.px) - camX;
+			const ppy = Math.floor(s.py);
+			const blink = s.invincible > 0 && s.frame % 4 < 2;
+			if (!blink) {
+				let spr: number[][];
+				if (!s.onGround) {
+					spr = SPR_PLAYER_JUMP;
+				} else if (Math.abs(s.vx) > 0.2) {
+					spr = s.runFrame < 6 ? SPR_PLAYER_RUN1 : SPR_PLAYER_RUN2;
+				} else {
+					spr = SPR_PLAYER_STAND;
+				}
+				buf.drawSprite(spr, ppx, ppy, !s.facingRight);
+			}
+		}
+
+		// Draw particles
+		for (const p of s.particles) {
+			const px = Math.floor(p.x) - camX;
+			const py = Math.floor(p.y);
+			buf.setPixel(px, py, p.color);
+		}
+
+		// Render pixel buffer to half-blocks
+		const gameLines = buf.render(COL_SKY);
+
+		// Build output with header/footer
+		const lines: string[] = [];
+		const dim = (t: string) => `\x1b[2m${t}\x1b[0m`;
+		const bold = (t: string) => `\x1b[1m${t}\x1b[0m`;
+		const red = (t: string) => `\x1b[91m${t}\x1b[0m`;
+		const yellow = (t: string) => `\x1b[93m${t}\x1b[0m`;
+		const green = (t: string) => `\x1b[92m${t}\x1b[0m`;
+		const magenta = (t: string) => `\x1b[95m${t}\x1b[0m`;
 
 		// Header
-		lines.push(this.pad(border, width));
-		
-		const title = `${magenta(bold("BADLOGIC"))}  ${dim("World")} ${white(bold(String(s.level)))}`;
-		const stats = `${yellow("●")}${s.coins}  ${dim("Score")} ${yellow(String(s.score).padStart(5, "0"))}  ` +
-			`${dim("Time")} ${s.time < 60 ? red(String(s.time)) : white(String(s.time))}  ` +
+		const title = magenta(bold("BADLOGIC"));
+		const stats = `${yellow("●")}${s.coins} ${dim("Score")} ${yellow(String(s.score).padStart(5, "0"))} ` +
+			`${dim("World")} ${s.level} ${dim("Time")} ${s.time < 60 ? red(String(s.time)) : String(s.time)} ` +
 			`${red("♥".repeat(s.lives))}${dim("♡".repeat(INITIAL_LIVES - s.lives))}`;
-		
-		lines.push(this.pad(boxLine(title + "  " + stats), width));
-		lines.push(this.pad(boxLine(dim("-".repeat(boxWidth))), width));
+
+		lines.push("");
+		lines.push(this.pad(`  ${title}  ${stats}`, width));
+		lines.push(this.pad(dim("─".repeat(VIEW_COLS + 2)), width));
 
 		// Game state messages
 		if (s.gameOver) {
 			const won = s.level > LEVELS.length || (s.won && s.level === LEVELS.length);
-			if (won) {
-				lines.push(this.pad(boxLine(`  ${yellow(bold("★ CONGRATULATIONS! YOU WIN! ★"))}`), width));
-			} else {
-				lines.push(this.pad(boxLine(`  ${red(bold("GAME OVER"))}`), width));
-			}
-			lines.push(this.pad(boxLine(`  Final Score: ${yellow(String(s.score))}  Coins: ${yellow(String(s.coins))}`), width));
-			lines.push(this.pad(boxLine(""), width));
-			lines.push(this.pad(boxLine(`  ${dim("[R] Restart  [Q] Quit")}`), width));
-			lines.push(this.pad(border, width));
-			this.cache(lines, width);
-			return lines;
-		}
-
-		if (s.paused) {
-			lines.push(this.pad(boxLine(`  ${dim("══ PAUSED ══  [P] Resume  [R] Restart  [Q] Quit")}`), width));
+			lines.push(this.pad(won ? green(bold("  ★ YOU WIN! ★")) : red(bold("  GAME OVER")), width));
+			lines.push(this.pad(`  Score: ${s.score}  [R] Restart  [Q] Quit`, width));
+			lines.push("");
+		} else if (s.paused) {
+			lines.push(this.pad(dim("  ═══ PAUSED ═══  [P] Resume  [R] Restart  [Q] Quit"), width));
 		} else if (s.won) {
-			lines.push(this.pad(boxLine(`  ${yellow(bold("★ LEVEL CLEAR! ★"))}  +${500 + s.time * 5} pts`), width));
+			lines.push(this.pad(yellow(bold("  ★ LEVEL CLEAR! ★")), width));
 		} else if (s.dead) {
-			lines.push(this.pad(boxLine(`  ${red("☠ OUCH! ☠")}`), width));
+			lines.push(this.pad(red("  ☠ OUCH!"), width));
 		}
 
-		// Render viewport
-		const camX = Math.floor(s.cameraX);
-		const parallaxOffset = Math.floor(s.cameraX * 0.3);
-
-		for (let y = 0; y < VIEWPORT_HEIGHT; y++) {
-			let row = "";
-			for (let x = 0; x < VIEWPORT_WIDTH; x++) {
-				const wx = camX + x;
-				const wy = y;
-				let rendered = false;
-
-				// Particles (on top)
-				for (const p of s.particles) {
-					const psx = Math.floor(p.x) - camX;
-					const psy = Math.floor(p.y);
-					if (x === psx && y === psy) {
-						const fade = p.life / p.maxLife;
-						const col = fade > 0.5 ? p.color : "2;" + p.color;
-						row += c(col, p.char.slice(0, 2).padEnd(2));
-						rendered = true;
-						break;
-					}
-				}
-				if (rendered) continue;
-
-				// Player
-				const psx = Math.floor(s.px) - camX;
-				const psy = Math.floor(s.py);
-				if (x === psx && (y === psy || y === psy - 1) && !s.dead) {
-					const blink = s.invincible > 0 && s.frame % 4 < 2;
-					if (!blink) {
-						const sprite = this.getPlayerSprite(s, y === psy - 1);
-						row += cyan(sprite);
-					} else {
-						row += "  ";
-					}
-					continue;
-				}
-
-				// Dead player (falling)
-				if (s.dead && x === psx && y === Math.floor(s.py)) {
-					row += red("💀");
-					continue;
-				}
-
-				// Enemies
-				let isEnemy = false;
-				for (const e of s.enemies) {
-					if (!e.alive) continue;
-					const esx = Math.floor(e.x) - camX;
-					const esy = Math.floor(e.y);
-					if (x === esx && (y === esy || y === esy - 1)) {
-						const frame = ENEMY_FRAMES[Math.floor(e.frame / 8) % 2];
-						const part = y === esy - 1 ? frame[0] : frame[1];
-						row += red(part);
-						isEnemy = true;
-						break;
-					}
-				}
-				if (isEnemy) continue;
-
-				// Clouds (background, parallax)
-				let isCloud = false;
-				for (const cloud of s.clouds) {
-					const cloudX = Math.floor(cloud.x - parallaxOffset * 0.5);
-					if (y === Math.floor(cloud.y) && x >= cloudX - camX && x < cloudX - camX + cloud.size + 2) {
-						row += white(dim("░░"));
-						isCloud = true;
-						break;
-					}
-				}
-				if (isCloud) continue;
-
-				// Tiles
-				row += this.renderTile(getTile(s, wx, wy), wx, wy, s);
-			}
-			lines.push(this.pad(boxLine(row), width));
+		// Game viewport
+		for (const gl of gameLines) {
+			lines.push(this.pad(`  ${gl}`, width));
 		}
 
-		// Footer
-		lines.push(this.pad(boxLine(dim("-".repeat(boxWidth))), width));
-		const controls = `${dim("[←→/AD] Move  [↑/W/Space] Jump  [P] Pause  [R] Restart  [Q] Quit")}`;
-		lines.push(this.pad(boxLine(controls), width));
-		lines.push(this.pad(border, width));
+		lines.push(this.pad(dim("─".repeat(VIEW_COLS + 2)), width));
+		lines.push(this.pad(dim("  [←→/AD] Move  [↑/W/Space] Jump  [P] Pause  [R] Restart  [Q] Quit"), width));
 
-		this.cache(lines, width);
+		this.cachedLines = lines;
+		this.cachedVersion = this.version;
+		this.cachedWidth = width;
 		return lines;
-	}
-
-	private getPlayerSprite(s: GameState, isTop: boolean): string {
-		const idx = isTop ? 0 : 1;
-		
-		if (!s.onGround) {
-			return s.facingRight ? PLAYER_JUMP_R[idx] : PLAYER_JUMP_L[idx];
-		}
-		
-		if (Math.abs(s.vx) > 0.1) {
-			const frame = Math.floor(s.runFrame / 4) % 2;
-			return s.facingRight ? PLAYER_RUN_R[frame][idx] : PLAYER_RUN_L[frame][idx];
-		}
-		
-		return s.facingRight ? PLAYER_STAND_R[idx] : PLAYER_STAND_L[idx];
-	}
-
-	private renderTile(t: string, x: number, y: number, s: GameState): string {
-		const shimmer = (s.frame + x) % 20 < 2;
-		
-		switch (t) {
-			case GROUND: {
-				// Grass on top?
-				const above = getTile(s, x, y - 1);
-				if (above !== GROUND && above !== BRICK) {
-					return green("▓▓");
-				}
-				return brown("██");
-			}
-			case BRICK: {
-				return brown(shimmer ? "▒░" : "▒▒");
-			}
-			case COIN: {
-				return shimmer ? yellow(bold("◆ ")) : yellow("● ");
-			}
-			case SPIKE: {
-				return red("▲▲");
-			}
-			case GOAL: {
-				return (s.frame % 10 < 5) ? green(bold("⚑ ")) : yellow(bold("⚑ "));
-			}
-			case BUSH: {
-				return darkGreen("♣♣");
-			}
-			case WATER: {
-				const wave = (s.frame + x) % 8 < 4;
-				return blue(wave ? "~≈" : "≈~");
-			}
-			case CLOUD: {
-				return white(dim("░░"));
-			}
-			default: {
-				// Sky gradient based on y position
-				if (y < 3) return c("48;5;39", "  "); // Light blue
-				if (y < 6) return c("48;5;38", "  ");
-				if (y < 9) return c("48;5;37", "  ");
-				return c("48;5;36", "  "); // Darker blue
-			}
-		}
 	}
 
 	private pad(line: string, width: number): string {
 		const t = truncateToWidth(line, width);
 		const p = Math.max(0, width - visibleWidth(t));
 		return t + " ".repeat(p);
-	}
-
-	private cache(lines: string[], width: number): void {
-		this.cachedLines = lines;
-		this.cachedVersion = this.version;
-		this.cachedWidth = width;
 	}
 
 	dispose(): void {
@@ -984,7 +946,7 @@ class BadlogicComponent {
 
 export default function (pi: ExtensionAPI) {
 	pi.registerCommand("badlogic-game", {
-		description: "Badlogic Platformer - jump, collect coins, defeat enemies!",
+		description: "Badlogic Platformer - pixel-art side-scroller with half-block graphics!",
 		args: [],
 		handler: async (_args, ctx) => {
 			if (!ctx.hasUI) {
@@ -1006,9 +968,7 @@ export default function (pi: ExtensionAPI) {
 				return new BadlogicComponent(
 					tui,
 					() => done(undefined),
-					(state) => {
-						if (state) pi.appendEntry(SAVE_TYPE, state);
-					},
+					(state) => { if (state) pi.appendEntry(SAVE_TYPE, state); },
 					saved,
 				);
 			});
