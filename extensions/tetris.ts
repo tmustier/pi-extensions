@@ -191,7 +191,7 @@ class TetrisComponent {
 	private version = 0;
 	private cachedVersion = -1;
 	private paused: boolean;
-	private softDropping = false;
+
 	private dasDirection: -1 | 0 | 1 = 0;
 	private dasCounter = 0;
 	private arrCounter = 0;
@@ -249,20 +249,17 @@ class TetrisComponent {
 		}
 
 		this.state.tickCounter++;
-		const dropSpeed = this.softDropping ? 2 : getDropSpeed(this.state.level);
+		const dropSpeed = getDropSpeed(this.state.level);
 
 		if (this.state.tickCounter >= dropSpeed) {
 			this.state.tickCounter = 0;
 			if (!this.tryMove(1, 0)) {
 				this.state.lockDelay++;
-				if (this.state.lockDelay >= 10 || this.softDropping) {
+				if (this.state.lockDelay >= 10) {
 					this.lockPiece();
 				}
 			} else {
 				this.state.lockDelay = 0;
-				if (this.softDropping) {
-					this.state.score += 1;
-				}
 			}
 		}
 
@@ -409,33 +406,36 @@ class TetrisComponent {
 		this.state.canHold = false;
 	}
 
-	onKey(key: string): void {
+	handleInput(data: string): void {
 		if (this.state.gameOver) {
-			if (matchesKey(key, "r")) {
+			if (matchesKey(data, "r") || data === "r" || data === "R") {
 				this.state = createInitialState(this.state.highScore);
 				this.version++;
 				this.tui.requestRender();
-			} else if (matchesKey(key, "q") || matchesKey(key, "escape")) {
+			} else if (matchesKey(data, "q") || data === "q" || data === "Q" || matchesKey(data, "escape")) {
+				this.dispose();
 				this.onSave(null);
 				this.onClose();
 			}
 			return;
 		}
 
-		if (matchesKey(key, "p")) {
+		if (matchesKey(data, "p") || data === "p" || data === "P") {
 			this.paused = !this.paused;
 			this.version++;
 			this.tui.requestRender();
 			return;
 		}
 
-		if (matchesKey(key, "escape")) {
+		if (matchesKey(data, "escape")) {
+			this.dispose();
 			this.onSave(this.state);
 			this.onClose();
 			return;
 		}
 
-		if (matchesKey(key, "q")) {
+		if (matchesKey(data, "q") || data === "q" || data === "Q") {
+			this.dispose();
 			this.onSave(null);
 			this.onClose();
 			return;
@@ -448,41 +448,47 @@ class TetrisComponent {
 			return;
 		}
 
-		// Movement
-		if (matchesKey(key, "left") || matchesKey(key, "a") || matchesKey(key, "h")) {
+		// Movement - left
+		if (matchesKey(data, "left") || data === "a" || data === "A" || data === "h" || data === "H") {
 			this.tryMove(0, -1);
 			this.dasDirection = -1;
 			this.dasCounter = 0;
 			this.arrCounter = 0;
-		} else if (matchesKey(key, "right") || matchesKey(key, "d") || matchesKey(key, "l")) {
+		}
+		// Movement - right
+		else if (matchesKey(data, "right") || data === "d" || data === "D" || data === "l" || data === "L") {
 			this.tryMove(0, 1);
 			this.dasDirection = 1;
 			this.dasCounter = 0;
 			this.arrCounter = 0;
-		} else if (matchesKey(key, "down") || matchesKey(key, "s") || matchesKey(key, "j")) {
-			this.softDropping = true;
-		} else if (matchesKey(key, "up") || matchesKey(key, "w") || matchesKey(key, "k")) {
+		}
+		// Soft drop - single step per keypress
+		else if (matchesKey(data, "down") || data === "s" || data === "S" || data === "j" || data === "J") {
+			if (this.tryMove(1, 0)) {
+				this.state.score += 1;
+				this.state.lockDelay = 0;
+			}
+			this.dasDirection = 0; // Stop horizontal DAS when dropping
+		}
+		// Rotate clockwise
+		else if (matchesKey(data, "up") || data === "w" || data === "W" || data === "k" || data === "K") {
 			this.tryRotate(1);
-		} else if (matchesKey(key, "z") || matchesKey(key, "x")) {
+		}
+		// Rotate counter-clockwise
+		else if (data === "z" || data === "Z" || data === "x" || data === "X") {
 			this.tryRotate(-1);
-		} else if (matchesKey(key, " ")) {
+		}
+		// Hard drop
+		else if (data === " ") {
 			this.hardDrop();
-		} else if (matchesKey(key, "c") || matchesKey(key, "shift")) {
+		}
+		// Hold piece
+		else if (data === "c" || data === "C") {
 			this.holdPiece();
 		}
 
 		this.version++;
 		this.tui.requestRender();
-	}
-
-	onKeyUp(key: string): void {
-		if (matchesKey(key, "left") || matchesKey(key, "a") || matchesKey(key, "h")) {
-			if (this.dasDirection === -1) this.dasDirection = 0;
-		} else if (matchesKey(key, "right") || matchesKey(key, "d") || matchesKey(key, "l")) {
-			if (this.dasDirection === 1) this.dasDirection = 0;
-		} else if (matchesKey(key, "down") || matchesKey(key, "s") || matchesKey(key, "j")) {
-			this.softDropping = false;
-		}
 	}
 
 	render(width: number, _height: number): string[] {

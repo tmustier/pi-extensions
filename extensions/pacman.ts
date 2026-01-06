@@ -518,14 +518,14 @@ class PacmanComponent {
 		const { state } = this;
 
 		// Quit
-		if (matchesKey(key, { key: "q" }) || matchesKey(key, { key: "escape" })) {
+		if (matchesKey(key, "escape") || key === "q" || key === "Q") {
 			this.onSave(state);
 			this.onClose();
 			return true;
 		}
 
 		// New game
-		if (matchesKey(key, { key: "n" })) {
+		if (key === "n" || key === "N") {
 			const highScore = state.highScore;
 			Object.assign(this.state, createInitialState(highScore));
 			this.version++;
@@ -534,7 +534,7 @@ class PacmanComponent {
 		}
 
 		// Pause
-		if (matchesKey(key, { key: " " }) || matchesKey(key, { key: "p" })) {
+		if (key === " " || key === "p" || key === "P") {
 			state.paused = !state.paused;
 			this.version++;
 			this.tui.requestRender();
@@ -544,13 +544,13 @@ class PacmanComponent {
 		if (state.gameOver || state.paused) return true;
 
 		// Movement - arrow keys and vim keys
-		if (matchesKey(key, { key: "up" }) || matchesKey(key, { key: "k" }) || matchesKey(key, { key: "w" })) {
+		if (matchesKey(key, "up") || key === "k" || key === "w") {
 			state.nextDir = "up";
-		} else if (matchesKey(key, { key: "down" }) || matchesKey(key, { key: "j" }) || matchesKey(key, { key: "s" })) {
+		} else if (matchesKey(key, "down") || key === "j" || key === "s") {
 			state.nextDir = "down";
-		} else if (matchesKey(key, { key: "left" }) || matchesKey(key, { key: "h" }) || matchesKey(key, { key: "a" })) {
+		} else if (matchesKey(key, "left") || key === "h" || key === "a") {
 			state.nextDir = "left";
-		} else if (matchesKey(key, { key: "right" }) || matchesKey(key, { key: "l" }) || matchesKey(key, { key: "d" })) {
+		} else if (matchesKey(key, "right") || key === "l" || key === "d") {
 			state.nextDir = "right";
 		}
 

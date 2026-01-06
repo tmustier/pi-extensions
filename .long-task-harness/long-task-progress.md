@@ -27,12 +27,14 @@
 - `extensions/ping.ts` implemented with /ping command (needs manual run)
 - `extensions/pacman.ts` implemented with /pacman command (needs manual run)
 - `extensions/tetris.ts` implemented with /tetris command (needs manual run)
+- `extensions/mario.ts` implemented with /mario command (needs manual run)
 
 ### What's Not Working
 - Space Invaders gameplay not validated in a terminal yet
 - Ping gameplay not validated in a terminal yet
 - Pac-Man gameplay not validated in a terminal yet
 - Tetris gameplay not validated in a terminal yet
+- Mario gameplay not validated in a terminal yet
 
 ### Blocked On
 - None
@@ -517,6 +519,47 @@ Add Tetris to complete the arcade game collection.
 #### Next Steps
 1. Run `/tetris` to validate gameplay and controls -> likely affects: tetris-001
 2. Consider adding Snake as the remaining classic arcade game
+
+---
+
+### Session 18 | 2026-01-06 | Commits: none
+
+#### Metadata
+- **Features**: mario-001 (started)
+- **Files Changed**: 
+  - `extensions/mario.ts` (+new) - full Mario platformer implementation
+  - `.long-task-harness/long-task-progress.md` (+/-) - session log update
+  - `.long-task-harness/features.json` (+/-) - added mario-001 tracking
+- **Commit Summary**: (uncommitted)
+
+#### Goal
+Add Super Mario Bros style platformer to complete the arcade collection.
+
+#### Accomplished
+- [x] Implemented side-scrolling Mario platformer with physics engine
+- [x] Gravity, momentum, variable-height jumping
+- [x] Ground, bricks, question blocks (hit for coins), pipes
+- [x] Goombas that can be stomped
+- [x] Mushroom power-up (big Mario)
+- [x] Coins and scoring system
+- [x] Camera following with viewport scrolling
+- [x] Two levels with flag pole completion
+- [x] Death/respawn and lives system
+- [x] Save/resume state support
+- [x] Arrow/vim/WASD/SPACE controls
+
+#### Decisions
+- None
+
+#### Context & Learnings
+- Viewport is 40x15 with camera following Mario
+- Physics uses fractional positions with collision detection
+- Key input uses timeout-based "release" since TUI doesn't get keyup events
+- Levels are defined as string arrays for easy editing
+
+#### Next Steps
+1. Run `/mario` to validate gameplay and physics -> likely affects: mario-001
+2. Consider adding more levels or power-ups (fire flower, star)
 
 ---
 
