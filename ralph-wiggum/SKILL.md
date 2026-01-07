@@ -34,15 +34,16 @@ ralph_start({
 
 ## User Commands
 
-- `/ralph stop` - Pause loop (when agent idle)
+- `/ralph start <name|path>` - Start a new loop
 - `/ralph resume <name>` - Resume loop
+- `/ralph stop` - Pause loop (when agent idle)
+- `/ralph-stop` - Stop active loop (idle only)
 - `/ralph status` - Show loops
-- `/ralph cancel <name>` - Delete loop
+- `/ralph list --archived` - Show archived loops
 - `/ralph archive <name>` - Move loop to archive
 - `/ralph clean [--all]` - Clean completed loops
-- `/ralph list --archived` - Show archived loops
+- `/ralph cancel <name>` - Delete loop
 - `/ralph nuke [--yes]` - Delete all .ralph data
-- `/ralph-stop` - Stop active loop (idle only)
 
 During streaming: press ESC to interrupt, send a normal message to resume, and run `/ralph-stop` when idle to end the loop.
 

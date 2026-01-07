@@ -31,15 +31,15 @@ If you hit `esc`, you can run `/ralph-stop` to clear the loop. Alternatively, ju
 | Command | Description |
 |---------|-------------|
 | `/ralph start <name\|path>` | Start a new loop |
-| `/ralph stop` | Pause current loop |
 | `/ralph resume <name>` | Resume a paused loop |
+| `/ralph stop` | Pause current loop |
+| `/ralph-stop` | Stop active loop (idle only) |
 | `/ralph status` | Show all loops |
-| `/ralph cancel <name>` | Delete a loop |
+| `/ralph list --archived` | Show archived loops |
 | `/ralph archive <name>` | Move loop to archive |
 | `/ralph clean [--all]` | Clean completed loops |
-| `/ralph list --archived` | Show archived loops |
+| `/ralph cancel <name>` | Delete a loop |
 | `/ralph nuke [--yes]` | Delete all .ralph data |
-| `/ralph-stop` | Stop active loop (idle only) |
 
 ### Options for start
 
