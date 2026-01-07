@@ -484,14 +484,20 @@ Examples:
 	// --- Event handlers ---
 
 	pi.on("before_agent_start", async (event, ctx) => {
+		// DEBUG
+		console.error(`[RALPH DEBUG] before_agent_start: prompt="${event.prompt}", currentLoop=${currentLoop}`);
+		
 		// Handle stop command
 		const prompt = event.prompt.toLowerCase().trim();
 		if (prompt === "stop" || prompt === "/ralph stop" || prompt === "ralph stop") {
+			console.error(`[RALPH DEBUG] Stop command detected!`);
 			const state = currentLoop
 				? loadState(ctx, currentLoop)
 				: listLoops(ctx).find((l) => l.status === "active");
+			console.error(`[RALPH DEBUG] state=${state?.name}, status=${state?.status}`);
 			if (state && state.status === "active") {
 				pauseLoop(ctx, state, `Ralph loop "${state.name}" stopped.`);
+				console.error(`[RALPH DEBUG] Called pauseLoop`);
 			}
 			return; // Don't continue with loop prompt injection
 		}
