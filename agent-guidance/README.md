@@ -5,32 +5,57 @@ Loads different context files based on the current model's provider, supplementi
 ## How It Works
 
 ```mermaid
-flowchart LR
-    subgraph Pi Core
-        A[Start] --> B[Load AGENTS.md]
+flowchart TB
+    subgraph Global ["~/.pi/agent/"]
+        G_AGENTS[AGENTS.md]
+        G_CLAUDE[CLAUDE.md]
+        G_CODEX[CODEX.md]
+        G_GEMINI[GEMINI.md]
     end
     
-    subgraph agent-guidance extension
-        B --> C{Which provider?}
-        C -->|Anthropic| D[+ CLAUDE.md]
-        C -->|OpenAI/Codex| E[+ CODEX.md]
-        C -->|Google| F[+ GEMINI.md]
+    subgraph Repo ["project/"]
+        R_AGENTS[AGENTS.md]
+        R_CLAUDE[CLAUDE.md]
     end
     
-    D --> G[System Prompt]
-    E --> G
-    F --> G
+    subgraph Core ["Pi Core"]
+        LOAD[Load all AGENTS.md files<br/>global → parent dirs → cwd]
+    end
+    
+    subgraph Ext ["agent-guidance extension"]
+        CHECK{Which provider?}
+        ADD_C[+ CLAUDE.md files]
+        ADD_X[+ CODEX.md files]
+        ADD_G[+ GEMINI.md files]
+    end
+    
+    G_AGENTS --> LOAD
+    R_AGENTS --> LOAD
+    LOAD --> CHECK
+    
+    CHECK -->|Anthropic| ADD_C
+    CHECK -->|OpenAI| ADD_X
+    CHECK -->|Google| ADD_G
+    
+    G_CLAUDE -.-> ADD_C
+    R_CLAUDE -.-> ADD_C
+    G_CODEX -.-> ADD_X
+    G_GEMINI -.-> ADD_G
+    
+    ADD_C --> PROMPT[System Prompt]
+    ADD_X --> PROMPT
+    ADD_G --> PROMPT
 ```
 
-| Model Provider | Context File |
-|---------------|--------------|
-| Anthropic (Claude) | `CLAUDE.md` |
-| OpenAI / Codex | `CODEX.md` |
-| Google (Gemini) | `GEMINI.md` |
+**What gets loaded:**
 
-**Examples:**
-- Repo has `AGENTS.md` + `CLAUDE.md` → Anthropic gets both, OpenAI gets `AGENTS.md` + `CODEX.md`
-- Repo has only `CLAUDE.md` → Anthropic gets `CLAUDE.md`, OpenAI gets `CLAUDE.md` + `CODEX.md`
+| Provider | Files Loaded |
+|----------|-------------|
+| Anthropic | `~/.pi/agent/AGENTS.md` + `project/AGENTS.md` + `~/.pi/agent/CLAUDE.md` + `project/CLAUDE.md` |
+| OpenAI | `~/.pi/agent/AGENTS.md` + `project/AGENTS.md` + `~/.pi/agent/CODEX.md` |
+| Google | `~/.pi/agent/AGENTS.md` + `project/AGENTS.md` + `~/.pi/agent/GEMINI.md` |
+
+**Deduplication:** If a directory only has `CLAUDE.md` (no `AGENTS.md`), Pi core loads it as fallback. The extension skips loading it again to avoid duplication.
 
 ## Install
 
