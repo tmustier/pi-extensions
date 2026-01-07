@@ -218,8 +218,9 @@ export default function (pi: ExtensionAPI) {
 			parts.push(`1. Continue working on the task`);
 		}
 		parts.push(`2. Update the task file (${state.taskFile}) with your progress`);
-		parts.push(`3. When the task is FULLY COMPLETE, respond with: ${COMPLETE_MARKER}`);
-		parts.push(`4. Otherwise, call the ralph_done tool to proceed to next iteration`);
+		parts.push(`3. When FULLY COMPLETE, respond with: ${COMPLETE_MARKER}`);
+		parts.push(`4. If user sends "ralph-stop", immediately respond with: ${COMPLETE_MARKER}`);
+		parts.push(`5. Otherwise, call the ralph_done tool to proceed to next iteration`);
 
 		return parts.join("\n");
 	}
@@ -541,18 +542,6 @@ Examples:
 	// --- Event handlers ---
 
 	pi.on("before_agent_start", async (event, ctx) => {
-		// Handle ralph-stop command (user typed during streaming)
-		const prompt = event.prompt.toLowerCase().trim();
-		if (prompt === "ralph-stop") {
-			const state = currentLoop
-				? loadState(ctx, currentLoop)
-				: listLoops(ctx).find((l) => l.status === "active");
-			if (state && state.status === "active") {
-				pauseLoop(ctx, state, `Ralph loop "${state.name}" paused. Use /ralph resume ${state.name} to continue.`);
-			}
-			return; // Don't continue with loop prompt injection
-		}
-
 		if (!currentLoop) return;
 		const state = loadState(ctx, currentLoop);
 		if (!state || state.status !== "active") return;
@@ -565,6 +554,7 @@ Examples:
 		}
 		instructions += `- Update the task file as you progress\n`;
 		instructions += `- When FULLY COMPLETE: ${COMPLETE_MARKER}\n`;
+		instructions += `- If user sends "ralph-stop": immediately output ${COMPLETE_MARKER}\n`;
 		instructions += `- Otherwise, call ralph_done tool to proceed to next iteration`;
 
 		return {
