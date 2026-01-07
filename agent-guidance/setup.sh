@@ -17,23 +17,38 @@ AGENTS_FILE="$PI_AGENT_DIR/AGENTS.md"
 CLAUDE_FILE="$PI_AGENT_DIR/CLAUDE.md"
 
 if [ ! -f "$AGENTS_FILE" ]; then
-    # Create placeholder AGENTS.md
-    cat > "$AGENTS_FILE" << 'EOF'
+    if [ -f "$CLAUDE_FILE" ] || [ -L "$CLAUDE_FILE" ]; then
+        echo ""
+        echo "  ⚠️  No AGENTS.md found, but CLAUDE.md exists."
+        echo ""
+        read -p "     Copy CLAUDE.md content to AGENTS.md? [y/N] " -n 1 -r
+        echo ""
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            cp "$CLAUDE_FILE" "$AGENTS_FILE"
+            echo "     Copied CLAUDE.md → AGENTS.md"
+            echo "     CLAUDE.md kept for Claude-specific guidance (edit as needed)."
+        else
+            # Create placeholder
+            cat > "$AGENTS_FILE" << 'EOF'
 # AGENTS.md
 
 Universal guidelines for all AI models.
 
 <!-- Add your cross-model guidance here -->
 EOF
-    
-    if [ -f "$CLAUDE_FILE" ] || [ -L "$CLAUDE_FILE" ]; then
-        echo ""
-        echo "  ⚠️  No AGENTS.md found in $PI_AGENT_DIR/"
-        echo "     Created a placeholder."
-        echo "     You have an existing CLAUDE.md - if you want that guidance"
-        echo "     to apply across all models, move it to AGENTS.md."
+            echo "     Created placeholder AGENTS.md."
+            echo "     If you want CLAUDE.md guidance to apply across all models, move it to AGENTS.md."
+        fi
         echo ""
     else
+        # No CLAUDE.md either, create placeholder
+        cat > "$AGENTS_FILE" << 'EOF'
+# AGENTS.md
+
+Universal guidelines for all AI models.
+
+<!-- Add your cross-model guidance here -->
+EOF
         echo ""
         echo "  ⚠️  No AGENTS.md found in $PI_AGENT_DIR/"
         echo "     Created a placeholder; add your cross-model guidance there."
