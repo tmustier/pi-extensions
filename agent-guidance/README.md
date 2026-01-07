@@ -5,34 +5,30 @@ Loads different context files based on the current model's provider, supplementi
 ## How It Works
 
 ```mermaid
-flowchart TB
-    subgraph Sources ["Your Config Files"]
-        direction LR
-        AGENTS["AGENTS.md<br/>(universal)"]:::core
-        CLAUDE["CLAUDE.md"]:::ext
-        CODEX["CODEX.md"]:::ext
-        GEMINI["GEMINI.md"]:::ext
+flowchart LR
+    subgraph Core ["Pi Core"]
+        A[Start] --> B[Load AGENTS.md]
     end
-
-    AGENTS --> CORE["Pi Core loads AGENTS.md"]:::core
     
-    CORE --> EXT{"agent-guidance<br/>checks provider"}:::ext
+    subgraph Ext ["agent-guidance extension"]
+        B --> C{Which provider?}
+        C -->|Anthropic| D[+ CLAUDE.md]
+        C -->|OpenAI/Codex| E[+ CODEX.md]
+        C -->|Google| F[+ GEMINI.md]
+    end
     
-    EXT -->|Anthropic| C["+ CLAUDE.md"]:::ext
-    EXT -->|OpenAI| X["+ CODEX.md"]:::ext
-    EXT -->|Google| G["+ GEMINI.md"]:::ext
-    
-    C --> PROMPT["System Prompt"]
-    X --> PROMPT
-    G --> PROMPT
-
-    classDef core fill:#4a9eff,stroke:#2171c7,color:#fff
-    classDef ext fill:#10b981,stroke:#059669,color:#fff
+    D --> G[System Prompt]
+    E --> G
+    F --> G
 ```
 
-<sub>🔵 Pi Core &nbsp;&nbsp; 🟢 agent-guidance extension</sub>
+**Files are loaded from:** `~/.pi/agent/` (global) and `project/` (local), walking up parent directories.
 
-**Files are loaded from multiple locations:** `~/.pi/agent/` (global) and `project/` (local), walking up parent directories.
+| Model Provider | Context File |
+|---------------|--------------|
+| Anthropic (Claude) | `CLAUDE.md` |
+| OpenAI / Codex | `CODEX.md` |
+| Google (Gemini) | `GEMINI.md` |
 
 ## Install
 
