@@ -37,7 +37,7 @@ target="$PI_AGENT_DIR/extensions/provider-context.ts"
 if [ -L "$target" ]; then
     echo "  provider-context.ts already linked"
 else
-    ln -sf "$SCRIPT_DIR/provider-context.ts" "$target"
+    ln -sf "$SCRIPT_DIR/extensions/provider-context.ts" "$target"
     echo "  Linked provider-context.ts"
 fi
 

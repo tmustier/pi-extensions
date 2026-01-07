@@ -45,8 +45,10 @@ Create `~/.pi/agent/provider-context.json` to customize mappings:
 
 ## Extensions
 
+All extensions live in `extensions/`:
+
 ### Provider Context
-- `provider-context.ts`: Loads model-specific context files (see above)
+- `extensions/provider-context.ts`: Loads model-specific context files (see above)
 
 ### Utilities
 - `extensions/tab-status.ts`: Updates terminal tab title with Pi run status
@@ -58,6 +60,9 @@ Create `~/.pi/agent/provider-context.json` to customize mappings:
 - `extensions/arcade/tetris.ts`: Tetris (`/tetris`)
 - `extensions/arcade/doom/doom.ts`: ASCII Doom - first-person raycaster (`/doom`)
 
+### WIP
+- `extensions/wip/`: Work in progress extensions
+
 ## Manual Install
 
 Add extension paths to `~/.pi/agent/settings.json`:
@@ -65,7 +70,7 @@ Add extension paths to `~/.pi/agent/settings.json`:
 ```json
 {
   "extensions": [
-    "~/pi-extensions/provider-context.ts",
+    "~/pi-extensions/extensions/provider-context.ts",
     "~/pi-extensions/extensions/tab-status.ts"
   ]
 }
@@ -74,5 +79,5 @@ Add extension paths to `~/.pi/agent/settings.json`:
 Or symlink to auto-discovery directory:
 
 ```bash
-ln -s ~/pi-extensions/provider-context.ts ~/.pi/agent/extensions/
+ln -s ~/pi-extensions/extensions/provider-context.ts ~/.pi/agent/extensions/
 ```
