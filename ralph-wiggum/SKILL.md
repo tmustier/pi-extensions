@@ -38,7 +38,7 @@ ralph_start({
 - `/ralph resume <name>` - Resume loop
 - `/ralph status` - Show loops
 - `/ralph cancel <name>` - Delete loop
-- Type `stop` during streaming - Queues stop, pauses loop
+- Type `ralph-stop` during streaming - Pauses the loop (ESC won't work)
 
 ## Task File Format
 

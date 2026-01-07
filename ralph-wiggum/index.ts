@@ -187,6 +187,10 @@ export default function (pi: ExtensionAPI) {
 			const next = state.reflectEvery - ((state.iteration - 1) % state.reflectEvery);
 			lines.push(theme.fg("dim", `Next reflection in: ${next} iterations`));
 		}
+		// Warning about stopping
+		lines.push("");
+		lines.push(theme.fg("warning", "⚠ ESC won't stop loop"));
+		lines.push(theme.fg("warning", "Type: ralph-stop"));
 		ctx.ui.setWidget("ralph", lines);
 	}
 
@@ -537,14 +541,14 @@ Examples:
 	// --- Event handlers ---
 
 	pi.on("before_agent_start", async (event, ctx) => {
-		// Handle stop command
+		// Handle ralph-stop command (user typed during streaming)
 		const prompt = event.prompt.toLowerCase().trim();
-		if (prompt === "stop" || prompt === "/ralph stop" || prompt === "ralph stop") {
+		if (prompt === "ralph-stop") {
 			const state = currentLoop
 				? loadState(ctx, currentLoop)
 				: listLoops(ctx).find((l) => l.status === "active");
 			if (state && state.status === "active") {
-				pauseLoop(ctx, state, `Ralph loop "${state.name}" stopped.`);
+				pauseLoop(ctx, state, `Ralph loop "${state.name}" paused. Use /ralph resume ${state.name} to continue.`);
 			}
 			return; // Don't continue with loop prompt injection
 		}
