@@ -481,16 +481,15 @@ Add Pac-Man to round out the arcade game collection.
 
 ---
 
-### Session 17 | 2026-01-06 | Commits: 228ffc5..staged
+### Session 17 | 2026-01-06 | Commits: 228ffc5..d634f6b
 
 #### Metadata
-- **Features**: tetris-001 (started)
+- **Features**: tetris-001 (progressed)
 - **Files Changed**: 
   - `extensions/tetris.ts` (+new) - full Tetris game implementation
   - `README.md` (+/-) - added tetris to extension list
   - `.long-task-harness/features.json` (+/-) - added tetris-001 feature
-  - `.long-task-harness/long-task-progress.md` (+/-) - session log update
-- **Commit Summary**: (uncommitted)
+- **Commit Summary**: `feat: add tetris and pacman arcade games`, `fix: tetris movement is now one cell per keypress`, `fix: allow tetris pieces above board (spawn zone)`
 
 #### Goal
 Add Tetris to complete the arcade game collection.
@@ -503,18 +502,22 @@ Add Tetris to complete the arcade game collection.
 - [x] Line clearing with flash animation
 - [x] Scoring: soft drop bonus, hard drop bonus, line clear multipliers
 - [x] Level progression (every 10 lines)
-- [x] DAS (Delayed Auto Shift) for smooth lateral movement
 - [x] Wall kick rotation system
 - [x] Arrow/vim/WASD controls plus SPACE for hard drop
 - [x] Save/resume state support
+- [x] Fixed input handling (handleInput not onKey)
+- [x] Fixed spawn zone validation (pieces can exist above board)
+- [x] Simplified to one move per keypress (removed DAS)
 
 #### Decisions
-- None
+- Removed DAS (Delayed Auto Shift) - not practical without key release detection in TUI
 
 #### Context & Learnings
 - Board is 10x20 standard Tetris dimensions
 - Uses 7-bag randomizer for fair piece distribution
 - Ghost piece renders as dim "░░" characters
+- TUI uses `handleInput(data: string)` not `onKey` for input
+- Pieces can have cells at negative rows (spawn zone) - only invalid if colliding
 
 #### Next Steps
 1. Run `/tetris` to validate gameplay and controls -> likely affects: tetris-001
