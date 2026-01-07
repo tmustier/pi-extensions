@@ -51,10 +51,22 @@ Example: 100 items, 5 per iteration, reflect every 50:
 2. Check off completed items in `.ralph/<name>.md`
 3. When all done, output: `<promise>COMPLETE</promise>`
 
+## Loop Lifecycle
+
+Loops have three states: `active`, `paused`, `completed`
+
+- **active**: Currently running
+- **paused**: Stopped mid-work (can resume)
+- **completed**: Finished naturally or hit max iterations
+
 ## User Commands
 
 - `/ralph stop` - Pause loop (when agent idle)
-- `/ralph resume <name>` - Resume loop
-- `/ralph status` - Show loops
-- `/ralph cancel <name>` - Delete loop
+- `/ralph resume <name>` - Resume paused loop
+- `/ralph status` - Show all loops with status
+- `/ralph cancel <name>` - Delete loop state file
+- `/ralph archive <name>` - Move to `.ralph/archive/`
+- `/ralph clean` - Remove state files for completed loops (keeps .md)
+- `/ralph clean --all` - Remove all files for completed loops
+- `/ralph list --archived` - Show archived loops
 - Type `stop` during streaming - Queues stop, pauses after current turn

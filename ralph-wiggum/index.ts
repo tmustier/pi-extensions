@@ -709,7 +709,7 @@ Examples:
 	pi.on("before_agent_start", async (event, ctx) => {
 		if (!runtime.currentLoop) return;
 		const state = loadState(ctx, runtime.currentLoop);
-		if (!state?.active) return;
+		if (!state || state.status !== "active") return;
 
 		// Check if user sent a stop command (typed during streaming)
 		const prompt = event.prompt.toLowerCase().trim();
@@ -746,7 +746,7 @@ ${instructions}`,
 		if (!runtime.currentLoop) return;
 
 		const state = loadState(ctx, runtime.currentLoop);
-		if (!state?.active) return;
+		if (!state || state.status !== "active") return;
 
 		// Check for user pending messages - if user typed something, pause to let them through
 		if (ctx.hasPendingMessages()) {
@@ -827,7 +827,7 @@ ${instructions}`,
 
 	pi.on("session_start", async (_event, ctx) => {
 		const loops = listLoops(ctx);
-		const activeLoops = loops.filter((l) => l.active);
+		const activeLoops = loops.filter((l) => l.status === "active");
 
 		if (activeLoops.length > 0 && ctx.hasUI) {
 			const lines = activeLoops.map((l) => {

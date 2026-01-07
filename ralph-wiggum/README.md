@@ -34,12 +34,37 @@ Or add to `~/.pi/agent/settings.json`:
 | `/ralph start <name\|path>` | Start a new loop |
 | `/ralph stop` | Pause current loop |
 | `/ralph resume <name>` | Resume a paused loop |
-| `/ralph status` | Show all loops |
-| `/ralph cancel <name>` | Delete a loop |
+| `/ralph status` | Show all loops with status |
+| `/ralph cancel <name>` | Delete a loop's state file |
+| `/ralph archive <name>` | Move completed/paused loop to archive |
+| `/ralph clean` | Remove state files for completed loops |
+| `/ralph clean --all` | Remove all files for completed loops |
+| `/ralph list --archived` | Show archived loops |
 
 ### Stopping During Streaming
 
 To stop a loop while the agent is streaming, type `stop` (just the word). The message will be queued and processed after the current turn, pausing the loop.
+
+## Loop Lifecycle
+
+Loops have three states:
+
+| Status | Description |
+|--------|-------------|
+| `▶ active` | Currently running |
+| `⏸ paused` | Stopped mid-work (can resume) |
+| `✓ completed` | Finished naturally or hit max iterations |
+
+### Cleanup Workflow
+
+```bash
+# After completing a task:
+/ralph status                # See what's done
+/ralph archive my-feature    # Move to .ralph/archive/
+# or
+/ralph clean                 # Remove state files for completed (keeps .md)
+/ralph clean --all           # Remove all files for completed loops
+```
 
 ## Options
 
@@ -76,4 +101,5 @@ Active loops are detected on session start but NOT auto-resumed.
 | Path | Description |
 |------|-------------|
 | `.ralph/<name>.md` | Task file (created if not exists) |
-| `.ralph/<name>.state.json` | Loop state (iteration, settings) |
+| `.ralph/<name>.state.json` | Loop state (iteration, settings, status) |
+| `.ralph/archive/` | Archived loops |
