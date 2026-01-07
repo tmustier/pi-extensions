@@ -15,8 +15,8 @@ const PIXEL_H = VIEW_ROWS * 2;  // Pixel height
 const TICK_MS = 40;
 
 // Physics (in pixels)
-const GRAVITY = 0.4;
-const JUMP_VEL = -2.8;
+const GRAVITY = 0.35;
+const JUMP_VEL = -3.8;
 const MOVE_SPEED = 0.35;
 const MAX_SPEED = 1.2;
 const FRICTION = 0.82;
