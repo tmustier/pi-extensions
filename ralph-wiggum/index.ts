@@ -175,7 +175,12 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	function buildPrompt(state: LoopState, taskContent: string, isReflection: boolean): string {
-		let prompt = "";
+		const maxStr = state.maxIterations > 0 ? `/${state.maxIterations}` : "";
+		let prompt = `───────────────────────────────────────────────────────────────────────
+🔄 RALPH LOOP: ${state.name} | Iteration ${state.iteration}${maxStr}${isReflection ? " | 🪞 REFLECTION" : ""}
+───────────────────────────────────────────────────────────────────────
+
+`;
 
 		if (isReflection) {
 			prompt += `${state.reflectInstructions}\n\n---\n\n`;
@@ -285,9 +290,6 @@ export default function (pi: ExtensionAPI) {
 					saveState(ctx, state);
 					runtime.currentLoop = loopName;
 					updateStatus(ctx);
-
-					const maxStr = state.maxIterations > 0 ? ` (max ${state.maxIterations})` : "";
-					ctx.ui.notify(`Started Ralph loop: ${loopName}${maxStr}`, "info");
 
 					const taskContent = readTaskFile(ctx, taskFile);
 					if (!taskContent) {
@@ -453,7 +455,9 @@ You are in a Ralph loop working on: ${state.taskFile}
 			saveState(ctx, state);
 			runtime.currentLoop = null;
 			updateStatus(ctx);
-			ctx.ui.notify(`Ralph loop "${state.name}" complete after ${state.iteration} iterations!`, "info");
+			pi.sendUserMessage(`───────────────────────────────────────────────────────────────────────
+✅ RALPH LOOP COMPLETE: ${state.name} | ${state.iteration} iterations
+───────────────────────────────────────────────────────────────────────`);
 			return;
 		}
 
@@ -462,7 +466,9 @@ You are in a Ralph loop working on: ${state.taskFile}
 			saveState(ctx, state);
 			runtime.currentLoop = null;
 			updateStatus(ctx);
-			ctx.ui.notify(`Ralph loop "${state.name}" stopped: max iterations (${state.maxIterations}) reached`, "warning");
+			pi.sendUserMessage(`───────────────────────────────────────────────────────────────────────
+⚠️ RALPH LOOP STOPPED: ${state.name} | Max iterations (${state.maxIterations}) reached
+───────────────────────────────────────────────────────────────────────`);
 			return;
 		}
 
@@ -474,11 +480,13 @@ You are in a Ralph loop working on: ${state.taskFile}
 
 		const taskContent = readTaskFile(ctx, state.taskFile);
 		if (!taskContent) {
-			ctx.ui.notify(`Could not read task file: ${state.taskFile}. Loop paused.`, "error");
 			state.active = false;
 			saveState(ctx, state);
 			runtime.currentLoop = null;
 			updateStatus(ctx);
+			pi.sendUserMessage(`───────────────────────────────────────────────────────────────────────
+❌ RALPH LOOP ERROR: ${state.name} | Could not read task file: ${state.taskFile}
+───────────────────────────────────────────────────────────────────────`);
 			return;
 		}
 
