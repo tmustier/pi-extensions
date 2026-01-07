@@ -61,11 +61,13 @@ interface LoopState {
 	taskFile: string;
 	iteration: number;
 	maxIterations: number;
-	reflectEvery: number;
+	itemsPerIteration: number; // How many items to process per iteration (0 = no limit)
+	reflectEveryItems: number; // Reflect every N items (not iterations)
+	itemsProcessed: number; // Total items processed so far
 	reflectInstructions: string;
 	active: boolean;
 	startedAt: string;
-	lastReflection: number;
+	lastReflectionAtItems: number;
 }
 
 interface RuntimeState {
@@ -160,7 +162,8 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		const maxStr = state.maxIterations > 0 ? `/${state.maxIterations}` : "";
-		ctx.ui.setStatus("ralph", ctx.ui.theme.fg("accent", `🔄 ${state.name} (${state.iteration}${maxStr})`));
+		const itemsStr = state.itemsPerIteration > 0 ? ` | ${state.itemsProcessed} items` : "";
+		ctx.ui.setStatus("ralph", ctx.ui.theme.fg("accent", `🔄 ${state.name} (${state.iteration}${maxStr}${itemsStr})`));
 
 		const lines: string[] = [
 			ctx.ui.theme.fg("accent", ctx.ui.theme.bold("Ralph Wiggum")),
@@ -168,17 +171,21 @@ export default function (pi: ExtensionAPI) {
 			ctx.ui.theme.fg("dim", `Iteration: ${state.iteration}${maxStr}`),
 			ctx.ui.theme.fg("dim", `Task: ${state.taskFile}`),
 		];
-		if (state.reflectEvery > 0) {
-			const nextReflect = state.reflectEvery - (state.iteration % state.reflectEvery);
-			lines.push(ctx.ui.theme.fg("dim", `Next reflection in: ${nextReflect} iterations`));
+		if (state.itemsPerIteration > 0) {
+			lines.push(ctx.ui.theme.fg("dim", `Items processed: ${state.itemsProcessed}`));
+		}
+		if (state.reflectEveryItems > 0) {
+			const nextReflect = state.reflectEveryItems - (state.itemsProcessed % state.reflectEveryItems);
+			lines.push(ctx.ui.theme.fg("dim", `Next reflection in: ${nextReflect} items`));
 		}
 		ctx.ui.setWidget("ralph", lines);
 	}
 
 	function buildPrompt(state: LoopState, taskContent: string, isReflection: boolean): string {
 		const maxStr = state.maxIterations > 0 ? `/${state.maxIterations}` : "";
+		const itemsStr = state.itemsPerIteration > 0 ? ` | Items: ${state.itemsProcessed}` : "";
 		let prompt = `───────────────────────────────────────────────────────────────────────
-🔄 RALPH LOOP: ${state.name} | Iteration ${state.iteration}${maxStr}${isReflection ? " | 🪞 REFLECTION" : ""}
+🔄 RALPH LOOP: ${state.name} | Iteration ${state.iteration}${maxStr}${itemsStr}${isReflection ? " | 🪞 REFLECTION" : ""}
 ───────────────────────────────────────────────────────────────────────
 
 `;
@@ -192,10 +199,21 @@ export default function (pi: ExtensionAPI) {
 		prompt += `You are in a Ralph loop (iteration ${state.iteration}`;
 		if (state.maxIterations > 0) prompt += ` of ${state.maxIterations}`;
 		prompt += `).\n\n`;
-		prompt += `1. Read the task file above and continue working on it\n`;
-		prompt += `2. Update the task file (${state.taskFile}) as you make progress\n`;
-		prompt += `3. When the task is FULLY COMPLETE, respond with: ${COMPLETE_MARKER}\n`;
-		prompt += `4. Do NOT output ${COMPLETE_MARKER} unless the task is genuinely done\n`;
+
+		if (state.itemsPerIteration > 0) {
+			const startItem = state.itemsProcessed + 1;
+			const endItem = state.itemsProcessed + state.itemsPerIteration;
+			prompt += `**THIS ITERATION: Process items ${startItem}-${endItem} only, then STOP.**\n\n`;
+			prompt += `1. Process the next ${state.itemsPerIteration} items from your checklist\n`;
+			prompt += `2. Update the task file (${state.taskFile}) with your progress\n`;
+			prompt += `3. After completing ${state.itemsPerIteration} items, STOP and wait for the next iteration\n`;
+			prompt += `4. If ALL items are done before reaching ${state.itemsPerIteration}, respond with: ${COMPLETE_MARKER}\n`;
+		} else {
+			prompt += `1. Read the task file above and continue working on it\n`;
+			prompt += `2. Update the task file (${state.taskFile}) as you make progress\n`;
+			prompt += `3. When the task is FULLY COMPLETE, respond with: ${COMPLETE_MARKER}\n`;
+			prompt += `4. Do NOT output ${COMPLETE_MARKER} unless the task is genuinely done\n`;
+		}
 
 		return prompt;
 	}
@@ -203,13 +221,15 @@ export default function (pi: ExtensionAPI) {
 	function parseArgs(argsStr: string): {
 		name: string;
 		maxIterations: number;
-		reflectEvery: number;
+		itemsPerIteration: number;
+		reflectEveryItems: number;
 		reflectInstructions: string;
 	} {
 		const args = argsStr.match(/(?:[^\s"]+|"[^"]*")+/g) || [];
 		let name = "";
 		let maxIterations = 0;
-		let reflectEvery = 0;
+		let itemsPerIteration = 0;
+		let reflectEveryItems = 0;
 		let reflectInstructions = DEFAULT_REFLECT_INSTRUCTIONS;
 
 		let i = 0;
@@ -218,8 +238,11 @@ export default function (pi: ExtensionAPI) {
 			if (arg === "--max-iterations" && i + 1 < args.length) {
 				maxIterations = parseInt(args[i + 1], 10) || 0;
 				i += 2;
+			} else if (arg === "--items-per-iteration" && i + 1 < args.length) {
+				itemsPerIteration = parseInt(args[i + 1], 10) || 0;
+				i += 2;
 			} else if (arg === "--reflect-every" && i + 1 < args.length) {
-				reflectEvery = parseInt(args[i + 1], 10) || 0;
+				reflectEveryItems = parseInt(args[i + 1], 10) || 0;
 				i += 2;
 			} else if (arg === "--reflect-instructions" && i + 1 < args.length) {
 				reflectInstructions = args[i + 1].replace(/^"|"$/g, "");
@@ -232,7 +255,7 @@ export default function (pi: ExtensionAPI) {
 			}
 		}
 
-		return { name, maxIterations, reflectEvery, reflectInstructions };
+		return { name, maxIterations, itemsPerIteration, reflectEveryItems, reflectInstructions };
 	}
 
 	pi.registerCommand("ralph", {
@@ -246,7 +269,10 @@ export default function (pi: ExtensionAPI) {
 				case "start": {
 					const parsed = parseArgs(rest);
 					if (!parsed.name) {
-						ctx.ui.notify("Usage: /ralph start <name|path> [--max-iterations N] [--reflect-every N]", "warning");
+						ctx.ui.notify(
+							"Usage: /ralph start <name|path> [--items-per-iteration N] [--reflect-every N] [--max-iterations N]",
+							"warning",
+						);
 						return;
 					}
 
@@ -281,11 +307,13 @@ export default function (pi: ExtensionAPI) {
 						taskFile,
 						iteration: existingState?.iteration || 0,
 						maxIterations: parsed.maxIterations,
-						reflectEvery: parsed.reflectEvery,
+						itemsPerIteration: parsed.itemsPerIteration,
+						reflectEveryItems: parsed.reflectEveryItems,
+						itemsProcessed: existingState?.itemsProcessed || 0,
 						reflectInstructions: parsed.reflectInstructions,
 						active: true,
 						startedAt: existingState?.startedAt || new Date().toISOString(),
-						lastReflection: existingState?.lastReflection || 0,
+						lastReflectionAtItems: existingState?.lastReflectionAtItems || 0,
 					};
 
 					saveState(ctx, state);
@@ -347,7 +375,8 @@ export default function (pi: ExtensionAPI) {
 					runtime.currentLoop = loopName;
 					updateStatus(ctx);
 
-					ctx.ui.notify(`Resumed Ralph loop: ${loopName} (iteration ${state.iteration})`, "info");
+					const itemsStr = state.itemsPerIteration > 0 ? `, ${state.itemsProcessed} items` : "";
+					ctx.ui.notify(`Resumed Ralph loop: ${loopName} (iteration ${state.iteration}${itemsStr})`, "info");
 
 					const taskContent = readTaskFile(ctx, state.taskFile);
 					if (!taskContent) {
@@ -355,7 +384,10 @@ export default function (pi: ExtensionAPI) {
 						return;
 					}
 
-					const isReflection = state.reflectEvery > 0 && state.iteration % state.reflectEvery === 0;
+					const isReflection =
+						state.reflectEveryItems > 0 &&
+						state.itemsProcessed > 0 &&
+						state.itemsProcessed - state.lastReflectionAtItems >= state.reflectEveryItems;
 					pi.sendUserMessage(buildPrompt(state, taskContent, isReflection));
 					break;
 				}
@@ -369,7 +401,8 @@ export default function (pi: ExtensionAPI) {
 					const lines = loops.map((l) => {
 						const status = l.active ? "▶ active" : "⏸ paused";
 						const maxStr = l.maxIterations > 0 ? `/${l.maxIterations}` : "";
-						return `${l.name}: ${status} (iteration ${l.iteration}${maxStr})`;
+						const itemsStr = l.itemsPerIteration > 0 ? `, ${l.itemsProcessed} items` : "";
+						return `${l.name}: ${status} (iteration ${l.iteration}${maxStr}${itemsStr})`;
 					});
 					ctx.ui.notify(`Ralph loops:\n${lines.join("\n")}`, "info");
 					break;
@@ -405,14 +438,15 @@ Commands:
   /ralph cancel <name>                Delete a loop
 
 Options for start:
-  --max-iterations N      Stop after N iterations (default: unlimited)
-  --reflect-every N       Reflection checkpoint every N iterations
-  --reflect-instructions  Custom reflection prompt
+  --items-per-iteration N  Process N items per iteration (default: unlimited)
+  --reflect-every N        Reflect every N items (not iterations)
+  --max-iterations N       Stop after N iterations (default: unlimited)
+  --reflect-instructions   Custom reflection prompt
 
 Examples:
   /ralph start my-feature
-  /ralph start ./tasks.md --max-iterations 50
-  /ralph start refactor --reflect-every 10`,
+  /ralph start review --items-per-iteration 5 --reflect-every 50
+  /ralph start ./tasks.md --max-iterations 100`,
 						"info",
 					);
 			}
@@ -430,11 +464,14 @@ Examples:
 			taskContent: Type.String({
 				description: "The task description in markdown format. Include goals, checklist, and any relevant context.",
 			}),
+			itemsPerIteration: Type.Optional(
+				Type.Number({ description: "Process N items per iteration (default: 0 = no limit)" }),
+			),
+			reflectEveryItems: Type.Optional(
+				Type.Number({ description: "Reflect every N items (default: 0 = no reflection)" }),
+			),
 			maxIterations: Type.Optional(
 				Type.Number({ description: "Maximum iterations before stopping (default: 50)", default: 50 }),
-			),
-			reflectEvery: Type.Optional(
-				Type.Number({ description: "Pause for reflection every N iterations (default: 0 = no reflection)" }),
 			),
 		}),
 		async execute(_toolCallId, params, _onUpdate, ctx) {
@@ -460,37 +497,21 @@ Examples:
 				taskFile,
 				iteration: 1,
 				maxIterations: params.maxIterations ?? 50,
-				reflectEvery: params.reflectEvery ?? 0,
+				itemsPerIteration: params.itemsPerIteration ?? 0,
+				reflectEveryItems: params.reflectEveryItems ?? 0,
+				itemsProcessed: 0,
 				reflectInstructions: DEFAULT_REFLECT_INSTRUCTIONS,
 				active: true,
 				startedAt: new Date().toISOString(),
-				lastReflection: 0,
+				lastReflectionAtItems: 0,
 			};
 
 			saveState(ctx, state);
 			runtime.currentLoop = loopName;
 			updateStatus(ctx);
 
-			// Queue the first iteration prompt
-			const maxStr = state.maxIterations > 0 ? `/${state.maxIterations}` : "";
-			pi.sendUserMessage(`───────────────────────────────────────────────────────────────────────
-🔄 RALPH LOOP STARTED: ${state.name} | Iteration 1${maxStr}
-───────────────────────────────────────────────────────────────────────
-
-## Task (from ${state.taskFile})
-
-${params.taskContent}
-
----
-
-## Instructions
-
-You are now in a Ralph loop (iteration 1 of ${state.maxIterations}).
-
-1. Work on the task above
-2. Update the task file (${state.taskFile}) as you make progress
-3. When FULLY COMPLETE, respond with: ${COMPLETE_MARKER}
-4. Do NOT output the completion marker unless genuinely done`);
+			// Queue the first iteration prompt using buildPrompt for consistency
+			pi.sendUserMessage(buildPrompt(state, params.taskContent, false));
 
 			return {
 				content: [
@@ -509,14 +530,22 @@ You are now in a Ralph loop (iteration 1 of ${state.maxIterations}).
 		const state = loadState(ctx, runtime.currentLoop);
 		if (!state?.active) return;
 
+		const iterStr = `${state.iteration}${state.maxIterations > 0 ? `/${state.maxIterations}` : ""}`;
+		const itemsStr = state.itemsPerIteration > 0 ? ` | ${state.itemsProcessed} items done` : "";
+
+		let instructions = `You are in a Ralph loop working on: ${state.taskFile}\n`;
+		if (state.itemsPerIteration > 0) {
+			instructions += `- Process ${state.itemsPerIteration} items this iteration, then STOP\n`;
+		}
+		instructions += `- Update the task file as you make progress\n`;
+		instructions += `- When FULLY COMPLETE, respond with: ${COMPLETE_MARKER}\n`;
+		instructions += `- Do NOT output the completion marker unless genuinely done`;
+
 		return {
 			systemPromptAppend: `
-[RALPH WIGGUM LOOP - ${state.name} - Iteration ${state.iteration}${state.maxIterations > 0 ? `/${state.maxIterations}` : ""}]
+[RALPH WIGGUM LOOP - ${state.name} - Iteration ${iterStr}${itemsStr}]
 
-You are in a Ralph loop working on: ${state.taskFile}
-- Update the task file as you make progress
-- When FULLY COMPLETE, respond with: ${COMPLETE_MARKER}
-- Do NOT output the completion marker unless genuinely done`,
+${instructions}`,
 		};
 	});
 
@@ -559,8 +588,16 @@ You are in a Ralph loop working on: ${state.taskFile}
 		}
 
 		state.iteration++;
-		const isReflection = state.reflectEvery > 0 && state.iteration % state.reflectEvery === 0;
-		if (isReflection) state.lastReflection = state.iteration;
+		// Track items processed
+		if (state.itemsPerIteration > 0) {
+			state.itemsProcessed += state.itemsPerIteration;
+		}
+		// Check if reflection is due (based on items, not iterations)
+		const isReflection =
+			state.reflectEveryItems > 0 &&
+			state.itemsProcessed > 0 &&
+			state.itemsProcessed - state.lastReflectionAtItems >= state.reflectEveryItems;
+		if (isReflection) state.lastReflectionAtItems = state.itemsProcessed;
 		saveState(ctx, state);
 		updateStatus(ctx);
 

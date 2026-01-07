@@ -1,27 +1,33 @@
 ---
 name: ralph-wiggum
-description: Long-running iterative development loops. Use when a task requires sustained multi-turn work, has multiple steps that build on each other, or benefits from periodic reflection. Call ralph_start to begin a loop on yourself. Do NOT use for simple one-shot tasks or quick fixes.
+description: Long-running iterative development loops with pacing control. Use when a task requires sustained multi-turn work, has multiple steps that build on each other, or benefits from periodic reflection. Call ralph_start to begin a loop on yourself. Do NOT use for simple one-shot tasks or quick fixes.
 ---
 
 # Ralph Wiggum
 
 Run iterative loops on yourself for complex, multi-step tasks.
 
-> **Note**: This skill requires the extension to be loaded in `settings.json`:
-> ```json
-> "extensions": ["~/.pi/agent/pi-skills/ralph-wiggum/index.ts", ...]
-> ```
-
 ## Tool: ralph_start
 
 ```typescript
 ralph_start({
-  name: "feature-name",           // Loop identifier
+  name: "feature-name",
   taskContent: "# Task\n...",     // Markdown with goals + checklist
-  maxIterations: 50,              // Safety limit (default: 50)
-  reflectEvery: 10                // Optional reflection interval
+  itemsPerIteration: 5,           // Process 5 items per turn, then stop
+  reflectEveryItems: 50,          // Reflect every 50 items
+  maxIterations: 100              // Safety limit (default: 50)
 })
 ```
+
+## Pacing
+
+- `itemsPerIteration`: Controls how many checklist items per turn
+- `reflectEveryItems`: Reflect every N items (not iterations)
+- Each iteration = 1 agent turn processing N items
+
+Example: 100 items, 5 per iteration, reflect every 50:
+- 20 iterations total
+- Reflection at iterations 10 and 20
 
 ## Task Content Format
 
@@ -30,13 +36,10 @@ ralph_start({
 
 [What needs to be done]
 
-## Goals
-- Measurable goal 1
-- Measurable goal 2
-
 ## Checklist
-- [ ] Step 1
-- [ ] Step 2
+- [ ] Item 1
+- [ ] Item 2
+... (many items)
 
 ## Notes
 (Update as you work)
@@ -44,22 +47,13 @@ ralph_start({
 
 ## Loop Behavior
 
-1. Each iteration: receive task content, do work, update task file
+1. Each iteration: process N items, update task file, stop
 2. Check off completed items in `.ralph/<name>.md`
-3. After each response, the extension auto-injects the next iteration prompt
-4. When done, output: `<promise>COMPLETE</promise>`
+3. When all done, output: `<promise>COMPLETE</promise>`
 
 ## User Commands
 
-- `/ralph start <name>` - Start a new loop
-- `/ralph stop` - Pause current loop
-- `/ralph resume <name>` - Resume a paused loop
-- `/ralph status` - Show all loops
-- `/ralph cancel <name>` - Delete a loop
-
-## Troubleshooting
-
-**Loop not auto-continuing?**
-- Ensure the extension is in `settings.json` extensions array
-- Restart Pi Agent after adding the extension
-- Check `/ralph status` to see if loop is active
+- `/ralph stop` - Pause loop
+- `/ralph resume <name>` - Resume loop
+- `/ralph status` - Show loops
+- `/ralph cancel <name>` - Delete loop
