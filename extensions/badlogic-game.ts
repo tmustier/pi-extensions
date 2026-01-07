@@ -15,10 +15,10 @@ const PIXEL_H = VIEW_ROWS * 2;  // Pixel height
 const TICK_MS = 40;
 
 // Physics (in pixels)
-const GRAVITY = 0.32;
-const JUMP_VEL = -4.5;
+const GRAVITY = 0.28;
+const JUMP_VEL = -5.0;
 const MOVE_SPEED = 0.35;
-const MAX_SPEED = 1.2;
+const MAX_SPEED = 1.5;
 const FRICTION = 0.82;
 const MAX_FALL = 2.0;
 
@@ -382,8 +382,11 @@ const updatePlayer = (s: GameState, left: boolean, right: boolean, jump: boolean
 	// Horizontal
 	if (left) { s.vx -= MOVE_SPEED; s.facingRight = false; }
 	if (right) { s.vx += MOVE_SPEED; s.facingRight = true; }
-	s.vx *= FRICTION;
-	if (Math.abs(s.vx) < 0.05) s.vx = 0;
+	// Friction only on ground - preserve air momentum for jumps!
+	if (s.onGround) {
+		s.vx *= FRICTION;
+		if (Math.abs(s.vx) < 0.05) s.vx = 0;
+	}
 	s.vx = Math.max(-MAX_SPEED, Math.min(MAX_SPEED, s.vx));
 
 	// Animation
