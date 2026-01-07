@@ -409,6 +409,78 @@ export default function (pi: ExtensionAPI) {
 			ctx.ui.notify(`Cancelled: ${loopName}`, "info");
 			updateUI(ctx);
 		},
+
+		archive(rest, ctx) {
+			const loopName = rest.trim();
+			if (!loopName) {
+				ctx.ui.notify("Usage: /ralph archive <name>", "warning");
+				return;
+			}
+			const state = loadState(ctx, loopName);
+			if (!state) {
+				ctx.ui.notify(`Loop "${loopName}" not found`, "error");
+				return;
+			}
+			if (state.status === "active") {
+				ctx.ui.notify("Cannot archive active loop. Stop it first.", "warning");
+				return;
+			}
+
+			if (currentLoop === loopName) currentLoop = null;
+
+			const srcState = getPath(ctx, loopName, ".state.json");
+			const dstState = getPath(ctx, loopName, ".state.json", true);
+			ensureDir(dstState);
+			if (fs.existsSync(srcState)) fs.renameSync(srcState, dstState);
+
+			const srcTask = path.resolve(ctx.cwd, state.taskFile);
+			if (srcTask.startsWith(ralphDir(ctx)) && !srcTask.startsWith(archiveDir(ctx))) {
+				const dstTask = getPath(ctx, loopName, ".md", true);
+				if (fs.existsSync(srcTask)) fs.renameSync(srcTask, dstTask);
+			}
+
+			ctx.ui.notify(`Archived: ${loopName}`, "info");
+			updateUI(ctx);
+		},
+
+		clean(rest, ctx) {
+			const all = rest.trim() === "--all";
+			const completed = listLoops(ctx).filter((l) => l.status === "completed");
+
+			if (completed.length === 0) {
+				ctx.ui.notify("No completed loops to clean", "info");
+				return;
+			}
+
+			for (const loop of completed) {
+				tryDelete(getPath(ctx, loop.name, ".state.json"));
+				if (all) tryDelete(getPath(ctx, loop.name, ".md"));
+				if (currentLoop === loop.name) currentLoop = null;
+			}
+
+			const suffix = all ? " (all files)" : " (state only)";
+			ctx.ui.notify(
+				`Cleaned ${completed.length} loop(s)${suffix}:\n${completed.map((l) => `  • ${l.name}`).join("\n")}`,
+				"info",
+			);
+			updateUI(ctx);
+		},
+
+		list(rest, ctx) {
+			const archived = rest.trim() === "--archived";
+			const loops = listLoops(ctx, archived);
+
+			if (loops.length === 0) {
+				ctx.ui.notify(
+					archived ? "No archived loops" : "No loops found. Use /ralph list --archived for archived.",
+					"info",
+				);
+				return;
+			}
+
+			const label = archived ? "Archived loops" : "Ralph loops";
+			ctx.ui.notify(`${label}:\n${loops.map((l) => formatLoop(l)).join("\n")}`, "info");
+		},
 	};
 
 	const HELP = `Ralph Wiggum - Long-running development loops
@@ -419,7 +491,10 @@ Commands:
   /ralph resume <name>                Resume a paused loop
   /ralph status                       Show all loops
   /ralph cancel <name>                Delete loop state
-  /ralph-stop                          Stop active loop (idle only)
+  /ralph archive <name>               Move loop to archive
+  /ralph clean [--all]                Clean completed loops
+  /ralph list --archived              Show archived loops
+  /ralph-stop                         Stop active loop (idle only)
 
 Options:
   --items-per-iteration N  Suggest N items per turn (prompt hint)
