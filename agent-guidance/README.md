@@ -4,8 +4,23 @@ Loads different context files based on the current model's provider, supplementi
 
 ## How It Works
 
-- Pi core always loads `AGENTS.md` (universal guidelines)
-- This extension adds provider-specific files on top:
+```mermaid
+flowchart LR
+    subgraph Pi Core
+        A[Start] --> B[Load AGENTS.md]
+    end
+    
+    subgraph agent-guidance extension
+        B --> C{Which provider?}
+        C -->|Anthropic| D[+ CLAUDE.md]
+        C -->|OpenAI/Codex| E[+ CODEX.md]
+        C -->|Google| F[+ GEMINI.md]
+    end
+    
+    D --> G[System Prompt]
+    E --> G
+    F --> G
+```
 
 | Model Provider | Context File |
 |---------------|--------------|
