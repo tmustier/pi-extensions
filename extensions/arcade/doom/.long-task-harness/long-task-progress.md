@@ -2,79 +2,87 @@
 
 ## Project Overview
 
-**Started**: 2026-01-07
-**Status**: In Progress  
+**Location**: `extensions/arcade/doom/doom.ts` (~550 lines)
+**Command**: `/doom` in Pi
 **Repository**: git@github.com:tmustier/pi-extensions.git
 
 ---
 
-## Current State (Session 3)
+## Current State
 
-### Implemented Features (~22/38)
+### Implemented (22/38 features)
 
-**MVP (14/14)** ✅
-- Extension scaffold, map system, player movement, raycasting
-- ASCII rendering, HUD stats, minimap, crosshair
-- Title/help/pause screens, wall sliding collision
+**Core Game:**
+- DDA raycasting engine with depth shading (█▓▒░)
+- WASD movement with wall sliding collision
+- Q/E rotation, crosshair, minimap overlay
+- Title, help, pause, game over, victory screens
 
-**Combat (7/9)**
-- ✅ Enemy spawning (Z=zombie, I=imp, D=demon)
-- ✅ Enemy AI (chase, attack)
-- ✅ Shooting with hit detection
-- ✅ Damage system, game over
-- ✅ Sprite rendering with depth
-- ✅ Multiple enemy types
-- ❌ Enemy projectiles
+**Combat:**
+- 3 enemy types: Z=zombie, I=imp, D=demon
+- Enemy AI: chase player, attack when close
+- Hitscan shooting, 25 damage per shot
+- Damage flash, muzzle flash effects
 
-**Items (2/6)**
-- ✅ Pickups (H=health, A=ammo)
-- ✅ Doors (auto-open, yellow render)
-- ❌ Wall variation, barrels, keys
+**Levels & Items:**
+- 3 progressive levels with increasing difficulty
+- H=health (+25), A=ammo (+15) pickups
+- Automatic doors (=) that open when player approaches
+- E=exit to complete level, stats carry over
 
-**Progression (4/7)**
-- ✅ 3 levels with progression
-- ✅ Victory screen with stats
-- ✅ Level complete tracking
-- ❌ Multiple weapons, automap, secrets
+**HUD:** Health bar, ammo count, kills, items, level number
 
-**Polish (1/5)**
-- ✅ Visual effects (damage/muzzle flash)
-- ❌ Save state, difficulty, audio, sprint
+### Not Yet Implemented (16 features)
 
-### What's Playable
-- Full 3-level campaign
-- 3 enemy types (zombie/imp/demon)
-- Health and ammo pickups
-- Automatic doors
-- Kill/item tracking
-- Level progression with carry-over stats
+- Enemy projectiles (imps should shoot)
+- Multiple weapons (pistol/shotgun/chaingun)
+- Automap (TAB key)
+- Colored keys + locked doors
+- Wall texture variation
+- Explosive barrels
+- Secrets
+- Sprint (Shift)
+- Save/resume state
+- Difficulty settings
+- Terminal bell audio
 
 ---
 
-## Session Log
+## Technical Notes
 
-### Session 3 | 2026-01-07 | Commits: d8d3702..fbcc3cd
+**Level format:** String array, each char = cell type
+```
+#=wall .=floor ==door E=exit P=player
+Z=zombie I=imp D=demon H=health A=ammo
+```
 
-**Features Implemented:**
-- doom-008, 008b: Enemies + AI
-- doom-009, 010: Combat system
-- doom-018: Sprite rendering
-- doom-011: Pickups
-- doom-014: 3 levels
-- doom-017: Automatic doors
-- doom-026: All enemy types
+**Key functions:**
+- `castRay()` - DDA raycasting, returns dist/side/isDoor
+- `getSprites()` - Calculates screen position for enemies/pickups
+- `render3DView()` - Frame buffer compositing
+- `updateEnemies()` - AI tick
+- `updateDoors()` - Auto-open/close logic
 
-**Technical:**
-- Frame buffer compositing for sprites
-- DDA raycasting handles doors
-- Entity definitions for easy expansion
-- Level data uses simple character codes
+**Entity definitions:** `ENEMY_DEFS`, `PICKUP_DEFS` objects for easy expansion
 
-**Next Session:**
-1. doom-025: Enemy projectiles (imps shoot)
-2. doom-019: Wall variation (textures)
-3. doom-021: Automap (TAB)
-4. doom-033: Sprint (Shift)
-5. doom-034: Colored keys + locked doors
+---
+
+## Next Steps
+
+1. `doom-025`: Enemy projectiles
+2. `doom-021`: Automap (TAB)
+3. `doom-033`: Sprint (Shift)
+4. `doom-034`: Keys + locked doors
+5. `doom-020`: Multiple weapons
+
+---
+
+## Session History
+
+| Session | Commits | Features Added |
+|---------|---------|----------------|
+| 1 | 3d9ecdf | Project init, 38 features planned |
+| 2 | 48f9a48..d8d3702 | MVP: raycasting, movement, screens |
+| 3 | 02947f9..d16aa2f | Combat, pickups, 3 levels, doors |
 
 ---
