@@ -115,10 +115,8 @@ export default function (pi: ExtensionAPI) {
 	function saveState(ctx: ExtensionContext, state: LoopState, archived = false): void {
 		state.active = state.status === "active";
 		const filePath = getPath(ctx, state.name, ".state.json", archived);
-		console.error(`[RALPH DEBUG] saveState: cwd=${ctx.cwd}, filePath=${filePath}`);
 		ensureDir(filePath);
 		fs.writeFileSync(filePath, JSON.stringify(state, null, 2), "utf-8");
-		console.error(`[RALPH DEBUG] saveState: wrote file, exists=${fs.existsSync(filePath)}`);
 	}
 
 	function listLoops(ctx: ExtensionContext, archived = false): LoopState[] {
@@ -486,20 +484,20 @@ Examples:
 	// --- Event handlers ---
 
 	pi.on("before_agent_start", async (event, ctx) => {
-		// DEBUG
-		console.error(`[RALPH DEBUG] before_agent_start: prompt="${event.prompt}", currentLoop=${currentLoop}`);
+		// DEBUG - use notify so we can see it
+		if (ctx.hasUI) {
+			ctx.ui.notify(`[DEBUG] prompt="${event.prompt.slice(0, 50)}...", currentLoop=${currentLoop}`, "info");
+		}
 		
 		// Handle stop command
 		const prompt = event.prompt.toLowerCase().trim();
 		if (prompt === "stop" || prompt === "/ralph stop" || prompt === "ralph stop") {
-			console.error(`[RALPH DEBUG] Stop command detected!`);
+			if (ctx.hasUI) ctx.ui.notify(`[DEBUG] Stop detected!`, "info");
 			const state = currentLoop
 				? loadState(ctx, currentLoop)
 				: listLoops(ctx).find((l) => l.status === "active");
-			console.error(`[RALPH DEBUG] state=${state?.name}, status=${state?.status}`);
 			if (state && state.status === "active") {
 				pauseLoop(ctx, state, `Ralph loop "${state.name}" stopped.`);
-				console.error(`[RALPH DEBUG] Called pauseLoop`);
 			}
 			return; // Don't continue with loop prompt injection
 		}
