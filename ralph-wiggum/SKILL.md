@@ -7,6 +7,11 @@ description: Long-running iterative development loops. Use when a task requires 
 
 Run iterative loops on yourself for complex, multi-step tasks.
 
+> **Note**: This skill requires the extension to be loaded in `settings.json`:
+> ```json
+> "extensions": ["~/.pi/agent/pi-skills/ralph-wiggum/index.ts", ...]
+> ```
+
 ## Tool: ralph_start
 
 ```typescript
@@ -41,11 +46,20 @@ ralph_start({
 
 1. Each iteration: receive task content, do work, update task file
 2. Check off completed items in `.ralph/<name>.md`
-3. When done, output: `<promise>COMPLETE</promise>`
+3. After each response, the extension auto-injects the next iteration prompt
+4. When done, output: `<promise>COMPLETE</promise>`
 
 ## User Commands
 
-- `/ralph stop` - Pause loop
-- `/ralph resume <name>` - Resume loop
-- `/ralph status` - Show loops
-- `/ralph cancel <name>` - Delete loop
+- `/ralph start <name>` - Start a new loop
+- `/ralph stop` - Pause current loop
+- `/ralph resume <name>` - Resume a paused loop
+- `/ralph status` - Show all loops
+- `/ralph cancel <name>` - Delete a loop
+
+## Troubleshooting
+
+**Loop not auto-continuing?**
+- Ensure the extension is in `settings.json` extensions array
+- Restart Pi Agent after adding the extension
+- Check `/ralph status` to see if loop is active
