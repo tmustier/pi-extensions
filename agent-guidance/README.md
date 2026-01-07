@@ -103,7 +103,8 @@ Create `~/.pi/agent/provider-context.json` to customize mappings:
 
 ## Templates
 
-- `templates/AGENTS.md` - Universal guidelines for all models
 - `templates/CLAUDE.md` - Claude-specific guidelines
 - `templates/CODEX.md` - OpenAI/Codex guidelines (adapted from [steipete/agent-scripts](https://github.com/steipete/agent-scripts))
 - `templates/GEMINI.md` - Gemini-specific guidelines
+
+Note: `AGENTS.md` is not included - that's your own config that Pi Core loads. This extension only adds provider-specific files on top.

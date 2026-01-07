@@ -12,8 +12,8 @@ echo "Setting up agent-guidance..."
 # Create directories
 mkdir -p "$PI_AGENT_DIR/extensions"
 
-# Symlink context files from templates/
-for file in AGENTS.md CLAUDE.md CODEX.md GEMINI.md; do
+# Symlink provider-specific context files from templates/
+for file in CLAUDE.md CODEX.md GEMINI.md; do
     target="$PI_AGENT_DIR/$file"
     source="$SCRIPT_DIR/templates/$file"
     
