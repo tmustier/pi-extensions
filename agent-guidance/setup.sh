@@ -19,7 +19,9 @@ CLAUDE_FILE="$PI_AGENT_DIR/CLAUDE.md"
 if [ ! -f "$AGENTS_FILE" ]; then
     if [ -f "$CLAUDE_FILE" ] || [ -L "$CLAUDE_FILE" ]; then
         echo ""
-        echo "  ⚠️  No AGENTS.md found, but CLAUDE.md exists."
+        echo "  ⚠️  No AGENTS.md found in $PI_AGENT_DIR/"
+        echo "     You have an existing CLAUDE.md - if you want that guidance"
+        echo "     to apply across all models, it should be in AGENTS.md."
         echo ""
         read -p "     Copy CLAUDE.md content to AGENTS.md? [y/N] " -n 1 -r
         echo ""
@@ -37,7 +39,6 @@ Universal guidelines for all AI models.
 <!-- Add your cross-model guidance here -->
 EOF
             echo "     Created placeholder AGENTS.md."
-            echo "     If you want CLAUDE.md guidance to apply across all models, move it to AGENTS.md."
         fi
         echo ""
     else
