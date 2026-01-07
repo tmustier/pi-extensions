@@ -1,72 +1,67 @@
----
-name: ralph-wiggum
-description: Long-running iterative development loops with pacing control. Use when a task requires sustained multi-turn work, has multiple steps that build on each other, or benefits from periodic reflection. Call ralph_start to begin a loop on yourself. Do NOT use for simple one-shot tasks or quick fixes.
----
+# Ralph Wiggum - Long-Running Development Loops
 
-# Ralph Wiggum
+Long-running iterative development loops with pacing control.
 
-Run iterative loops on yourself for complex, multi-step tasks.
+## When to Use
 
-## Tool: ralph_start
+- Complex tasks requiring multiple iterations
+- Tasks with many discrete steps that build on each other
+- Work that benefits from periodic reflection
 
-```typescript
-ralph_start({
-  name: "feature-name",
-  taskContent: "# Task\n...",     // Markdown with goals + checklist
-  itemsPerIteration: 5,           // Process 5 items per turn, then stop
-  reflectEveryItems: 50,          // Reflect every 50 items
-  maxIterations: 100              // Safety limit (default: 50)
-})
+Do NOT use for simple one-shot tasks or quick fixes.
+
+## Agent Tool
+
+Call `ralph_start` to begin a loop on yourself:
+
 ```
-
-## Pacing
-
-- `itemsPerIteration`: Controls how many checklist items per turn
-- `reflectEveryItems`: Reflect every N items (not iterations)
-- Each iteration = 1 agent turn processing N items
-
-Example: 100 items, 5 per iteration, reflect every 50:
-- 20 iterations total
-- Reflection at iterations 10 and 20
-
-## Task Content Format
-
-```markdown
-# Task: [Title]
-
-[What needs to be done]
-
-## Checklist
-- [ ] Item 1
-- [ ] Item 2
-... (many items)
-
-## Notes
-(Update as you work)
+ralph_start({
+  name: "loop-name",
+  taskContent: "# Task\n\n## Goals\n- Goal 1\n\n## Checklist\n- [ ] Item 1\n- [ ] Item 2",
+  maxIterations: 50,        // Default: 50
+  itemsPerIteration: 3,     // Optional: suggest N items per turn
+  reflectEvery: 10          // Optional: reflect every N iterations
+})
 ```
 
 ## Loop Behavior
 
-1. Each iteration: process N items, update task file, stop
-2. Check off completed items in `.ralph/<name>.md`
-3. When all done, output: `<promise>COMPLETE</promise>`
-
-## Loop Lifecycle
-
-Loops have three states: `active`, `paused`, `completed`
-
-- **active**: Currently running
-- **paused**: Stopped mid-work (can resume)
-- **completed**: Finished naturally or hit max iterations
+1. Task content is saved to `.ralph/<name>.md`
+2. Each iteration: work on task, update file
+3. When complete: output `<promise>COMPLETE</promise>`
+4. Loop ends on completion or max iterations
 
 ## User Commands
 
 - `/ralph stop` - Pause loop (when agent idle)
-- `/ralph resume <name>` - Resume paused loop
-- `/ralph status` - Show all loops with status
-- `/ralph cancel <name>` - Delete loop state file
-- `/ralph archive <name>` - Move to `.ralph/archive/`
-- `/ralph clean` - Remove state files for completed loops (keeps .md)
-- `/ralph clean --all` - Remove all files for completed loops
-- `/ralph list --archived` - Show archived loops
-- Type `stop` during streaming - Queues stop, pauses after current turn
+- `/ralph resume <name>` - Resume loop
+- `/ralph status` - Show loops
+- `/ralph cancel <name>` - Delete loop
+- Type `stop` during streaming - Queues stop, pauses loop
+
+## Task File Format
+
+```markdown
+# Task Title
+
+Brief description.
+
+## Goals
+- Goal 1
+- Goal 2
+
+## Checklist
+- [ ] Item 1
+- [ ] Item 2
+- [x] Completed item
+
+## Notes
+(Update with progress, decisions, blockers)
+```
+
+## Best Practices
+
+1. **Clear checklist**: Break work into discrete items
+2. **Update as you go**: Mark items complete, add notes
+3. **Reflect when stuck**: Use reflection to reassess approach
+4. **Complete properly**: Only output completion marker when truly done
