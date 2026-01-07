@@ -36,7 +36,10 @@ Or add to `~/.pi/agent/settings.json`:
 | `/ralph resume <name>` | Resume a paused loop |
 | `/ralph status` | Show all loops |
 | `/ralph cancel <name>` | Delete a loop |
-| `ctrl+shift+r` | Stop loop (works during streaming) |
+
+### Stopping During Streaming
+
+To stop a loop while the agent is streaming, type `stop` (just the word). The message will be queued and processed after the current turn, pausing the loop.
 
 ## Options
 

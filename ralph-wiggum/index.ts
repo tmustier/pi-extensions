@@ -56,6 +56,8 @@ Pause and reflect on your progress:
 
 Update the task file with your reflection, then continue working.`;
 
+type LoopStatus = "active" | "paused" | "completed";
+
 interface LoopState {
 	name: string;
 	taskFile: string;
@@ -65,8 +67,10 @@ interface LoopState {
 	reflectEveryItems: number; // Reflect every N items (not iterations)
 	itemsProcessed: number; // Total items processed so far
 	reflectInstructions: string;
-	active: boolean;
+	active: boolean; // Kept for backwards compatibility, derived from status
+	status: LoopStatus;
 	startedAt: string;
+	completedAt?: string;
 	lastReflectionAtItems: number;
 }
 
@@ -83,19 +87,40 @@ export default function (pi: ExtensionAPI) {
 		return path.resolve(ctx.cwd, RALPH_DIR);
 	}
 
+	function getArchiveDir(ctx: ExtensionContext): string {
+		return path.join(getRalphDir(ctx), "archive");
+	}
+
 	function sanitizeName(name: string): string {
 		return name.replace(/[^a-zA-Z0-9_-]/g, "_").replace(/_+/g, "_");
 	}
 
-	function getStateFile(ctx: ExtensionContext, name: string): string {
-		return path.join(getRalphDir(ctx), `${sanitizeName(name)}.state.json`);
+	function getStateFile(ctx: ExtensionContext, name: string, archived = false): string {
+		const dir = archived ? getArchiveDir(ctx) : getRalphDir(ctx);
+		return path.join(dir, `${sanitizeName(name)}.state.json`);
 	}
 
-	function loadState(ctx: ExtensionContext, name: string): LoopState | null {
-		const stateFile = getStateFile(ctx, name);
+	function getTaskFile(ctx: ExtensionContext, name: string, archived = false): string {
+		const dir = archived ? getArchiveDir(ctx) : getRalphDir(ctx);
+		return path.join(dir, `${sanitizeName(name)}.md`);
+	}
+
+	function migrateState(state: Partial<LoopState> & { name: string }): LoopState {
+		// Backwards compatibility: derive status from active if status is missing
+		if (!state.status) {
+			state.status = state.active ? "active" : "paused";
+		}
+		// Keep active in sync with status for backwards compatibility
+		state.active = state.status === "active";
+		return state as LoopState;
+	}
+
+	function loadState(ctx: ExtensionContext, name: string, archived = false): LoopState | null {
+		const stateFile = getStateFile(ctx, name, archived);
 		try {
 			if (fs.existsSync(stateFile)) {
-				return JSON.parse(fs.readFileSync(stateFile, "utf-8"));
+				const raw = JSON.parse(fs.readFileSync(stateFile, "utf-8"));
+				return migrateState(raw);
 			}
 		} catch {
 			// Ignore
@@ -103,31 +128,43 @@ export default function (pi: ExtensionAPI) {
 		return null;
 	}
 
-	function saveState(ctx: ExtensionContext, state: LoopState): void {
-		const ralphDir = getRalphDir(ctx);
-		if (!fs.existsSync(ralphDir)) {
-			fs.mkdirSync(ralphDir, { recursive: true });
+	function saveState(ctx: ExtensionContext, state: LoopState, archived = false): void {
+		const dir = archived ? getArchiveDir(ctx) : getRalphDir(ctx);
+		if (!fs.existsSync(dir)) {
+			fs.mkdirSync(dir, { recursive: true });
 		}
-		fs.writeFileSync(getStateFile(ctx, state.name), JSON.stringify(state, null, 2), "utf-8");
+		// Keep active in sync with status
+		state.active = state.status === "active";
+		fs.writeFileSync(getStateFile(ctx, state.name, archived), JSON.stringify(state, null, 2), "utf-8");
 	}
 
-	function deleteState(ctx: ExtensionContext, name: string): void {
+	function deleteState(ctx: ExtensionContext, name: string, archived = false): void {
 		try {
-			const stateFile = getStateFile(ctx, name);
+			const stateFile = getStateFile(ctx, name, archived);
 			if (fs.existsSync(stateFile)) fs.unlinkSync(stateFile);
 		} catch {
 			// Ignore
 		}
 	}
 
-	function listLoops(ctx: ExtensionContext): LoopState[] {
-		const ralphDir = getRalphDir(ctx);
+	function deleteTaskFile(ctx: ExtensionContext, name: string, archived = false): void {
+		try {
+			const taskFile = getTaskFile(ctx, name, archived);
+			if (fs.existsSync(taskFile)) fs.unlinkSync(taskFile);
+		} catch {
+			// Ignore
+		}
+	}
+
+	function listLoops(ctx: ExtensionContext, archived = false): LoopState[] {
+		const dir = archived ? getArchiveDir(ctx) : getRalphDir(ctx);
 		const loops: LoopState[] = [];
 		try {
-			if (fs.existsSync(ralphDir)) {
-				for (const file of fs.readdirSync(ralphDir)) {
+			if (fs.existsSync(dir)) {
+				for (const file of fs.readdirSync(dir)) {
 					if (file.endsWith(".state.json")) {
-						loops.push(JSON.parse(fs.readFileSync(path.join(ralphDir, file), "utf-8")));
+						const raw = JSON.parse(fs.readFileSync(path.join(dir, file), "utf-8"));
+						loops.push(migrateState(raw));
 					}
 				}
 			}
@@ -137,11 +174,50 @@ export default function (pi: ExtensionAPI) {
 		return loops;
 	}
 
+	function archiveLoop(ctx: ExtensionContext, name: string): boolean {
+		const state = loadState(ctx, name);
+		if (!state) return false;
+
+		const archiveDir = getArchiveDir(ctx);
+		if (!fs.existsSync(archiveDir)) {
+			fs.mkdirSync(archiveDir, { recursive: true });
+		}
+
+		// Move state file
+		const srcStateFile = getStateFile(ctx, name);
+		const dstStateFile = getStateFile(ctx, name, true);
+		if (fs.existsSync(srcStateFile)) {
+			fs.renameSync(srcStateFile, dstStateFile);
+		}
+
+		// Move task file if it's in .ralph/
+		const srcTaskFile = path.resolve(ctx.cwd, state.taskFile);
+		if (srcTaskFile.startsWith(getRalphDir(ctx)) && !srcTaskFile.startsWith(archiveDir)) {
+			const dstTaskFile = getTaskFile(ctx, name, true);
+			if (fs.existsSync(srcTaskFile)) {
+				fs.renameSync(srcTaskFile, dstTaskFile);
+			}
+		}
+
+		return true;
+	}
+
 	function readTaskFile(ctx: ExtensionContext, taskFile: string): string | null {
 		try {
 			return fs.readFileSync(path.resolve(ctx.cwd, taskFile), "utf-8");
 		} catch {
 			return null;
+		}
+	}
+
+	function getStatusIcon(status: LoopStatus): string {
+		switch (status) {
+			case "active":
+				return "▶";
+			case "paused":
+				return "⏸";
+			case "completed":
+				return "✓";
 		}
 	}
 
@@ -168,6 +244,7 @@ export default function (pi: ExtensionAPI) {
 		const lines: string[] = [
 			ctx.ui.theme.fg("accent", ctx.ui.theme.bold("Ralph Wiggum")),
 			ctx.ui.theme.fg("muted", `Loop: ${state.name}`),
+			ctx.ui.theme.fg("dim", `Status: ${getStatusIcon(state.status)} ${state.status}`),
 			ctx.ui.theme.fg("dim", `Iteration: ${state.iteration}${maxStr}`),
 			ctx.ui.theme.fg("dim", `Task: ${state.taskFile}`),
 		];
@@ -289,7 +366,7 @@ export default function (pi: ExtensionAPI) {
 					}
 
 					const existingState = loadState(ctx, loopName);
-					if (existingState?.active) {
+					if (existingState?.status === "active") {
 						ctx.ui.notify(`Loop "${loopName}" is already active. Use /ralph resume ${loopName}`, "warning");
 						return;
 					}
@@ -312,6 +389,7 @@ export default function (pi: ExtensionAPI) {
 						itemsProcessed: existingState?.itemsProcessed || 0,
 						reflectInstructions: parsed.reflectInstructions,
 						active: true,
+						status: "active",
 						startedAt: existingState?.startedAt || new Date().toISOString(),
 						lastReflectionAtItems: existingState?.lastReflectionAtItems || 0,
 					};
@@ -339,6 +417,7 @@ export default function (pi: ExtensionAPI) {
 					}
 					const state = loadState(ctx, runtime.currentLoop);
 					if (state) {
+						state.status = "paused";
 						state.active = false;
 						saveState(ctx, state);
 					}
@@ -361,14 +440,21 @@ export default function (pi: ExtensionAPI) {
 						return;
 					}
 
+					if (state.status === "completed") {
+						ctx.ui.notify(`Loop "${loopName}" is already completed. Use /ralph start ${loopName} to restart`, "warning");
+						return;
+					}
+
 					if (runtime.currentLoop && runtime.currentLoop !== loopName) {
 						const currentState = loadState(ctx, runtime.currentLoop);
 						if (currentState) {
+							currentState.status = "paused";
 							currentState.active = false;
 							saveState(ctx, currentState);
 						}
 					}
 
+					state.status = "active";
 					state.active = true;
 					state.iteration++;
 					saveState(ctx, state);
@@ -395,14 +481,14 @@ export default function (pi: ExtensionAPI) {
 				case "status": {
 					const loops = listLoops(ctx);
 					if (loops.length === 0) {
-						ctx.ui.notify("No Ralph loops found", "info");
+						ctx.ui.notify("No Ralph loops found. Use /ralph list --archived to see archived loops.", "info");
 						return;
 					}
 					const lines = loops.map((l) => {
-						const status = l.active ? "▶ active" : "⏸ paused";
+						const statusStr = `${getStatusIcon(l.status)} ${l.status}`;
 						const maxStr = l.maxIterations > 0 ? `/${l.maxIterations}` : "";
 						const itemsStr = l.itemsPerIteration > 0 ? `, ${l.itemsProcessed} items` : "";
-						return `${l.name}: ${status} (iteration ${l.iteration}${maxStr}${itemsStr})`;
+						return `${l.name}: ${statusStr} (iteration ${l.iteration}${maxStr}${itemsStr})`;
 					});
 					ctx.ui.notify(`Ralph loops:\n${lines.join("\n")}`, "info");
 					break;
@@ -426,6 +512,95 @@ export default function (pi: ExtensionAPI) {
 					break;
 				}
 
+				case "archive": {
+					const loopName = rest.trim();
+					if (!loopName) {
+						ctx.ui.notify("Usage: /ralph archive <name>", "warning");
+						return;
+					}
+					const state = loadState(ctx, loopName);
+					if (!state) {
+						ctx.ui.notify(`Loop "${loopName}" not found`, "error");
+						return;
+					}
+					if (state.status === "active") {
+						ctx.ui.notify(`Cannot archive active loop "${loopName}". Stop it first with /ralph stop`, "warning");
+						return;
+					}
+					if (runtime.currentLoop === loopName) runtime.currentLoop = null;
+					if (archiveLoop(ctx, loopName)) {
+						ctx.ui.notify(`Archived Ralph loop: ${loopName}`, "info");
+					} else {
+						ctx.ui.notify(`Failed to archive loop: ${loopName}`, "error");
+					}
+					updateStatus(ctx);
+					break;
+				}
+
+				case "clean": {
+					const allFlag = rest.trim() === "--all";
+					const loops = listLoops(ctx);
+					const completedLoops = loops.filter((l) => l.status === "completed");
+
+					if (completedLoops.length === 0) {
+						ctx.ui.notify("No completed loops to clean", "info");
+						return;
+					}
+
+					const cleaned: string[] = [];
+					for (const loop of completedLoops) {
+						if (allFlag) {
+							// Remove both state file and task file
+							deleteState(ctx, loop.name);
+							deleteTaskFile(ctx, loop.name);
+							cleaned.push(`${loop.name} (all files)`);
+						} else {
+							// Remove only state file, keep .md
+							deleteState(ctx, loop.name);
+							cleaned.push(`${loop.name} (state only)`);
+						}
+						if (runtime.currentLoop === loop.name) runtime.currentLoop = null;
+					}
+
+					ctx.ui.notify(`Cleaned ${cleaned.length} completed loop(s):\n${cleaned.map((n) => `  • ${n}`).join("\n")}`, "info");
+					updateStatus(ctx);
+					break;
+				}
+
+				case "list": {
+					const archivedFlag = rest.trim() === "--archived";
+					if (archivedFlag) {
+						const archivedLoops = listLoops(ctx, true);
+						if (archivedLoops.length === 0) {
+							ctx.ui.notify("No archived loops found", "info");
+							return;
+						}
+						const lines = archivedLoops.map((l) => {
+							const statusStr = `${getStatusIcon(l.status)} ${l.status}`;
+							const maxStr = l.maxIterations > 0 ? `/${l.maxIterations}` : "";
+							const itemsStr = l.itemsPerIteration > 0 ? `, ${l.itemsProcessed} items` : "";
+							const completedStr = l.completedAt ? ` - completed ${new Date(l.completedAt).toLocaleDateString()}` : "";
+							return `${l.name}: ${statusStr} (iteration ${l.iteration}${maxStr}${itemsStr})${completedStr}`;
+						});
+						ctx.ui.notify(`Archived loops:\n${lines.join("\n")}`, "info");
+					} else {
+						// Same as status
+						const loops = listLoops(ctx);
+						if (loops.length === 0) {
+							ctx.ui.notify("No Ralph loops found. Use /ralph list --archived to see archived loops.", "info");
+							return;
+						}
+						const lines = loops.map((l) => {
+							const statusStr = `${getStatusIcon(l.status)} ${l.status}`;
+							const maxStr = l.maxIterations > 0 ? `/${l.maxIterations}` : "";
+							const itemsStr = l.itemsPerIteration > 0 ? `, ${l.itemsProcessed} items` : "";
+							return `${l.name}: ${statusStr} (iteration ${l.iteration}${maxStr}${itemsStr})`;
+						});
+						ctx.ui.notify(`Ralph loops:\n${lines.join("\n")}`, "info");
+					}
+					break;
+				}
+
 				default:
 					ctx.ui.notify(
 						`Ralph Wiggum - Long-running development loops
@@ -434,8 +609,12 @@ Commands:
   /ralph start <name|path> [options]  Start a new loop
   /ralph stop                         Pause current loop
   /ralph resume <name>                Resume a paused loop
-  /ralph status                       Show all loops
-  /ralph cancel <name>                Delete a loop
+  /ralph status                       Show all loops (active/paused/completed)
+  /ralph cancel <name>                Delete a loop's state file
+  /ralph archive <name>               Move completed/paused loop to archive
+  /ralph clean                        Remove state files for completed loops
+  /ralph clean --all                  Remove all files for completed loops
+  /ralph list --archived              Show archived loops
 
 Options for start:
   --items-per-iteration N  Process N items per iteration (default: unlimited)
@@ -502,6 +681,7 @@ Examples:
 				itemsProcessed: 0,
 				reflectInstructions: DEFAULT_REFLECT_INSTRUCTIONS,
 				active: true,
+				status: "active",
 				startedAt: new Date().toISOString(),
 				lastReflectionAtItems: 0,
 			};
@@ -526,10 +706,22 @@ Examples:
 		},
 	});
 
-	pi.on("before_agent_start", async (_event, ctx) => {
+	pi.on("before_agent_start", async (event, ctx) => {
 		if (!runtime.currentLoop) return;
 		const state = loadState(ctx, runtime.currentLoop);
 		if (!state?.active) return;
+
+		// Check if user sent a stop command (typed during streaming)
+		const prompt = event.prompt.toLowerCase().trim();
+		if (prompt === "stop" || prompt === "/ralph stop" || prompt === "ralph stop") {
+			state.status = "paused";
+			state.active = false;
+			saveState(ctx, state);
+			ctx.ui.notify(`Ralph loop "${state.name}" stopped.`, "info");
+			runtime.currentLoop = null;
+			updateStatus(ctx);
+			return; // Don't append system prompt, let the message through normally
+		}
 
 		const iterStr = `${state.iteration}${state.maxIterations > 0 ? `/${state.maxIterations}` : ""}`;
 		const itemsStr = state.itemsPerIteration > 0 ? ` | ${state.itemsProcessed} items done` : "";
@@ -556,18 +748,31 @@ ${instructions}`,
 		const state = loadState(ctx, runtime.currentLoop);
 		if (!state?.active) return;
 
+		// Check for user pending messages - if user typed something, pause to let them through
+		if (ctx.hasPendingMessages()) {
+			state.status = "paused";
+			state.active = false;
+			saveState(ctx, state);
+			runtime.currentLoop = null;
+			updateStatus(ctx);
+			ctx.ui.notify(`Ralph loop "${state.name}" paused. Use /ralph resume ${state.name} to continue.`, "info");
+			return;
+		}
+
 		const lastAssistant = [...event.messages].reverse().find((m) => m.role === "assistant");
-		let hasCompleteMarker = false;
+		let assistantText = "";
 		if (lastAssistant && Array.isArray(lastAssistant.content)) {
-			const text = lastAssistant.content
+			assistantText = lastAssistant.content
 				.filter((c): c is { type: "text"; text: string } => c.type === "text")
 				.map((c) => c.text)
 				.join("\n");
-			hasCompleteMarker = text.includes(COMPLETE_MARKER);
 		}
+		const hasCompleteMarker = assistantText.includes(COMPLETE_MARKER);
 
 		if (hasCompleteMarker) {
+			state.status = "completed";
 			state.active = false;
+			state.completedAt = new Date().toISOString();
 			saveState(ctx, state);
 			runtime.currentLoop = null;
 			updateStatus(ctx);
@@ -578,7 +783,9 @@ ${instructions}`,
 		}
 
 		if (state.maxIterations > 0 && state.iteration >= state.maxIterations) {
+			state.status = "completed";
 			state.active = false;
+			state.completedAt = new Date().toISOString();
 			saveState(ctx, state);
 			runtime.currentLoop = null;
 			updateStatus(ctx);
@@ -604,6 +811,7 @@ ${instructions}`,
 
 		const taskContent = readTaskFile(ctx, state.taskFile);
 		if (!taskContent) {
+			state.status = "paused";
 			state.active = false;
 			saveState(ctx, state);
 			runtime.currentLoop = null;
@@ -615,27 +823,6 @@ ${instructions}`,
 		}
 
 		pi.sendUserMessage(buildPrompt(state, taskContent, isReflection));
-	});
-
-	// Keyboard shortcut to stop loop (works during streaming)
-	pi.registerShortcut("ctrl+shift+r", {
-		description: "Stop Ralph loop",
-		handler: async (ctx) => {
-			if (!runtime.currentLoop) {
-				ctx.ui.notify("No active Ralph loop", "warning");
-				return;
-			}
-			const state = loadState(ctx, runtime.currentLoop);
-			if (state) {
-				state.active = false;
-				saveState(ctx, state);
-			}
-			const loopName = runtime.currentLoop;
-			runtime.currentLoop = null;
-			updateStatus(ctx);
-			ctx.abort(); // Stop the current agent turn
-			ctx.ui.notify(`Stopped Ralph loop: ${loopName}`, "info");
-		},
 	});
 
 	pi.on("session_start", async (_event, ctx) => {

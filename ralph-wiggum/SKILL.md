@@ -53,8 +53,8 @@ Example: 100 items, 5 per iteration, reflect every 50:
 
 ## User Commands
 
-- `/ralph stop` - Pause loop
+- `/ralph stop` - Pause loop (when agent idle)
 - `/ralph resume <name>` - Resume loop
 - `/ralph status` - Show loops
 - `/ralph cancel <name>` - Delete loop
-- `ctrl+shift+r` - Stop loop (works during streaming)
+- Type `stop` during streaming - Queues stop, pauses after current turn
