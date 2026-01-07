@@ -22,7 +22,7 @@ Long-running agent loops for iterative development. Port of Geoffrey Huntley's a
 
 ### Stopping During Streaming
 
-To stop a loop while the agent is streaming, type `ralph-stop`. The message will be queued and processed when the turn ends, pausing the loop.
+To stop a loop while the agent is streaming, type `ralph-stop`. The agent will output the completion marker and the loop will end.
 
 **Note:** ESC/abort won't stop the loop - you must type `ralph-stop`.
 

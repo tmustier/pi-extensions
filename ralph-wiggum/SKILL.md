@@ -38,7 +38,7 @@ ralph_start({
 - `/ralph resume <name>` - Resume loop
 - `/ralph status` - Show loops
 - `/ralph cancel <name>` - Delete loop
-- Type `ralph-stop` during streaming - Pauses the loop (ESC won't work)
+- Type `ralph-stop` during streaming - Agent outputs completion marker (ESC won't work)
 
 ## Task File Format
 
