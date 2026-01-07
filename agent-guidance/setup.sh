@@ -1,5 +1,5 @@
 #!/bin/bash
-# Setup script for model-context extension
+# Setup script for agent-guidance extension
 # Symlinks context files and extension to ~/.pi/agent/
 
 set -e
@@ -7,7 +7,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PI_AGENT_DIR="$HOME/.pi/agent"
 
-echo "Setting up model-context..."
+echo "Setting up agent-guidance..."
 
 # Create directories
 mkdir -p "$PI_AGENT_DIR/extensions"
@@ -33,12 +33,12 @@ for file in AGENTS.md CLAUDE.md CODEX.md GEMINI.md; do
 done
 
 # Symlink extension
-target="$PI_AGENT_DIR/extensions/model-context.ts"
+target="$PI_AGENT_DIR/extensions/agent-guidance.ts"
 if [ -L "$target" ]; then
-    echo "  model-context.ts already linked"
+    echo "  agent-guidance.ts already linked"
 else
-    ln -sf "$SCRIPT_DIR/model-context.ts" "$target"
-    echo "  Linked model-context.ts"
+    ln -sf "$SCRIPT_DIR/agent-guidance.ts" "$target"
+    echo "  Linked agent-guidance.ts"
 fi
 
 echo ""

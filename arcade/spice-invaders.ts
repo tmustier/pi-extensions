@@ -50,7 +50,7 @@ const BOSS_ENRAGE_TICKS = 16;
 const CELL_WIDTH = 2;
 const MIN_RENDER_CELLS = 10;
 
-const SPACE_INVADERS_SAVE_TYPE = "space-invaders-save";
+const SPACE_INVADERS_SAVE_TYPE = "spice-invaders-save";
 
 const UFO_Y = 0;
 

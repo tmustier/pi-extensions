@@ -6,15 +6,15 @@ Personal extensions for the [Pi coding agent](https://github.com/badlogic/pi-mon
 
 | Extension | Description |
 |-----------|-------------|
-| [model-context](model-context/) | Load provider-specific context files (CLAUDE.md, CODEX.md, GEMINI.md) |
+| [agent-guidance](agent-guidance/) | Load provider-specific context files (CLAUDE.md, CODEX.md, GEMINI.md) |
 | [tab-status](tab-status/) | Terminal tab indicators for managing parallel Pi sessions |
 | [arcade](arcade/) | Games: sPIce-invaders, picman, ping, tetris |
 
 ## Quick Setup
 
 ```bash
-# Model context (provider-specific guidelines)
-cd model-context && ./setup.sh
+# Agent guidance (provider-specific rules)
+cd agent-guidance && ./setup.sh
 
 # Tab status
 ln -s ~/pi-extensions/tab-status/tab-status.ts ~/.pi/agent/extensions/

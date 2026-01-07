@@ -1,4 +1,4 @@
-# model-context
+# agent-guidance
 
 Loads different context files based on the current model's provider, supplementing Pi's core `AGENTS.md` loading with provider-specific additions.
 
