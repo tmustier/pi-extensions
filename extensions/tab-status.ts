@@ -29,7 +29,7 @@ export default function (pi: ExtensionAPI) {
 	const setTitle = (ctx: ExtensionContext, next: StatusState) => {
 		state = next;
 		if (!ctx.hasUI) return;
-		ctx.ui.setTitle(`pi${STATUS_TEXT[next]} - ${cwdBase(ctx)}`);
+		ctx.ui.setTitle(`pi - ${cwdBase(ctx)}${STATUS_TEXT[next]}`);
 	};
 
 	const clearTabTimeout = () => {
