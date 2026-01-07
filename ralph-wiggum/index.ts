@@ -511,7 +511,8 @@ Examples:
 			updateStatus(ctx);
 
 			// Queue the first iteration prompt using buildPrompt for consistency
-			pi.sendUserMessage(buildPrompt(state, params.taskContent, false));
+			// Use followUp since agent is still processing the tool call
+			pi.sendUserMessage(buildPrompt(state, params.taskContent, false), { deliverAs: "followUp" });
 
 			return {
 				content: [
