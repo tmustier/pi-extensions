@@ -248,7 +248,7 @@ class PicmanComponent {
 	handleInput(key: string): boolean {
 		const s = this.state;
 		if (matchesKey(key, "escape") || key === "q" || key === "Q") { this.onSave(s); this.onClose(); return true; }
-		if (key === "n" || key === "N") { Object.assign(this.state, createState(s.highScore)); this.version++; this.tui.requestRender(); return true; }
+		if (key === "n" || key === "N") { Object.assign(this.state, createState(Math.max(s.highScore, s.tokens))); this.version++; this.tui.requestRender(); return true; }
 		if (key === " " || key === "p" || key === "P") { s.paused = !s.paused; this.version++; this.tui.requestRender(); return true; }
 		if (s.gameOver || s.paused) return true;
 
@@ -266,44 +266,44 @@ class PicmanComponent {
 		const minWidth = MAZE_TEMPLATE[0].length * 2 + 4;
 
 		if (width < minWidth) {
-			return ["", pad(`${YELLOW}PICMAN${RESET}`), "", pad("Terminal too narrow"), pad(`Need ${minWidth} cols`), "", pad("[Q] Quit")];
+			return ["", pad(`${CYAN}PICMAN${RESET}`), "", pad("Terminal too narrow"), pad(`Need ${minWidth} cols`), "", pad("[Q] Quit")];
 		}
 
 		if (this.cache.version === this.version && this.cache.width === width) return this.cache.lines;
 
 		const s = this.state, lines: string[] = [""];
-		const lives = Array(s.lives).fill(`${YELLOW}@${RESET}`).join(" ");
-		lines.push(pad(`${YELLOW}PICMAN${RESET}  Score: ${WHITE}${s.score}${RESET}  Hi: ${s.highScore}  Lv: ${s.level}  ${lives}`));
+		const lives = Array(s.lives).fill(`${CYAN}Pi${RESET}`).join(" ");
+		lines.push(pad(`${CYAN}PICMAN${RESET}  Tokens: ${WHITE}${s.tokens}${RESET}  Hi: ${s.highScore}  Lv: ${s.level}  ${lives}`));
 		lines.push("");
 
 		if (s.gameOver) {
-			lines.push(pad(`${YELLOW}GAME OVER${RESET}`), pad(`Final Score: ${s.score}`), "", pad("[N] New Game  [Q] Quit"), "");
+			lines.push(pad(`${RED}SEGFAULT${RESET}`), pad(`Final Tokens: ${s.tokens}`), "", pad("[N] New Game  [Q] Quit"), "");
 		} else {
 			if (s.paused) lines.push(pad(`${DIM}PAUSED${RESET}`), pad("[SPACE] Resume  [N] New  [Q] Quit"), "");
-			if (s.levelCompleteTimer > 0) lines.push(pad(`${YELLOW}LEVEL ${s.level} COMPLETE!${RESET}`), "");
-			if (s.deathAnimation > 0) lines.push(pad(`${RED}OUCH!${RESET}`), "");
+			if (s.levelCompleteTimer > 0) lines.push(pad(`${GREEN}LEVEL ${s.level} SHIPPED!${RESET}`), "");
+			if (s.deathAnimation > 0) lines.push(pad(`${RED}BUG FOUND!${RESET}`), "");
 
 			for (let y = 0; y < s.maze.length; y++) {
 				let row = "";
 				for (let x = 0; x < s.maze[y].length; x++) {
 					const cell = s.maze[y][x];
-					if (s.pacman.x === x && s.pacman.y === y && s.deathAnimation === 0) {
-						const glyph = s.mouthOpen ? ({ right: "@>", left: "<@", up: "@^", down: "@v" })[s.pacmanDir] : "@@";
-						row += `${YELLOW}${glyph}${RESET}`;
+					if (s.pi.x === x && s.pi.y === y && s.deathAnimation === 0) {
+						const glyph = s.mouthOpen ? ({ right: "Pi", left: "iP", up: "Pi", down: "Pi" })[s.piDir] : "PI";
+						row += `${CYAN}${glyph}${RESET}`;
 					} else {
-						const ghost = s.ghosts.find(g => g.x === x && g.y === y && !g.eaten);
-						if (ghost) {
-							const scared = s.powerMode > 0, blink = scared && s.powerMode < 15 && s.tickCount % 4 < 2;
-							row += `${blink ? WHITE : scared ? "\x1b[1;94m" : ghost.color}${scared ? "vv" : "/\\"}${RESET}`;
+						const bug = s.bugs.find(b => b.x === x && b.y === y && !b.squashed);
+						if (bug) {
+							const scared = s.caffeine > 0, blink = scared && s.caffeine < 15 && s.tickCount % 4 < 2;
+							row += `${blink ? WHITE : scared ? GREEN : bug.color}${scared ? "><" : "<>"}${RESET}`;
 						} else {
-							row += cell === "#" ? `${BLUE}██${RESET}` : cell === "." ? " •" : cell === "O" ? `${WHITE}<>${RESET}` : "  ";
+							row += cell === "#" ? `${BLUE}██${RESET}` : cell === "." ? ` ${DIM};${RESET}` : cell === "O" ? `${GREEN}()${RESET}` : "  ";
 						}
 					}
 				}
 				lines.push(pad(row));
 			}
 
-			lines.push("", pad(s.powerMode > 0 ? `${YELLOW}POWER!${RESET} [Arrows/HJKL] Move  [SPACE] Pause  [Q] Quit` : "[Arrows/HJKL] Move  [SPACE] Pause  [N] New  [Q] Quit"), "");
+			lines.push("", pad(s.caffeine > 0 ? `${GREEN}CAFFEINATED!${RESET} [Arrows/HJKL] Move  [SPACE] Pause  [Q] Quit` : "[Arrows/HJKL] Move  [SPACE] Pause  [N] New  [Q] Quit"), "");
 		}
 
 		this.cache = { lines, width, version: this.version };
@@ -313,16 +313,16 @@ class PicmanComponent {
 	dispose(): void { if (this.interval) clearInterval(this.interval); }
 }
 
-export default function (pi: ExtensionAPI) {
-	pi.registerCommand("picman", {
-		description: "Play Picman! Eat dots, avoid ghosts, get power pellets!",
+export default function (api: ExtensionAPI) {
+	api.registerCommand("picman", {
+		description: "Play Picman! Collect tokens, squash bugs, drink coffee!",
 		handler: async (_args, ctx: ExtensionCommandContext) => {
 			if (!ctx.hasUI) { ctx.ui.notify("Picman requires interactive mode", "error"); return; }
 
 			const entries = ctx.sessionManager.getEntries();
 			const saved = entries.reverse().find(e => e.type === "custom" && e.customType === SAVE_TYPE)?.data as GameState | undefined;
 
-			await ctx.ui.custom((tui, _theme, done) => new PicmanComponent(tui, () => done(undefined), s => pi.appendEntry(SAVE_TYPE, s), saved));
+			await ctx.ui.custom((tui, _theme, done) => new PicmanComponent(tui, () => done(undefined), s => api.appendEntry(SAVE_TYPE, s), saved));
 		},
 	});
 }

@@ -566,6 +566,39 @@ Add Super Mario Bros style platformer to complete the arcade collection.
 
 ---
 
+### Session 19 | 2026-01-07 | Commits: TBD
+
+#### Metadata
+- **Features**: picman-001 (completed)
+- **Files Changed**: 
+  - `extensions/pacman.ts` (+/-) - Pi-themed Picman game, cleaned up code
+  - `.long-task-harness/long-task-progress.md` (+/-) - session log update
+- **Commit Summary**: `feat: add picman - pi-themed arcade game`
+
+#### Goal
+Clean up and Pi-theme the Pacman game as "Picman".
+
+#### Accomplished
+- [x] Fixed ghost movement (deterministic tick-based instead of random)
+- [x] Fixed rendering (consistent 2-char ASCII cells)
+- [x] Cleaned up code (752 → 278 lines, ~63% reduction)
+- [x] Pi-themed: Player is "Pi", enemies are "Bugs" (Bug, Error, Crash, Glitch)
+- [x] Tokens instead of dots, Coffee `()` for power-ups (caffeine mode!)
+- [x] Thematic messages: "SEGFAULT", "BUG FOUND!", "SHIPPED!", "CAFFEINATED!"
+
+#### Decisions
+- **[D1]** Use ASCII-only 2-char glyphs for stable terminal rendering
+
+#### Context & Learnings
+- Original had random ghost movement causing jank
+- Unicode/emoji chars caused wall shifting due to inconsistent terminal widths
+- Renamed command to `/picman`, file stays `pacman.ts` for git history
+
+#### Next Steps
+1. Test `/picman` to verify all fixes work smoothly
+
+---
+
 <!--
 =============================================================================
 SESSION TEMPLATE - Copy below this line for new sessions

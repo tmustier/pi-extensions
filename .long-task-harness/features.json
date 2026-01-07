@@ -4,9 +4,9 @@
   "metadata": {
     "project_name": "pi-extensions",
     "created": "2026-01-06",
-    "last_updated": "2026-01-06",
+    "last_updated": "2026-01-07",
     "total_features": 6,
-    "completed_features": 0
+    "completed_features": 1
   },
   "features": [
     {
@@ -140,18 +140,18 @@
       }
     },
     {
-      "id": "pacman-001",
-      "name": "Pac-Man extension",
-      "description": "Add a playable Pac-Man TUI extension for Pi",
+      "id": "picman-001",
+      "name": "Picman extension",
+      "description": "Add a playable Pi-themed Picman TUI extension",
       "steps": [
-        "Implement /pacman command with game loop and input handling",
-        "Render maze, Pac-Man, ghosts, dots, and power pellets",
-        "Implement ghost AI with distinct personalities",
+        "Implement /picman command with game loop and input handling",
+        "Render maze, Pi, bugs, tokens, and coffee power-ups",
+        "Implement bug AI with distinct personalities",
         "Persist game state across sessions",
         "Document installation instructions"
       ],
-      "passes": false,
-      "notes": "",
+      "passes": true,
+      "notes": "Pi-themed: Player is Pi, enemies are Bugs, power mode is Caffeine",
       "history": {
         "sessions": [
           {
@@ -159,13 +159,24 @@
             "date": "2026-01-06",
             "action": "started",
             "summary": "Implemented full Pac-Man extension with maze, ghosts, power pellets"
+          },
+          {
+            "session": 19,
+            "date": "2026-01-07",
+            "action": "completed",
+            "summary": "Cleaned up code, fixed rendering bugs, Pi-themed as Picman"
           }
         ],
         "files": [
           "extensions/pacman.ts",
           "README.md"
         ],
-        "decisions": []
+        "decisions": [
+          {
+            "session": 19,
+            "decision": "Use ASCII-only 2-char glyphs for stable terminal rendering"
+          }
+        ]
       }
     },
     {
