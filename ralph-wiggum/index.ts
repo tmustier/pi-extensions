@@ -617,6 +617,27 @@ ${instructions}`,
 		pi.sendUserMessage(buildPrompt(state, taskContent, isReflection));
 	});
 
+	// Keyboard shortcut to stop loop (works during streaming)
+	pi.registerShortcut("ctrl+shift+r", {
+		description: "Stop Ralph loop",
+		handler: async (ctx) => {
+			if (!runtime.currentLoop) {
+				ctx.ui.notify("No active Ralph loop", "warning");
+				return;
+			}
+			const state = loadState(ctx, runtime.currentLoop);
+			if (state) {
+				state.active = false;
+				saveState(ctx, state);
+			}
+			const loopName = runtime.currentLoop;
+			runtime.currentLoop = null;
+			updateStatus(ctx);
+			ctx.abort(); // Stop the current agent turn
+			ctx.ui.notify(`Stopped Ralph loop: ${loopName}`, "info");
+		},
+	});
+
 	pi.on("session_start", async (_event, ctx) => {
 		const loops = listLoops(ctx);
 		const activeLoops = loops.filter((l) => l.active);
