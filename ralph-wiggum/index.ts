@@ -78,11 +78,19 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	function tryDelete(filePath: string): void {
-		try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch { /* ignore */ }
+		try {
+			if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+		} catch {
+			/* ignore */
+		}
 	}
 
 	function tryRead(filePath: string): string | null {
-		try { return fs.readFileSync(filePath, "utf-8"); } catch { return null; }
+		try {
+			return fs.readFileSync(filePath, "utf-8");
+		} catch {
+			return null;
+		}
 	}
 
 	// --- State management ---
@@ -108,9 +116,10 @@ export default function (pi: ExtensionAPI) {
 	function listLoops(ctx: ExtensionContext, archived = false): LoopState[] {
 		const dir = archived ? archiveDir(ctx) : ralphDir(ctx);
 		if (!fs.existsSync(dir)) return [];
-		return fs.readdirSync(dir)
-			.filter(f => f.endsWith(".state.json"))
-			.map(f => {
+		return fs
+			.readdirSync(dir)
+			.filter((f) => f.endsWith(".state.json"))
+			.map((f) => {
 				const content = tryRead(path.join(dir, f));
 				return content ? migrateState(JSON.parse(content)) : null;
 			})
@@ -148,9 +157,8 @@ export default function (pi: ExtensionAPI) {
 		const status = `${STATUS_ICONS[l.status]} ${l.status}`;
 		const iter = l.maxIterations > 0 ? `${l.iteration}/${l.maxIterations}` : `${l.iteration}`;
 		const items = l.itemsPerIteration > 0 ? `, ${l.itemsProcessed} items` : "";
-		const completed = showCompleted && l.completedAt
-			? ` - completed ${new Date(l.completedAt).toLocaleDateString()}`
-			: "";
+		const completed =
+			showCompleted && l.completedAt ? ` - completed ${new Date(l.completedAt).toLocaleDateString()}` : "";
 		return `${l.name}: ${status} (iteration ${iter}${items})${completed}`;
 	}
 
@@ -201,7 +209,9 @@ export default function (pi: ExtensionAPI) {
 
 		parts.push(`## Current Task (from ${state.taskFile})\n\n${taskContent}\n\n---`);
 		parts.push(`\n## Instructions\n`);
-		parts.push(`You are in a Ralph loop (iteration ${state.iteration}${state.maxIterations > 0 ? ` of ${state.maxIterations}` : ""}).\n`);
+		parts.push(
+			`You are in a Ralph loop (iteration ${state.iteration}${state.maxIterations > 0 ? ` of ${state.maxIterations}` : ""}).\n`,
+		);
 
 		if (state.itemsPerIteration > 0) {
 			const start = state.itemsProcessed + 1;
@@ -236,11 +246,21 @@ export default function (pi: ExtensionAPI) {
 		for (let i = 0; i < tokens.length; i++) {
 			const tok = tokens[i];
 			const next = tokens[i + 1];
-			if (tok === "--max-iterations" && next) { result.maxIterations = parseInt(next, 10) || 0; i++; }
-			else if (tok === "--items-per-iteration" && next) { result.itemsPerIteration = parseInt(next, 10) || 0; i++; }
-			else if (tok === "--reflect-every" && next) { result.reflectEveryItems = parseInt(next, 10) || 0; i++; }
-			else if (tok === "--reflect-instructions" && next) { result.reflectInstructions = next.replace(/^"|"$/g, ""); i++; }
-			else if (!tok.startsWith("--")) { result.name = tok; }
+			if (tok === "--max-iterations" && next) {
+				result.maxIterations = parseInt(next, 10) || 0;
+				i++;
+			} else if (tok === "--items-per-iteration" && next) {
+				result.itemsPerIteration = parseInt(next, 10) || 0;
+				i++;
+			} else if (tok === "--reflect-every" && next) {
+				result.reflectEveryItems = parseInt(next, 10) || 0;
+				i++;
+			} else if (tok === "--reflect-instructions" && next) {
+				result.reflectInstructions = next.replace(/^"|"$/g, "");
+				i++;
+			} else if (!tok.startsWith("--")) {
+				result.name = tok;
+			}
 		}
 		return result;
 	}
@@ -251,7 +271,10 @@ export default function (pi: ExtensionAPI) {
 		start(rest, ctx) {
 			const args = parseArgs(rest);
 			if (!args.name) {
-				ctx.ui.notify("Usage: /ralph start <name|path> [--items-per-iteration N] [--reflect-every N] [--max-iterations N]", "warning");
+				ctx.ui.notify(
+					"Usage: /ralph start <name|path> [--items-per-iteration N] [--reflect-every N] [--max-iterations N]",
+					"warning",
+				);
 				return;
 			}
 
@@ -348,7 +371,9 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
-			const needsReflection = state.reflectEveryItems > 0 && state.itemsProcessed > 0 &&
+			const needsReflection =
+				state.reflectEveryItems > 0 &&
+				state.itemsProcessed > 0 &&
 				state.itemsProcessed - state.lastReflectionAtItems >= state.reflectEveryItems;
 			pi.sendUserMessage(buildPrompt(state, content, needsReflection));
 		},
@@ -359,7 +384,7 @@ export default function (pi: ExtensionAPI) {
 				ctx.ui.notify("No Ralph loops found. Use /ralph list --archived for archived.", "info");
 				return;
 			}
-			ctx.ui.notify(`Ralph loops:\n${loops.map(l => formatLoop(l)).join("\n")}`, "info");
+			ctx.ui.notify(`Ralph loops:\n${loops.map((l) => formatLoop(l)).join("\n")}`, "info");
 		},
 
 		cancel(rest, ctx) {
@@ -414,7 +439,7 @@ export default function (pi: ExtensionAPI) {
 
 		clean(rest, ctx) {
 			const all = rest.trim() === "--all";
-			const completed = listLoops(ctx).filter(l => l.status === "completed");
+			const completed = listLoops(ctx).filter((l) => l.status === "completed");
 
 			if (completed.length === 0) {
 				ctx.ui.notify("No completed loops to clean", "info");
@@ -428,7 +453,10 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			const suffix = all ? " (all files)" : " (state only)";
-			ctx.ui.notify(`Cleaned ${completed.length} loop(s)${suffix}:\n${completed.map(l => `  • ${l.name}`).join("\n")}`, "info");
+			ctx.ui.notify(
+				`Cleaned ${completed.length} loop(s)${suffix}:\n${completed.map((l) => `  • ${l.name}`).join("\n")}`,
+				"info",
+			);
 			updateUI(ctx);
 		},
 
@@ -437,12 +465,15 @@ export default function (pi: ExtensionAPI) {
 			const loops = listLoops(ctx, archived);
 
 			if (loops.length === 0) {
-				ctx.ui.notify(archived ? "No archived loops" : "No loops found. Use /ralph list --archived for archived.", "info");
+				ctx.ui.notify(
+					archived ? "No archived loops" : "No loops found. Use /ralph list --archived for archived.",
+					"info",
+				);
 				return;
 			}
 
 			const label = archived ? "Archived loops" : "Ralph loops";
-			ctx.ui.notify(`${label}:\n${loops.map(l => formatLoop(l, archived)).join("\n")}`, "info");
+			ctx.ui.notify(`${label}:\n${loops.map((l) => formatLoop(l, archived)).join("\n")}`, "info");
 		},
 	};
 
@@ -462,6 +493,8 @@ Options:
   --items-per-iteration N  Process N items per turn
   --reflect-every N        Reflect every N items
   --max-iterations N       Stop after N iterations
+
+To stop during streaming: type "stop"
 
 Examples:
   /ralph start my-feature
@@ -575,23 +608,35 @@ Examples:
 		}
 
 		// Check for completion marker
-		const lastAssistant = [...event.messages].reverse().find(m => m.role === "assistant");
-		const text = lastAssistant && Array.isArray(lastAssistant.content)
-			? lastAssistant.content.filter((c): c is { type: "text"; text: string } => c.type === "text").map(c => c.text).join("\n")
-			: "";
+		const lastAssistant = [...event.messages].reverse().find((m) => m.role === "assistant");
+		const text =
+			lastAssistant && Array.isArray(lastAssistant.content)
+				? lastAssistant.content
+						.filter((c): c is { type: "text"; text: string } => c.type === "text")
+						.map((c) => c.text)
+						.join("\n")
+				: "";
 
 		if (text.includes(COMPLETE_MARKER)) {
-			completeLoop(ctx, state, `───────────────────────────────────────────────────────────────────────
+			completeLoop(
+				ctx,
+				state,
+				`───────────────────────────────────────────────────────────────────────
 ✅ RALPH LOOP COMPLETE: ${state.name} | ${state.iteration} iterations
-───────────────────────────────────────────────────────────────────────`);
+───────────────────────────────────────────────────────────────────────`,
+			);
 			return;
 		}
 
 		// Check max iterations
 		if (state.maxIterations > 0 && state.iteration >= state.maxIterations) {
-			completeLoop(ctx, state, `───────────────────────────────────────────────────────────────────────
+			completeLoop(
+				ctx,
+				state,
+				`───────────────────────────────────────────────────────────────────────
 ⚠️ RALPH LOOP STOPPED: ${state.name} | Max iterations (${state.maxIterations}) reached
-───────────────────────────────────────────────────────────────────────`);
+───────────────────────────────────────────────────────────────────────`,
+			);
 			return;
 		}
 
@@ -599,7 +644,9 @@ Examples:
 		state.iteration++;
 		if (state.itemsPerIteration > 0) state.itemsProcessed += state.itemsPerIteration;
 
-		const needsReflection = state.reflectEveryItems > 0 && state.itemsProcessed > 0 &&
+		const needsReflection =
+			state.reflectEveryItems > 0 &&
+			state.itemsProcessed > 0 &&
 			state.itemsProcessed - state.lastReflectionAtItems >= state.reflectEveryItems;
 		if (needsReflection) state.lastReflectionAtItems = state.itemsProcessed;
 
@@ -619,9 +666,11 @@ Examples:
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
-		const active = listLoops(ctx).filter(l => l.status === "active");
+		const active = listLoops(ctx).filter((l) => l.status === "active");
 		if (active.length > 0 && ctx.hasUI) {
-			const lines = active.map(l => `  • ${l.name} (iteration ${l.iteration}${l.maxIterations > 0 ? `/${l.maxIterations}` : ""})`);
+			const lines = active.map(
+				(l) => `  • ${l.name} (iteration ${l.iteration}${l.maxIterations > 0 ? `/${l.maxIterations}` : ""})`,
+			);
 			ctx.ui.notify(`Active Ralph loops:\n${lines.join("\n")}\n\nUse /ralph resume <name> to continue`, "info");
 		}
 		updateUI(ctx);
