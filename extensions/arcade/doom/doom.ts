@@ -1,626 +1,351 @@
 /**
- * ASCII Doom - First-person raycasting shooter. Play with /doom
+ * ASCII Doom - First-person raycasting shooter. Play with /doom-ascii
  */
-
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 
-// Constants
-const TICK_MS = 50;
-const FOV = Math.PI / 3;
-const MOVE_SPEED = 0.08;
-const ROT_SPEED = 0.12;
-const MAX_DEPTH = 16;
-const ATTACK_RANGE = 1.0;
-const ATTACK_COOLDOWN = 20;
-const PICKUP_RANGE = 0.5;
-const DOOR_OPEN_TIME = 60; // ticks before door closes
+// Config
+const TICK_MS = 50, FOV = Math.PI / 3, MAX_DEPTH = 16;
+const MOVE_SPEED = 0.08, ROT_SPEED = 0.05; // ~3° per step for precise aiming
+const ATTACK_RANGE = 1.0, ATTACK_COOLDOWN = 20, PICKUP_RANGE = 0.5, DOOR_TIME = 60;
 
-const WALL_SHADES = ["█", "▓", "▒", "░", " "];
-const RESET = "\x1b[0m";
-const DIM = "\x1b[2m";
-const BOLD = "\x1b[1m";
-const RED = "\x1b[31m";
-const GREEN = "\x1b[32m";
-const YELLOW = "\x1b[33m";
-const CYAN = "\x1b[36m";
-const MAGENTA = "\x1b[35m";
-const BLUE = "\x1b[34m";
-const WHITE = "\x1b[37m";
+// ANSI
+const R = "\x1b[0m", D = "\x1b[2m", B = "\x1b[1m";
+const RED = "\x1b[31m", GRN = "\x1b[32m", YEL = "\x1b[33m", CYN = "\x1b[36m", MAG = "\x1b[35m";
+const SHADES = ["█", "▓", "▒", "░", " "];
 
-// Level data: #=wall .=floor E=exit P=player Z/I/D=enemies H/A=pickups ==door
+// Levels: #=wall .=floor ==door E=exit P=player Z/I/D=enemies H/A=items
 const LEVELS = [
-	[ // Level 1 - Introduction
-		"####################",
-		"#..................#",
-		"#.H................#",
-		"#......####........#",
-		"#......#..#...Z....#",
-		"#......=..=........#",
-		"#......####........#",
-		"#..Z..........A....#",
-		"#............###...#",
-		"#...H........=E=...#",
-		"#..P.........###...#",
-		"#..................#",
-		"#.........Z....A...#",
-		"####################",
-	],
-	[ // Level 2 - Corridors
-		"########################",
-		"#....#.....#...........#",
-		"#.P..=..Z..=....####...#",
-		"#....#.....#....#..#...#",
-		"###..###=###....=..=...#",
-		"#.......H#......#..#...#",
-		"#..Z.....#..I...####...#",
-		"#........#.............#",
-		"####=#####..####=####..#",
-		"#....#......#.......#..#",
-		"#.A..#..D...#...H...#..#",
-		"#....#......#.......#..#",
-		"#....###=####=####=##..#",
-		"#..............Z.......#",
-		"#.....A................#",
-		"#...............###=####",
-		"#...Z...........=E=....#",
-		"#...............###....#",
-		"########################",
-	],
-	[ // Level 3 - Arena
-		"############################",
-		"#..........................#",
-		"#..################........#",
-		"#..=..............=..D.....#",
-		"#..#..H...####....#........#",
-		"#..#......=..=....####..####",
-		"#..#..Z...#..#.........H...#",
-		"#..#......####.....I.......#",
-		"#..#...............A.......#",
-		"#..########=########..######",
-		"#..........H..........=E=..#",
-		"#..I...................###..#",
-		"#.....D........Z...........#",
-		"#..A.......................#",
-		"#..........................#",
-		"#.P........................#",
-		"############################",
-	],
+	["####################","#..................#","#.H................#","#......####........#",
+	 "#......#..#...Z....#","#......=..=........#","#......####........#","#..Z..........A....#",
+	 "#............###...#","#...H........=E=...#","#..P.........###...#","#..................#",
+	 "#.........Z....A...#","####################"],
+	["########################","#....#.....#...........#","#.P..=..Z..=....####...#","#....#.....#....#..#...#",
+	 "###..###=###....=..=...#","#.......H#......#..#...#","#..Z.....#..I...####...#","#........#.............#",
+	 "####=#####..####=####..#","#....#......#.......#..#","#.A..#..D...#...H...#..#","#....#......#.......#..#",
+	 "#....###=####=####=##..#","#..............Z.......#","#.....A................#","#...............###=####",
+	 "#...Z...........=E=....#","#...............###....#","########################"],
+	["############################","#..........................#","#..################........#","#..=..............=..D.....#",
+	 "#..#..H...####....#........#","#..#......=..=....####..####","#..#..Z...#..#.........H...#","#..#......####.....I.......#",
+	 "#..#...............A.......#","#..########=########..######","#..........H..........=E=..#","#..I...................###..#",
+	 "#.....D........Z...........#","#..A.......................#","#..........................#","#.P........................#",
+	 "############################"],
 ];
 
 // Types
 type Screen = "title" | "game" | "paused" | "help" | "gameover" | "victory";
-
-interface Player { x: number; y: number; angle: number; health: number; ammo: number; }
-interface Enemy { x: number; y: number; health: number; maxHealth: number; speed: number; damage: number; attackCooldown: number; type: "zombie" | "imp" | "demon"; dead: boolean; }
-interface Pickup { x: number; y: number; type: "health" | "ammo"; amount: number; collected: boolean; }
-interface Door { x: number; y: number; open: boolean; timer: number; }
-
+interface Player { x: number; y: number; angle: number; health: number; ammo: number }
+interface Enemy { x: number; y: number; hp: number; maxHp: number; spd: number; dmg: number; cd: number; type: string; dead: boolean }
+interface Pickup { x: number; y: number; type: string; amt: number; got: boolean }
+interface Door { x: number; y: number; open: boolean; timer: number }
 interface State {
-	screen: Screen; prevScreen: Screen;
-	player: Player; enemies: Enemy[]; pickups: Pickup[]; doors: Door[];
-	map: string[];
-	level: number; kills: number; totalEnemies: number;
-	itemsCollected: number; totalItems: number;
-	startTime: number; damageFlash: number; muzzleFlash: number;
+	screen: Screen; prev: Screen; player: Player;
+	enemies: Enemy[]; pickups: Pickup[]; doors: Door[]; map: string[];
+	level: number; kills: number; items: number; totalE: number; totalI: number;
+	start: number; dmgFlash: number; gunFlash: number;
 }
 
-// Entity definitions
-const ENEMY_DEFS: Record<string, Omit<Enemy, "x" | "y" | "attackCooldown" | "dead">> = {
-	Z: { type: "zombie", health: 30, maxHealth: 30, speed: 0.015, damage: 8 },
-	I: { type: "imp", health: 50, maxHealth: 50, speed: 0.025, damage: 15 },
-	D: { type: "demon", health: 80, maxHealth: 80, speed: 0.04, damage: 25 },
+// Defs
+const ENEMIES: Record<string, { type: string; hp: number; spd: number; dmg: number }> = {
+	Z: { type: "zombie", hp: 30, spd: 0.015, dmg: 8 },
+	I: { type: "imp", hp: 50, spd: 0.025, dmg: 15 },
+	D: { type: "demon", hp: 80, spd: 0.04, dmg: 25 },
 };
-const PICKUP_DEFS: Record<string, { type: "health" | "ammo"; amount: number }> = {
-	H: { type: "health", amount: 25 },
-	A: { type: "ammo", amount: 15 },
-};
+const ITEMS: Record<string, { type: string; amt: number }> = { H: { type: "health", amt: 25 }, A: { type: "ammo", amt: 15 } };
 
-// Map parsing
-function parseMap(level: string[]): { map: string[]; px: number; py: number; enemies: Enemy[]; pickups: Pickup[]; doors: Door[] } {
+// Parse level
+function parse(lvl: string[]) {
 	let px = 1.5, py = 1.5;
 	const enemies: Enemy[] = [], pickups: Pickup[] = [], doors: Door[] = [];
-	
-	const map = level.map((row, y) => {
-		let newRow = "";
+	const map = lvl.map((row, y) => {
+		let r = "";
 		for (let x = 0; x < row.length; x++) {
 			const c = row[x];
-			if (c === "P") { px = x + 0.5; py = y + 0.5; newRow += "."; }
-			else if (ENEMY_DEFS[c]) { enemies.push({ ...ENEMY_DEFS[c], x: x + 0.5, y: y + 0.5, attackCooldown: 0, dead: false }); newRow += "."; }
-			else if (PICKUP_DEFS[c]) { pickups.push({ ...PICKUP_DEFS[c], x: x + 0.5, y: y + 0.5, collected: false }); newRow += "."; }
-			else if (c === "=") { doors.push({ x, y, open: false, timer: 0 }); newRow += "="; }
-			else newRow += c;
+			if (c === "P") { px = x + 0.5; py = y + 0.5; r += "."; }
+			else if (ENEMIES[c]) { enemies.push({ ...ENEMIES[c], x: x + 0.5, y: y + 0.5, maxHp: ENEMIES[c].hp, cd: 0, dead: false }); r += "."; }
+			else if (ITEMS[c]) { pickups.push({ ...ITEMS[c], x: x + 0.5, y: y + 0.5, got: false }); r += "."; }
+			else if (c === "=") { doors.push({ x, y, open: false, timer: 0 }); r += "="; }
+			else r += c;
 		}
-		return newRow;
+		return r;
 	});
 	return { map, px, py, enemies, pickups, doors };
 }
 
-function getCell(map: string[], x: number, y: number): string {
-	const my = Math.floor(y), mx = Math.floor(x);
-	if (my < 0 || my >= map.length || mx < 0 || mx >= map[my].length) return "#";
-	return map[my][mx];
-}
-
-function isDoor(s: State, x: number, y: number): Door | undefined {
-	const mx = Math.floor(x), my = Math.floor(y);
-	return s.doors.find(d => d.x === mx && d.y === my);
-}
-
-function isBlocked(s: State, x: number, y: number): boolean {
-	const cell = getCell(s.map, x, y);
-	if (cell === "#") return true;
-	if (cell === "=") {
-		const door = isDoor(s, x, y);
-		return door ? !door.open : true;
-	}
+// Helpers
+const cell = (m: string[], x: number, y: number) => {
+	const r = m[Math.floor(y)];
+	return r ? r[Math.floor(x)] ?? "#" : "#";
+};
+const getDoor = (s: State, x: number, y: number) => s.doors.find(d => d.x === Math.floor(x) && d.y === Math.floor(y));
+const blocked = (s: State, x: number, y: number) => {
+	const c = cell(s.map, x, y);
+	if (c === "#") return true;
+	if (c === "=") { const d = getDoor(s, x, y); return d ? !d.open : true; }
 	return false;
-}
+};
+const dist = (x1: number, y1: number, x2: number, y2: number) => Math.hypot(x2 - x1, y2 - y1);
 
-function dist(x1: number, y1: number, x2: number, y2: number): number {
-	return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
-}
-
-// Doors (doom-017)
-function updateDoors(s: State): void {
-	const { player: p, doors } = s;
-	
-	for (const d of doors) {
-		// Auto-open when player is close
-		const dx = (d.x + 0.5) - p.x, dy = (d.y + 0.5) - p.y;
-		const distance = Math.sqrt(dx * dx + dy * dy);
-		
-		if (distance < 1.5 && !d.open) {
-			d.open = true;
-			d.timer = DOOR_OPEN_TIME;
-		}
-		
-		// Close after timer expires (if player not nearby)
-		if (d.open && d.timer > 0) {
-			d.timer--;
-			if (d.timer <= 0 && distance > 1.5) {
-				d.open = false;
-			} else if (distance < 1.5) {
-				d.timer = DOOR_OPEN_TIME; // Reset timer if player still near
-			}
-		}
+// Update
+function tick(s: State) {
+	const p = s.player;
+	// Doors
+	for (const d of s.doors) {
+		const dd = dist(d.x + 0.5, d.y + 0.5, p.x, p.y);
+		if (dd < 1.5 && !d.open) { d.open = true; d.timer = DOOR_TIME; }
+		if (d.open) { d.timer--; if (d.timer <= 0 && dd > 1.5) d.open = false; else if (dd < 1.5) d.timer = DOOR_TIME; }
 	}
-}
-
-// Player
-function movePlayer(s: State, fwd: number, strafe: number): void {
-	const { player: p, pickups } = s;
-	const cos = Math.cos(p.angle), sin = Math.sin(p.angle);
-	
-	let dx = cos * fwd - sin * strafe, dy = sin * fwd + cos * strafe;
-	const len = Math.sqrt(dx * dx + dy * dy);
-	if (len > 0) { dx = dx / len * MOVE_SPEED; dy = dy / len * MOVE_SPEED; }
-
-	const nx = p.x + dx, ny = p.y + dy;
-	if (!isBlocked(s, nx, ny)) { p.x = nx; p.y = ny; }
-	else {
-		if (!isBlocked(s, nx, p.y)) p.x = nx;
-		if (!isBlocked(s, p.x, ny)) p.y = ny;
-	}
-
-	// Collect pickups
-	for (const pk of pickups) {
-		if (pk.collected) continue;
-		if (dist(p.x, p.y, pk.x, pk.y) < PICKUP_RANGE) {
-			if (pk.type === "health" && p.health < 100) {
-				p.health = Math.min(100, p.health + pk.amount);
-				pk.collected = true; s.itemsCollected++;
-			} else if (pk.type === "ammo") {
-				p.ammo += pk.amount;
-				pk.collected = true; s.itemsCollected++;
-			}
-		}
-	}
-
-	if (getCell(s.map, p.x, p.y) === "E") s.screen = "victory";
-}
-
-// Enemy AI
-function updateEnemies(s: State): void {
-	const { player: p, enemies } = s;
-	
-	for (const e of enemies) {
+	// Enemies
+	for (const e of s.enemies) {
 		if (e.dead) continue;
-		
-		const dx = p.x - e.x, dy = p.y - e.y;
-		const d = Math.sqrt(dx * dx + dy * dy);
-		
+		const dx = p.x - e.x, dy = p.y - e.y, d = Math.hypot(dx, dy);
 		if (d > 0.5) {
-			const mx = (dx / d) * e.speed, my = (dy / d) * e.speed;
-			const nx = e.x + mx, ny = e.y + my;
-			if (!isBlocked(s, nx, ny)) { e.x = nx; e.y = ny; }
-			else {
-				if (!isBlocked(s, nx, e.y)) e.x = nx;
-				else if (!isBlocked(s, e.x, ny)) e.y = ny;
-			}
+			const nx = e.x + (dx / d) * e.spd, ny = e.y + (dy / d) * e.spd;
+			if (!blocked(s, nx, ny)) { e.x = nx; e.y = ny; }
+			else if (!blocked(s, nx, e.y)) e.x = nx;
+			else if (!blocked(s, e.x, ny)) e.y = ny;
 		}
-		
-		if (d < ATTACK_RANGE && e.attackCooldown <= 0) {
-			p.health -= e.damage;
-			s.damageFlash = 5;
-			e.attackCooldown = ATTACK_COOLDOWN;
-			if (p.health <= 0) { p.health = 0; s.screen = "gameover"; }
-		}
-		if (e.attackCooldown > 0) e.attackCooldown--;
+		if (d < ATTACK_RANGE && e.cd <= 0) { p.health -= e.dmg; s.dmgFlash = 5; e.cd = ATTACK_COOLDOWN; if (p.health <= 0) { p.health = 0; s.screen = "gameover"; } }
+		if (e.cd > 0) e.cd--;
 	}
+	if (s.dmgFlash > 0) s.dmgFlash--;
+	if (s.gunFlash > 0) s.gunFlash--;
 }
 
-// Shooting
-function shoot(s: State): boolean {
-	const { player: p, enemies, map } = s;
-	const dx = Math.cos(p.angle), dy = Math.sin(p.angle);
-	
-	let closestHit: Enemy | null = null, closestDist = MAX_DEPTH;
-	
-	for (const e of enemies) {
+function move(s: State, fwd: number, str: number) {
+	const p = s.player, cos = Math.cos(p.angle), sin = Math.sin(p.angle);
+	let dx = cos * fwd - sin * str, dy = sin * fwd + cos * str;
+	const len = Math.hypot(dx, dy);
+	if (len > 0) { dx = dx / len * MOVE_SPEED; dy = dy / len * MOVE_SPEED; }
+	if (!blocked(s, p.x + dx, p.y + dy)) { p.x += dx; p.y += dy; }
+	else { if (!blocked(s, p.x + dx, p.y)) p.x += dx; if (!blocked(s, p.x, p.y + dy)) p.y += dy; }
+	// Pickups
+	for (const pk of s.pickups) {
+		if (pk.got || dist(p.x, p.y, pk.x, pk.y) >= PICKUP_RANGE) continue;
+		if (pk.type === "health" && p.health < 100) { p.health = Math.min(100, p.health + pk.amt); pk.got = true; s.items++; }
+		else if (pk.type === "ammo") { p.ammo += pk.amt; pk.got = true; s.items++; }
+	}
+	if (cell(s.map, p.x, p.y) === "E") s.screen = "victory";
+}
+
+function shoot(s: State) {
+	const p = s.player, dx = Math.cos(p.angle), dy = Math.sin(p.angle);
+	let hit: Enemy | null = null, hd = MAX_DEPTH;
+	for (const e of s.enemies) {
 		if (e.dead) continue;
-		const ex = e.x - p.x, ey = e.y - p.y;
-		const proj = ex * dx + ey * dy;
-		if (proj < 0.1 || proj > closestDist) continue;
-		
-		const perpDist = Math.abs(ex * dy - ey * dx);
-		if (perpDist < 0.4) {
-			const { dist: wallDist } = castRay(s, p.x, p.y, p.angle);
-			if (proj < wallDist) { closestHit = e; closestDist = proj; }
+		const ex = e.x - p.x, ey = e.y - p.y, proj = ex * dx + ey * dy;
+		if (proj < 0.1 || proj > hd) continue;
+		if (Math.abs(ex * dy - ey * dx) < 0.4) {
+			const wd = castRay(s, p.x, p.y, p.angle).d;
+			if (proj < wd) { hit = e; hd = proj; }
 		}
 	}
-	
-	if (closestHit) {
-		closestHit.health -= 25;
-		if (closestHit.health <= 0) { closestHit.dead = true; s.kills++; }
-		return true;
-	}
-	return false;
+	if (hit) { hit.hp -= 25; if (hit.hp <= 0) { hit.dead = true; s.kills++; } }
 }
 
-// Raycasting (modified to handle doors)
-function castRay(s: State, px: number, py: number, angle: number): { dist: number; side: number; isDoor: boolean } {
-	const { map } = s;
-	const dx = Math.cos(angle), dy = Math.sin(angle);
-	let mapX = Math.floor(px), mapY = Math.floor(py);
-	
-	const ddx = dx === 0 ? 1e10 : Math.abs(1 / dx);
-	const ddy = dy === 0 ? 1e10 : Math.abs(1 / dy);
-	const stepX = dx < 0 ? -1 : 1, stepY = dy < 0 ? -1 : 1;
-	
-	let sideX = dx < 0 ? (px - mapX) * ddx : (mapX + 1 - px) * ddx;
-	let sideY = dy < 0 ? (py - mapY) * ddy : (mapY + 1 - py) * ddy;
+// Raycast
+function castRay(s: State, px: number, py: number, a: number) {
+	const dx = Math.cos(a), dy = Math.sin(a);
+	let mx = Math.floor(px), my = Math.floor(py);
+	const ddx = dx === 0 ? 1e10 : Math.abs(1 / dx), ddy = dy === 0 ? 1e10 : Math.abs(1 / dy);
+	const sx = dx < 0 ? -1 : 1, sy = dy < 0 ? -1 : 1;
+	let sdx = dx < 0 ? (px - mx) * ddx : (mx + 1 - px) * ddx;
+	let sdy = dy < 0 ? (py - my) * ddy : (my + 1 - py) * ddy;
 	let side = 0;
-
 	for (let i = 0; i < MAX_DEPTH * 2; i++) {
-		if (sideX < sideY) { sideX += ddx; mapX += stepX; side = 0; }
-		else { sideY += ddy; mapY += stepY; side = 1; }
-		
-		const cell = getCell(map, mapX, mapY);
-		if (cell === "#") {
-			return { dist: side === 0 ? sideX - ddx : sideY - ddy, side, isDoor: false };
-		}
-		if (cell === "=") {
-			const door = isDoor(s, mapX, mapY);
-			if (door && !door.open) {
-				return { dist: side === 0 ? sideX - ddx : sideY - ddy, side, isDoor: true };
-			}
-		}
+		if (sdx < sdy) { sdx += ddx; mx += sx; side = 0; } else { sdy += ddy; my += sy; side = 1; }
+		const c = cell(s.map, mx, my);
+		if (c === "#") return { d: side === 0 ? sdx - ddx : sdy - ddy, side, door: false };
+		if (c === "=") { const dr = getDoor(s, mx, my); if (dr && !dr.open) return { d: side === 0 ? sdx - ddx : sdy - ddy, side, door: true }; }
 	}
-	return { dist: MAX_DEPTH, side: 0, isDoor: false };
+	return { d: MAX_DEPTH, side: 0, door: false };
 }
 
-// Sprites
-interface Sprite { screenX: number; dist: number; height: number; type: "enemy" | "pickup"; color: string; char: string }
-
-function getSprites(s: State, w: number, h: number): Sprite[] {
-	const { player: p, enemies, pickups } = s;
-	const sprites: Sprite[] = [];
+// Render
+function render(s: State, W: number, H: number): string[] {
+	if (s.screen !== "game") return renderMenu(s, W, H);
 	
-	for (const e of enemies) {
+	const p = s.player, viewH = H - 2, half = Math.floor(viewH / 2);
+	const buf: string[][] = Array.from({ length: viewH }, () => Array(W).fill(" "));
+	const zbuf: number[] = Array(W).fill(MAX_DEPTH);
+	
+	// Walls
+	for (let x = 0; x < W; x++) {
+		const ray = castRay(s, p.x, p.y, p.angle - FOV / 2 + (x / W) * FOV);
+		zbuf[x] = ray.d;
+		const wh = Math.floor(viewH / (ray.d + 0.001)), wt = half - Math.floor(wh / 2), wb = half + Math.floor(wh / 2);
+		const sh = Math.min(Math.floor(ray.d / (MAX_DEPTH / SHADES.length)), SHADES.length - 1);
+		const col = ray.door ? YEL : (ray.side ? D : "");
+		for (let y = wt; y < wb && y < viewH; y++) if (y >= 0) buf[y][x] = col + SHADES[sh] + R;
+		for (let y = wb; y < viewH; y++) buf[y][x] = D + "." + R;
+	}
+	
+	// Sprites (enemies + pickups)
+	const sprites: { sx: number; d: number; h: number; col: string; ch: string }[] = [];
+	for (const e of s.enemies) {
 		if (e.dead) continue;
-		const dx = e.x - p.x, dy = e.y - p.y, d = Math.sqrt(dx * dx + dy * dy);
+		const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy);
 		if (d > MAX_DEPTH || d < 0.1) continue;
-		
-		let relAngle = Math.atan2(dy, dx) - p.angle;
-		while (relAngle > Math.PI) relAngle -= Math.PI * 2;
-		while (relAngle < -Math.PI) relAngle += Math.PI * 2;
-		if (Math.abs(relAngle) > FOV / 2 + 0.2) continue;
-		
-		const hpPct = e.health / e.maxHealth;
-		const color = e.type === "zombie" ? GREEN : e.type === "imp" ? MAGENTA : RED;
-		const char = hpPct > 0.5 ? "█" : hpPct > 0.25 ? "▓" : "░";
-		sprites.push({ screenX: Math.floor((0.5 + relAngle / FOV) * w), dist: d, height: Math.floor(h / d), type: "enemy", color, char });
+		let ra = Math.atan2(dy, dx) - p.angle;
+		while (ra > Math.PI) ra -= Math.PI * 2; while (ra < -Math.PI) ra += Math.PI * 2;
+		if (Math.abs(ra) > FOV / 2 + 0.2) continue;
+		const hp = e.hp / e.maxHp;
+		sprites.push({ sx: Math.floor((0.5 + ra / FOV) * W), d, h: Math.floor(viewH / d), col: e.type === "zombie" ? GRN : e.type === "imp" ? MAG : RED, ch: hp > 0.5 ? "█" : hp > 0.25 ? "▓" : "░" });
 	}
-	
-	for (const pk of pickups) {
-		if (pk.collected) continue;
-		const dx = pk.x - p.x, dy = pk.y - p.y, d = Math.sqrt(dx * dx + dy * dy);
+	for (const pk of s.pickups) {
+		if (pk.got) continue;
+		const dx = pk.x - p.x, dy = pk.y - p.y, d = Math.hypot(dx, dy);
 		if (d > MAX_DEPTH || d < 0.1) continue;
-		
-		let relAngle = Math.atan2(dy, dx) - p.angle;
-		while (relAngle > Math.PI) relAngle -= Math.PI * 2;
-		while (relAngle < -Math.PI) relAngle += Math.PI * 2;
-		if (Math.abs(relAngle) > FOV / 2 + 0.2) continue;
-		
-		const color = pk.type === "health" ? CYAN : YELLOW;
-		sprites.push({ screenX: Math.floor((0.5 + relAngle / FOV) * w), dist: d, height: Math.floor(h / d * 0.5), type: "pickup", color, char: pk.type === "health" ? "+" : "*" });
+		let ra = Math.atan2(dy, dx) - p.angle;
+		while (ra > Math.PI) ra -= Math.PI * 2; while (ra < -Math.PI) ra += Math.PI * 2;
+		if (Math.abs(ra) > FOV / 2 + 0.2) continue;
+		sprites.push({ sx: Math.floor((0.5 + ra / FOV) * W), d, h: Math.floor(viewH / d * 0.5), col: pk.type === "health" ? CYN : YEL, ch: pk.type === "health" ? "+" : "*" });
 	}
-	
-	sprites.sort((a, b) => b.dist - a.dist);
-	return sprites;
-}
-
-// Rendering
-function render3DView(s: State, w: number, h: number): string[] {
-	const { player: p, damageFlash, muzzleFlash } = s;
-	const half = Math.floor(h / 2);
-	
-	const wallDists: number[] = [], wallSides: number[] = [], wallDoors: boolean[] = [];
-	for (let x = 0; x < w; x++) {
-		const rayAngle = p.angle - FOV / 2 + (x / w) * FOV;
-		const { dist, side, isDoor } = castRay(s, p.x, p.y, rayAngle);
-		wallDists.push(dist); wallSides.push(side); wallDoors.push(isDoor);
-	}
-	
-	const buf: { char: string; color: string }[][] = [];
-	for (let y = 0; y < h; y++) {
-		buf[y] = [];
-		for (let x = 0; x < w; x++) {
-			const dist = wallDists[x];
-			const wallH = Math.floor(h / (dist + 0.0001));
-			const wallTop = half - Math.floor(wallH / 2);
-			const wallBot = half + Math.floor(wallH / 2);
-
-			let char: string, color = "";
-			if (y < wallTop) { char = " "; }
-			else if (y >= wallBot) { char = "."; color = DIM; }
-			else {
-				const shade = Math.min(Math.floor(dist / (MAX_DEPTH / WALL_SHADES.length)), WALL_SHADES.length - 1);
-				char = WALL_SHADES[shade];
-				// Doors are brown/yellow, walls are gray
-				if (wallDoors[x]) {
-					color = YELLOW + (wallSides[x] === 1 ? DIM : "");
-				} else {
-					color = wallSides[x] === 1 ? DIM : "";
-				}
-			}
-			buf[y][x] = { char, color };
-		}
-	}
-	
-	// Sprites
-	const sprites = getSprites(s, w, h);
-	for (const spr of sprites) {
-		const sprH = spr.height, sprW = Math.max(1, Math.floor(sprH * (spr.type === "pickup" ? 0.4 : 0.6)));
-		const startX = spr.screenX - Math.floor(sprW / 2);
-		const startY = half - Math.floor(sprH / 2);
-		
-		for (let sy = 0; sy < sprH; sy++) {
-			const y = startY + sy;
-			if (y < 0 || y >= h) continue;
-			for (let sx = 0; sx < sprW; sx++) {
-				const x = startX + sx;
-				if (x < 0 || x >= w || spr.dist > wallDists[x]) continue;
-				const relY = sy / sprH, relX = sx / sprW;
-				if ((relX < 0.2 || relX > 0.8) && (relY < 0.2 || relY > 0.8)) continue;
-				buf[y][x] = { char: spr.char, color: spr.color };
+	sprites.sort((a, b) => b.d - a.d);
+	for (const sp of sprites) {
+		const sw = Math.max(1, Math.floor(sp.h * 0.5)), startX = sp.sx - Math.floor(sw / 2), startY = half - Math.floor(sp.h / 2);
+		for (let sy = 0; sy < sp.h; sy++) {
+			const y = startY + sy; if (y < 0 || y >= viewH) continue;
+			for (let sx = 0; sx < sw; sx++) {
+				const x = startX + sx; if (x < 0 || x >= W || sp.d > zbuf[x]) continue;
+				buf[y][x] = sp.col + sp.ch + R;
 			}
 		}
 	}
 	
 	// Crosshair
-	const cx = Math.floor(w / 2), cy = half;
-	const chColor = muzzleFlash > 0 ? YELLOW : GREEN;
-	if (cy > 0 && cy < h - 1 && cx > 0 && cx < w - 1) {
-		buf[cy][cx - 1] = { char: "-", color: chColor };
-		buf[cy][cx + 1] = { char: "-", color: chColor };
-		buf[cy - 1][cx] = { char: "|", color: chColor };
-		buf[cy + 1][cx] = { char: "|", color: chColor };
-		buf[cy][cx] = { char: muzzleFlash > 0 ? "*" : "+", color: chColor + BOLD };
+	const cx = Math.floor(W / 2), cy = half, cc = s.gunFlash > 0 ? YEL : GRN;
+	if (cy > 0 && cy < viewH - 1 && cx > 0 && cx < W - 1) {
+		buf[cy][cx - 1] = cc + "-" + R; buf[cy][cx + 1] = cc + "-" + R;
+		buf[cy - 1][cx] = cc + "|" + R; buf[cy + 1][cx] = cc + "|" + R;
+		buf[cy][cx] = cc + B + (s.gunFlash > 0 ? "*" : "+") + R;
 	}
 	
-	const lines: string[] = [];
-	for (let y = 0; y < h; y++) {
-		let line = "";
-		for (let x = 0; x < w; x++) {
-			let { char, color } = buf[y][x];
-			if (damageFlash > 0 && char !== " ") color = RED;
-			line += color + char + RESET;
-		}
-		lines.push(line);
-	}
-	return lines;
-}
-
-function renderMinimap(s: State): string[] {
-	const { player: p, map, enemies, pickups, doors } = s;
-	const lines: string[] = [], size = 3;
+	// Minimap (render into buffer directly, top-right corner)
+	const mmSize = 3, mmX = W - 8, mmY = 1;
 	const arrows = ["→", "↘", "↓", "↙", "←", "↖", "↑", "↗"];
-
-	for (let dy = -size; dy <= size; dy++) {
-		let line = "";
-		for (let dx = -size; dx <= size; dx++) {
+	for (let dy = -mmSize; dy <= mmSize; dy++) {
+		for (let dx = -mmSize; dx <= mmSize; dx++) {
+			const bx = mmX + dx + mmSize, by = mmY + dy + mmSize;
+			if (bx < 0 || bx >= W || by < 0 || by >= viewH) continue;
+			if (dx === 0 && dy === 0) { buf[by][bx] = CYN + arrows[Math.round((p.angle / (Math.PI * 2)) * 8 + 8) % 8] + R; continue; }
 			const mx = Math.floor(p.x) + dx, my = Math.floor(p.y) + dy;
-			if (dx === 0 && dy === 0) {
-				line += CYAN + arrows[Math.round((p.angle / (Math.PI * 2)) * 8 + 8) % 8] + RESET;
-			} else {
-				const enemy = enemies.find(e => !e.dead && Math.floor(e.x) === mx && Math.floor(e.y) === my);
-				const pickup = pickups.find(pk => !pk.collected && Math.floor(pk.x) === mx && Math.floor(pk.y) === my);
-				const door = doors.find(d => d.x === mx && d.y === my);
-				if (enemy) line += RED + "!" + RESET;
-				else if (pickup) line += (pickup.type === "health" ? CYAN : YELLOW) + "·" + RESET;
-				else if (door) line += (door.open ? DIM : YELLOW) + "=" + RESET;
-				else {
-					const cell = getCell(map, mx, my);
-					line += cell === "#" ? DIM + "█" + RESET : cell === "E" ? GREEN + "E" + RESET : DIM + "·" + RESET;
-				}
-			}
+			const en = s.enemies.find(e => !e.dead && Math.floor(e.x) === mx && Math.floor(e.y) === my);
+			const pk = s.pickups.find(p => !p.got && Math.floor(p.x) === mx && Math.floor(p.y) === my);
+			const dr = s.doors.find(d => d.x === mx && d.y === my);
+			if (en) buf[by][bx] = RED + "!" + R;
+			else if (pk) buf[by][bx] = (pk.type === "health" ? CYN : YEL) + "·" + R;
+			else if (dr) buf[by][bx] = (dr.open ? D : YEL) + "=" + R;
+			else { const c = cell(s.map, mx, my); buf[by][bx] = c === "#" ? D + "█" + R : c === "E" ? GRN + "E" + R : D + "·" + R; }
+		}
+	}
+	
+	// Apply damage flash
+	const lines: string[] = [];
+	for (let y = 0; y < viewH; y++) {
+		let line = "";
+		for (let x = 0; x < W; x++) {
+			let ch = buf[y][x];
+			if (s.dmgFlash > 0 && ch !== " " && !ch.startsWith(RED)) ch = RED + ch.replace(/\x1b\[[0-9;]*m/g, "") + R;
+			line += ch;
 		}
 		lines.push(line);
 	}
-	return lines;
+	
+	// HUD
+	lines.push(D + "─".repeat(W) + R);
+	const hp = s.player.health / 100, hc = hp > 0.6 ? GRN : hp > 0.3 ? YEL : RED;
+	const bar = hc + "█".repeat(Math.round(hp * 10)) + D + "░".repeat(10 - Math.round(hp * 10)) + R;
+	lines.push(`${RED}HP${R}[${bar}]${s.player.health} ${YEL}AMMO${R}:${s.player.ammo} ${RED}K${R}:${s.kills}/${s.totalE} ${CYN}I${R}:${s.items}/${s.totalI} ${MAG}L${s.level}${R}`);
+	
+	while (lines.length < H) lines.push("");
+	return lines.slice(0, H);
 }
 
-function renderHUD(s: State): string {
-	const { player: p, level, kills, totalEnemies, itemsCollected, totalItems } = s;
-	const pct = p.health / 100;
-	const hpColor = pct > 0.6 ? GREEN : pct > 0.3 ? YELLOW : RED;
-	const bar = hpColor + "█".repeat(Math.round(pct * 10)) + DIM + "░".repeat(10 - Math.round(pct * 10)) + RESET;
-	return `${RED}HP${RESET}[${bar}]${p.health}  ${YELLOW}AMMO${RESET}:${p.ammo}  ${RED}K${RESET}:${kills}/${totalEnemies}  ${CYAN}I${RESET}:${itemsCollected}/${totalItems}  ${MAGENTA}L${level}${RESET}`;
-}
-
-function center(text: string, w: number): string {
-	const clean = text.replace(/\x1b\[[0-9;]*m/g, "");
-	return " ".repeat(Math.max(0, Math.floor((w - clean.length) / 2))) + text;
-}
-
-function renderScreen(s: State, w: number, h: number): string[] {
-	const lines: string[] = [];
-	const pad = (n: number) => { while (lines.length < n) lines.push(""); };
-
+function renderMenu(s: State, W: number, H: number): string[] {
+	const lines: string[] = [], pad = (n: number) => { while (lines.length < n) lines.push(""); };
+	const ctr = (t: string) => { const c = t.replace(/\x1b\[[0-9;]*m/g, ""); return " ".repeat(Math.max(0, Math.floor((W - c.length) / 2))) + t; };
+	
 	if (s.screen === "title") {
-		const title = [
-			"██████╗  ██████╗  ██████╗ ███╗   ███╗",
-			"██╔══██╗██╔═══██╗██╔═══██╗████╗ ████║",
-			"██║  ██║██║   ██║██║   ██║██╔████╔██║",
-			"██║  ██║██║   ██║██║   ██║██║╚██╔╝██║",
-			"██████╔╝╚██████╔╝╚██████╔╝██║ ╚═╝ ██║",
-			"╚═════╝  ╚═════╝  ╚═════╝ ╚═╝     ╚═╝",
-		];
-		pad(Math.floor(h / 2) - 6);
-		for (const l of title) lines.push(center(RED + l + RESET, w));
-		lines.push("", center(DIM + "ASCII TERMINAL EDITION" + RESET, w), "");
-		lines.push(center(GREEN + "ENTER" + RESET + " Start  " + DIM + "H" + RESET + " Help  " + DIM + "ESC" + RESET + " Quit", w));
+		const logo = ["██████╗  ██████╗  ██████╗ ███╗   ███╗","██╔══██╗██╔═══██╗██╔═══██╗████╗ ████║",
+			"██║  ██║██║   ██║██║   ██║██╔████╔██║","██║  ██║██║   ██║██║   ██║██║╚██╔╝██║",
+			"██████╔╝╚██████╔╝╚██████╔╝██║ ╚═╝ ██║","╚═════╝  ╚═════╝  ╚═════╝ ╚═╝     ╚═╝"];
+		pad(Math.floor(H / 2) - 6);
+		for (const l of logo) lines.push(ctr(RED + l + R));
+		lines.push("", ctr(D + "ASCII TERMINAL EDITION" + R), "", ctr(GRN + "ENTER" + R + " Start  " + D + "H" + R + " Help  " + D + "ESC" + R + " Quit"));
 	} else if (s.screen === "help") {
-		pad(Math.floor(h / 2) - 7);
-		lines.push(center(CYAN + BOLD + "═══ CONTROLS ═══" + RESET, w), "");
-		lines.push(center("W/S - Move   A/D - Strafe   Q/E - Turn", w));
-		lines.push(center("SPACE - Shoot   P - Pause", w));
-		lines.push("", center(CYAN + "+" + RESET + " Health   " + YELLOW + "*" + RESET + " Ammo   " + YELLOW + "=" + RESET + " Door   " + GREEN + "E" + RESET + " Exit", w));
-		lines.push("", center(DIM + "Doors open automatically when near" + RESET, w));
-		lines.push("", center(DIM + "Press any key" + RESET, w));
+		pad(Math.floor(H / 2) - 5);
+		lines.push(ctr(CYN + B + "═══ CONTROLS ═══" + R), "", ctr("W/S Move  A/D Strafe  Q/E Turn"), ctr("SPACE Shoot  P Pause"), "",
+			ctr(CYN + "+" + R + " Health  " + YEL + "*" + R + " Ammo  " + YEL + "=" + R + " Door  " + GRN + "E" + R + " Exit"), "", ctr(D + "Press any key" + R));
 	} else if (s.screen === "paused") {
-		pad(Math.floor(h / 2) - 2);
-		lines.push(center(YELLOW + BOLD + "══ PAUSED ══" + RESET, w), "");
-		lines.push(center("P/ESC Resume   H Help   Q Quit", w));
+		pad(Math.floor(H / 2) - 2);
+		lines.push(ctr(YEL + B + "══ PAUSED ══" + R), "", ctr("P Resume  H Help  Q Quit"));
 	} else if (s.screen === "gameover") {
-		pad(Math.floor(h / 2) - 3);
-		lines.push(center(RED + BOLD + "YOU DIED" + RESET, w), "");
-		lines.push(center(`Level ${s.level} - Kills: ${s.kills}/${s.totalEnemies}`, w));
-		lines.push("", center("ENTER Restart   ESC Title", w));
+		pad(Math.floor(H / 2) - 3);
+		lines.push(ctr(RED + B + "YOU DIED" + R), "", ctr(`Level ${s.level} - Kills: ${s.kills}/${s.totalE}`), "", ctr("ENTER Restart  ESC Title"));
 	} else if (s.screen === "victory") {
-		pad(Math.floor(h / 2) - 5);
-		const t = Math.floor((Date.now() - s.startTime) / 1000);
-		const isGameComplete = s.level >= LEVELS.length;
-		lines.push(center(GREEN + BOLD + (isGameComplete ? "══ GAME COMPLETE ══" : "══ LEVEL COMPLETE ══") + RESET, w), "");
-		lines.push(center(`Time: ${Math.floor(t / 60)}:${(t % 60).toString().padStart(2, "0")}`, w));
-		lines.push(center(`Kills: ${s.kills}/${s.totalEnemies}`, w));
-		lines.push(center(`Items: ${s.itemsCollected}/${s.totalItems}`, w));
-		lines.push("", center(GREEN + (isGameComplete ? "ENTER to play again" : "ENTER for next level") + RESET, w));
-	} else {
-		const viewH = h - 2;
-		lines.push(...render3DView(s, w, viewH));
-		lines.push(DIM + "─".repeat(w) + RESET);
-		lines.push(renderHUD(s));
-
-		const mm = renderMinimap(s);
-		for (let i = 0; i < mm.length && i < lines.length; i++) {
-			const stripped = lines[i].replace(/\x1b\[[0-9;]*m/g, "");
-			if (stripped.length >= w - 9) lines[i] = lines[i].substring(0, (w - 9) * 3) + " " + mm[i];
-		}
+		pad(Math.floor(H / 2) - 5);
+		const t = Math.floor((Date.now() - s.start) / 1000), done = s.level >= LEVELS.length;
+		lines.push(ctr(GRN + B + (done ? "══ GAME COMPLETE ══" : "══ LEVEL COMPLETE ══") + R), "",
+			ctr(`Time: ${Math.floor(t / 60)}:${(t % 60).toString().padStart(2, "0")}`),
+			ctr(`Kills: ${s.kills}/${s.totalE}`), ctr(`Items: ${s.items}/${s.totalI}`), "",
+			ctr(GRN + (done ? "ENTER Play Again" : "ENTER Next Level") + R));
 	}
-
-	pad(h);
-	return lines.slice(0, h);
+	pad(H);
+	return lines.slice(0, H);
 }
 
-// State management
-function createState(levelNum: number = 1): State {
-	const levelData = LEVELS[Math.min(levelNum - 1, LEVELS.length - 1)];
-	const { map, px, py, enemies, pickups, doors } = parseMap(levelData);
-	return {
-		screen: "title", prevScreen: "title",
-		player: { x: px, y: py, angle: 0, health: 100, ammo: 50 },
-		enemies, pickups, doors, map,
-		level: levelNum, kills: 0, totalEnemies: enemies.length,
-		itemsCollected: 0, totalItems: pickups.length,
-		startTime: Date.now(), damageFlash: 0, muzzleFlash: 0,
-	};
+// State
+function init(lvl = 1): State {
+	const d = LEVELS[Math.min(lvl - 1, LEVELS.length - 1)], { map, px, py, enemies, pickups, doors } = parse(d);
+	return { screen: "title", prev: "title", player: { x: px, y: py, angle: 0, health: 100, ammo: 50 },
+		enemies, pickups, doors, map, level: lvl, kills: 0, items: 0, totalE: enemies.length, totalI: pickups.length,
+		start: Date.now(), dmgFlash: 0, gunFlash: 0 };
 }
 
-function loadLevel(s: State, levelNum: number): void {
-	const levelData = LEVELS[Math.min(levelNum - 1, LEVELS.length - 1)];
-	const { map, px, py, enemies, pickups, doors } = parseMap(levelData);
-	s.map = map; s.enemies = enemies; s.pickups = pickups; s.doors = doors;
+function load(s: State, lvl: number) {
+	const d = LEVELS[Math.min(lvl - 1, LEVELS.length - 1)], { map, px, py, enemies, pickups, doors } = parse(d);
+	Object.assign(s, { map, enemies, pickups, doors, level: lvl, kills: 0, items: 0, totalE: enemies.length, totalI: pickups.length,
+		screen: "game", start: Date.now(), dmgFlash: 0, gunFlash: 0 });
 	s.player.x = px; s.player.y = py; s.player.angle = 0;
-	s.level = levelNum; s.kills = 0; s.totalEnemies = enemies.length;
-	s.itemsCollected = 0; s.totalItems = pickups.length;
-	s.screen = "game"; s.startTime = Date.now();
-	s.damageFlash = s.muzzleFlash = 0;
 }
 
-function resetGame(s: State): void {
-	loadLevel(s, 1);
-	s.player.health = 100; s.player.ammo = 50;
-}
+function reset(s: State) { load(s, 1); s.player.health = 100; s.player.ammo = 50; }
 
-// Extension entry
+// Extension
 export default function (pi: ExtensionAPI) {
-	pi.registerCommand("doom", {
+	pi.registerCommand("doom-ascii", {
 		description: "Play ASCII Doom - first-person shooter",
-		handler: async (_args, ctx: ExtensionCommandContext) => {
-			if (!ctx.hasUI) { ctx.ui.notify("Doom requires interactive mode", "error"); return; }
+		handler: async (_, ctx: ExtensionCommandContext) => {
+			if (!ctx.hasUI) { ctx.ui.notify("Requires interactive mode", "error"); return; }
 			await ctx.waitForIdle();
-
-			const s = createState();
-
-			await ctx.ui.custom<void>((tui, _theme, done) => {
-				const timer = setInterval(() => {
-					if (s.screen === "game") {
-						if (s.damageFlash > 0) s.damageFlash--;
-						if (s.muzzleFlash > 0) s.muzzleFlash--;
-						updateEnemies(s);
-						updateDoors(s);
-						tui.invalidate();
-					}
-				}, TICK_MS);
-
+			const s = init();
+			await ctx.ui.custom<void>((tui, _, done) => {
+				const timer = setInterval(() => { if (s.screen === "game") { tick(s); tui.invalidate(); } }, TICK_MS);
 				return {
 					x: 0, y: 0, width: 0, height: 0, visible: true, parent: null as any,
-					layout(x: number, y: number, w: number, h: number) { this.x = x; this.y = y; this.width = w; this.height = h; },
-					render(w: number): string[] { return renderScreen(s, w, this.height || 24); },
-					handleInput(data: string): boolean {
-						const key = data.toLowerCase();
-						const esc = data === "\x1b" || data === "\x1b\x1b";
-						const enter = data === "\r" || data === "\n";
-
+					layout(x, y, w, h) { this.x = x; this.y = y; this.width = w; this.height = h; },
+					render(w) { return render(s, w, this.height || 24); },
+					handleInput(data) {
+						const k = data.toLowerCase(), esc = data === "\x1b" || data === "\x1b\x1b", ent = data === "\r" || data === "\n";
 						if (s.screen === "title") {
-							if (enter) resetGame(s);
-							else if (key === "h") { s.prevScreen = "title"; s.screen = "help"; }
+							if (ent) reset(s); else if (k === "h") { s.prev = "title"; s.screen = "help"; }
 							else if (esc) { clearInterval(timer); done(); return true; }
-						} else if (s.screen === "help") {
-							s.screen = s.prevScreen;
-						} else if (s.screen === "paused") {
-							if (key === "p" || esc || enter) s.screen = "game";
-							else if (key === "h") { s.prevScreen = "paused"; s.screen = "help"; }
-							else if (key === "q") s.screen = "title";
-						} else if (s.screen === "gameover") {
-							if (enter) resetGame(s);
+						} else if (s.screen === "help") { s.screen = s.prev; }
+						else if (s.screen === "paused") {
+							if (k === "p" || esc || ent) s.screen = "game"; else if (k === "h") { s.prev = "paused"; s.screen = "help"; }
+							else if (k === "q") s.screen = "title";
+						} else if (s.screen === "gameover") { if (ent) reset(s); else if (esc) s.screen = "title"; }
+						else if (s.screen === "victory") {
+							if (ent) { if (s.level < LEVELS.length) load(s, s.level + 1); else reset(s); }
 							else if (esc) s.screen = "title";
-						} else if (s.screen === "victory") {
-							if (enter) {
-								if (s.level < LEVELS.length) loadLevel(s, s.level + 1);
-								else resetGame(s);
-							} else if (esc) s.screen = "title";
 						} else if (s.screen === "game") {
-							if (key === "w" || data === "\x1b[A") movePlayer(s, 1, 0);
-							else if (key === "s" || data === "\x1b[B") movePlayer(s, -1, 0);
-							else if (key === "a") movePlayer(s, 0, -1);
-							else if (key === "d") movePlayer(s, 0, 1);
-							else if (key === "q" || data === "\x1b[D") s.player.angle -= ROT_SPEED;
-							else if (key === "e" || data === "\x1b[C") s.player.angle += ROT_SPEED;
-							else if (key === "p" || esc) s.screen = "paused";
-							else if (data === " " && s.player.ammo > 0) { s.player.ammo--; s.muzzleFlash = 3; shoot(s); }
+							if (k === "w" || data === "\x1b[A") move(s, 1, 0);
+							else if (k === "s" || data === "\x1b[B") move(s, -1, 0);
+							else if (k === "a") move(s, 0, -1); else if (k === "d") move(s, 0, 1);
+							else if (k === "q" || data === "\x1b[D") s.player.angle -= ROT_SPEED;
+							else if (k === "e" || data === "\x1b[C") s.player.angle += ROT_SPEED;
+							else if (k === "p" || esc) s.screen = "paused";
+							else if (data === " " && s.player.ammo > 0) { s.player.ammo--; s.gunFlash = 3; shoot(s); }
 						}
 						tui.invalidate();
 						return true;
