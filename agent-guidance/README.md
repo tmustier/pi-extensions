@@ -4,33 +4,13 @@ Loads different context files based on the current model's provider, supplementi
 
 ## How It Works
 
-**Option A: Tweak label**
-```mermaid
-flowchart LR
-    subgraph Core ["Pi Core"]
-        A[Start] --> B[Load all AGENTS.md]
-    end
-    
-    subgraph Ext ["agent-guidance extension"]
-        B --> C{Which provider?}
-        C -->|Anthropic| D[+ CLAUDE.md]
-        C -->|OpenAI/Codex| E[+ CODEX.md]
-        C -->|Google| F[+ GEMINI.md]
-    end
-    
-    D --> G[System Prompt]
-    E --> G
-    F --> G
-```
-
-**Option B: Show sources**
 ```mermaid
 flowchart LR
     S1["~/.pi/agent/"] --> B
     S2["project/"] --> B
     
     subgraph Core ["Pi Core"]
-        B[Load AGENTS.md]
+        B["Load all AGENTS.md<br/><sub>(CLAUDE.md as fallback)</sub>"]
     end
     
     subgraph Ext ["agent-guidance extension"]
