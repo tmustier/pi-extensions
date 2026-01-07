@@ -569,16 +569,22 @@ Examples:
 	// --- Event handlers ---
 
 	pi.on("before_agent_start", async (event, ctx) => {
+		// Handle stop command - check even if currentLoop is null (may be stale after restart)
+		const prompt = event.prompt.toLowerCase().trim();
+		if (prompt === "stop" || prompt === "/ralph stop" || prompt === "ralph stop") {
+			// Find any active loop to stop
+			const activeLoop = currentLoop 
+				? loadState(ctx, currentLoop) 
+				: listLoops(ctx).find(l => l.status === "active");
+			if (activeLoop && activeLoop.status === "active") {
+				pauseLoop(ctx, activeLoop, `Ralph loop "${activeLoop.name}" stopped.`);
+				return;
+			}
+		}
+
 		if (!currentLoop) return;
 		const state = loadState(ctx, currentLoop);
 		if (!state || state.status !== "active") return;
-
-		// Handle stop command during streaming
-		const prompt = event.prompt.toLowerCase().trim();
-		if (prompt === "stop" || prompt === "/ralph stop" || prompt === "ralph stop") {
-			pauseLoop(ctx, state, `Ralph loop "${state.name}" stopped.`);
-			return;
-		}
 
 		const iterStr = `${state.iteration}${state.maxIterations > 0 ? `/${state.maxIterations}` : ""}`;
 		const itemsStr = state.itemsPerIteration > 0 ? ` | ${state.itemsProcessed} items done` : "";
