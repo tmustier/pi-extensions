@@ -15,8 +15,8 @@ const PIXEL_H = VIEW_ROWS * 2;  // Pixel height
 const TICK_MS = 40;
 
 // Physics (in pixels)
-const GRAVITY = 0.35;
-const JUMP_VEL = -3.8;
+const GRAVITY = 0.32;
+const JUMP_VEL = -4.5;
 const MOVE_SPEED = 0.35;
 const MAX_SPEED = 1.2;
 const FRICTION = 0.82;
@@ -287,7 +287,7 @@ const parseLevel = (n: number): { tiles: string[][], width: number, enemies: Ent
 			const c = tiles[y][x];
 			if (c === T_PLAYER) {
 				startX = x * TILE_SIZE;
-				startY = y * TILE_SIZE;
+				startY = (y + 1) * TILE_SIZE - PLAYER_H;  // feet on ground below
 				tiles[y][x] = T_EMPTY;
 			} else if (c === T_ENEMY) {
 				enemies.push({ x: x * TILE_SIZE, y: y * TILE_SIZE - 2, vx: -0.5, vy: 0, alive: true, frame: 0 });
