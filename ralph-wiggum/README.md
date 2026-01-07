@@ -45,7 +45,7 @@ If you hit `esc`, you can run `/ralph-stop` to clear the loop. Alternatively, ju
 
 | Option | Description |
 |--------|-------------|
-| `--max-iterations N` | Stop after N iterations |
+| `--max-iterations N` | Stop after N iterations (default 50) |
 | `--items-per-iteration N` | Suggest N items per turn (prompt hint) |
 | `--reflect-every N` | Reflect every N iterations |
 

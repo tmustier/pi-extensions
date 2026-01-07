@@ -30,7 +30,7 @@ ralph_start({
 2. Each iteration: work on task, update file
 3. Call `ralph_done` tool to proceed to next iteration
 4. When complete: output `<promise>COMPLETE</promise>`
-5. Loop ends on completion or max iterations
+5. Loop ends on completion or max iterations (default 50)
 
 ## User Commands
 

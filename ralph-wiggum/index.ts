@@ -252,7 +252,7 @@ export default function (pi: ExtensionAPI) {
 		const tokens = argsStr.match(/(?:[^\s"]+|"[^"]*")+/g) || [];
 		const result = {
 			name: "",
-			maxIterations: 0,
+			maxIterations: 50,
 			itemsPerIteration: 0,
 			reflectEvery: 0,
 			reflectInstructions: DEFAULT_REFLECT_INSTRUCTIONS,
@@ -546,7 +546,7 @@ Commands:
 Options:
   --items-per-iteration N  Suggest N items per turn (prompt hint)
   --reflect-every N        Reflect every N iterations
-  --max-iterations N       Stop after N iterations
+  --max-iterations N       Stop after N iterations (default 50)
 
 To stop: press ESC to interrupt, then run /ralph-stop when idle
 
