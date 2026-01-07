@@ -208,14 +208,14 @@ export default function (pi: ExtensionAPI) {
 		);
 
 		if (state.itemsPerIteration > 0) {
-			parts.push(`**THIS ITERATION: Process approximately ${state.itemsPerIteration} items, then STOP.**\n`);
+			parts.push(`**THIS ITERATION: Process approximately ${state.itemsPerIteration} items, then call ralph_done.**\n`);
 			parts.push(`1. Work on the next ~${state.itemsPerIteration} items from your checklist`);
 		} else {
 			parts.push(`1. Continue working on the task`);
 		}
 		parts.push(`2. Update the task file (${state.taskFile}) with your progress`);
 		parts.push(`3. When the task is FULLY COMPLETE, respond with: ${COMPLETE_MARKER}`);
-		parts.push(`4. Otherwise, stop after making progress and wait for next iteration`);
+		parts.push(`4. Otherwise, call the ralph_done tool to proceed to next iteration`);
 
 		return parts.join("\n");
 	}
@@ -481,18 +481,65 @@ Examples:
 		},
 	});
 
+	// Tool for agent to signal iteration complete and request next
+	pi.registerTool({
+		name: "ralph_done",
+		label: "Ralph Iteration Done",
+		description: "Signal that you've completed this iteration of the Ralph loop. Call this after making progress to get the next iteration prompt. Do NOT call this if you've output the completion marker.",
+		parameters: Type.Object({}),
+		async execute(_toolCallId, _params, _onUpdate, ctx) {
+			if (!currentLoop) {
+				return { content: [{ type: "text", text: "No active Ralph loop." }], details: {} };
+			}
+
+			const state = loadState(ctx, currentLoop);
+			if (!state || state.status !== "active") {
+				return { content: [{ type: "text", text: "Ralph loop is not active." }], details: {} };
+			}
+
+			// Increment iteration
+			state.iteration++;
+
+			// Check max iterations
+			if (state.maxIterations > 0 && state.iteration > state.maxIterations) {
+				completeLoop(
+					ctx,
+					state,
+					`───────────────────────────────────────────────────────────────────────
+⚠️ RALPH LOOP STOPPED: ${state.name} | Max iterations (${state.maxIterations}) reached
+───────────────────────────────────────────────────────────────────────`,
+				);
+				return { content: [{ type: "text", text: "Max iterations reached. Loop stopped." }], details: {} };
+			}
+
+			const needsReflection = state.reflectEvery > 0 && (state.iteration - 1) % state.reflectEvery === 0;
+			if (needsReflection) state.lastReflectionAt = state.iteration;
+
+			saveState(ctx, state);
+			updateUI(ctx);
+
+			const content = tryRead(path.resolve(ctx.cwd, state.taskFile));
+			if (!content) {
+				pauseLoop(ctx, state);
+				return { content: [{ type: "text", text: `Error: Could not read task file: ${state.taskFile}` }], details: {} };
+			}
+
+			// Queue next iteration - use followUp so user can still interrupt
+			pi.sendUserMessage(buildPrompt(state, content, needsReflection), { deliverAs: "followUp" });
+
+			return {
+				content: [{ type: "text", text: `Iteration ${state.iteration - 1} complete. Next iteration queued.` }],
+				details: {},
+			};
+		},
+	});
+
 	// --- Event handlers ---
 
 	pi.on("before_agent_start", async (event, ctx) => {
-		// DEBUG - use notify so we can see it
-		if (ctx.hasUI) {
-			ctx.ui.notify(`[DEBUG] prompt="${event.prompt.slice(0, 50)}...", currentLoop=${currentLoop}`, "info");
-		}
-		
 		// Handle stop command
 		const prompt = event.prompt.toLowerCase().trim();
 		if (prompt === "stop" || prompt === "/ralph stop" || prompt === "ralph stop") {
-			if (ctx.hasUI) ctx.ui.notify(`[DEBUG] Stop detected!`, "info");
 			const state = currentLoop
 				? loadState(ctx, currentLoop)
 				: listLoops(ctx).find((l) => l.status === "active");
@@ -514,7 +561,7 @@ Examples:
 		}
 		instructions += `- Update the task file as you progress\n`;
 		instructions += `- When FULLY COMPLETE: ${COMPLETE_MARKER}\n`;
-		instructions += `- Otherwise, stop after making progress`;
+		instructions += `- Otherwise, call ralph_done tool to proceed to next iteration`;
 
 		return {
 			systemPromptAppend: `\n[RALPH LOOP - ${state.name} - Iteration ${iterStr}]\n\n${instructions}`,
@@ -559,26 +606,8 @@ Examples:
 			return;
 		}
 
-		// Continue to next iteration
-		state.iteration++;
-
-		const needsReflection =
-			state.reflectEvery > 0 && (state.iteration - 1) % state.reflectEvery === 0;
-		if (needsReflection) state.lastReflectionAt = state.iteration;
-
-		saveState(ctx, state);
-		updateUI(ctx);
-
-		const content = tryRead(path.resolve(ctx.cwd, state.taskFile));
-		if (!content) {
-			pauseLoop(ctx, state);
-			pi.sendUserMessage(`───────────────────────────────────────────────────────────────────────
-❌ RALPH LOOP ERROR: ${state.name} | Could not read task file: ${state.taskFile}
-───────────────────────────────────────────────────────────────────────`);
-			return;
-		}
-
-		pi.sendUserMessage(buildPrompt(state, content, needsReflection));
+		// Don't auto-continue - let the agent call ralph_done to proceed
+		// This allows user's "stop" message to be processed first
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
