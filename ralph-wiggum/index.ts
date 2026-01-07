@@ -24,6 +24,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { Type } from "@sinclair/typebox";
 
 const RALPH_DIR = ".ralph";
 const COMPLETE_MARKER = "<promise>COMPLETE</promise>";
@@ -415,6 +416,91 @@ Examples:
 						"info",
 					);
 			}
+		},
+	});
+
+	// Tool for agent to start a loop
+	pi.registerTool({
+		name: "ralph_start",
+		label: "Start Ralph Loop",
+		description:
+			"Start a long-running development loop on yourself. Use this when you have a complex task that requires multiple iterations. Write the task content, then this tool will set up the loop and you'll work through it iteratively.",
+		parameters: Type.Object({
+			name: Type.String({ description: "Loop name (e.g., 'refactor-auth', 'add-tests')" }),
+			taskContent: Type.String({
+				description: "The task description in markdown format. Include goals, checklist, and any relevant context.",
+			}),
+			maxIterations: Type.Optional(
+				Type.Number({ description: "Maximum iterations before stopping (default: 50)", default: 50 }),
+			),
+			reflectEvery: Type.Optional(
+				Type.Number({ description: "Pause for reflection every N iterations (default: 0 = no reflection)" }),
+			),
+		}),
+		async execute(_toolCallId, params, _onUpdate, ctx) {
+			const loopName = sanitizeName(params.name);
+			const taskFile = path.join(RALPH_DIR, `${loopName}.md`);
+
+			const existingState = loadState(ctx, loopName);
+			if (existingState?.active) {
+				return {
+					content: [{ type: "text", text: `Loop "${loopName}" is already active. Complete it first or cancel it.` }],
+					details: {},
+				};
+			}
+
+			// Create task file with provided content
+			const fullTaskPath = path.resolve(ctx.cwd, taskFile);
+			const dir = path.dirname(fullTaskPath);
+			if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+			fs.writeFileSync(fullTaskPath, params.taskContent, "utf-8");
+
+			const state: LoopState = {
+				name: loopName,
+				taskFile,
+				iteration: 1,
+				maxIterations: params.maxIterations ?? 50,
+				reflectEvery: params.reflectEvery ?? 0,
+				reflectInstructions: DEFAULT_REFLECT_INSTRUCTIONS,
+				active: true,
+				startedAt: new Date().toISOString(),
+				lastReflection: 0,
+			};
+
+			saveState(ctx, state);
+			runtime.currentLoop = loopName;
+			updateStatus(ctx);
+
+			// Queue the first iteration prompt
+			const maxStr = state.maxIterations > 0 ? `/${state.maxIterations}` : "";
+			pi.sendUserMessage(`───────────────────────────────────────────────────────────────────────
+🔄 RALPH LOOP STARTED: ${state.name} | Iteration 1${maxStr}
+───────────────────────────────────────────────────────────────────────
+
+## Task (from ${state.taskFile})
+
+${params.taskContent}
+
+---
+
+## Instructions
+
+You are now in a Ralph loop (iteration 1 of ${state.maxIterations}).
+
+1. Work on the task above
+2. Update the task file (${state.taskFile}) as you make progress
+3. When FULLY COMPLETE, respond with: ${COMPLETE_MARKER}
+4. Do NOT output the completion marker unless genuinely done`);
+
+			return {
+				content: [
+					{
+						type: "text",
+						text: `Started Ralph loop "${loopName}" with max ${state.maxIterations} iterations. The loop will begin on the next turn.`,
+					},
+				],
+				details: {},
+			};
 		},
 	});
 
