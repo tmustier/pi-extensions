@@ -13,6 +13,7 @@ const MAX_DEPTH = 16;
 const ATTACK_RANGE = 1.0;
 const ATTACK_COOLDOWN = 20;
 const PICKUP_RANGE = 0.5;
+const DOOR_OPEN_TIME = 60; // ticks before door closes
 
 const WALL_SHADES = ["█", "▓", "▒", "░", " "];
 const RESET = "\x1b[0m";
@@ -24,8 +25,9 @@ const YELLOW = "\x1b[33m";
 const CYAN = "\x1b[36m";
 const MAGENTA = "\x1b[35m";
 const BLUE = "\x1b[34m";
+const WHITE = "\x1b[37m";
 
-// Level data: #=wall .=floor E=exit P=player Z=zombie I=imp D=demon H=health A=ammo
+// Level data: #=wall .=floor E=exit P=player Z/I/D=enemies H/A=pickups ==door
 const LEVELS = [
 	[ // Level 1 - Introduction
 		"####################",
@@ -33,11 +35,11 @@ const LEVELS = [
 		"#.H................#",
 		"#......####........#",
 		"#......#..#...Z....#",
-		"#......#..#........#",
+		"#......=..=........#",
 		"#......####........#",
 		"#..Z..........A....#",
 		"#............###...#",
-		"#...H........#E#...#",
+		"#...H........=E=...#",
 		"#..P.........###...#",
 		"#..................#",
 		"#.........Z....A...#",
@@ -46,21 +48,21 @@ const LEVELS = [
 	[ // Level 2 - Corridors
 		"########################",
 		"#....#.....#...........#",
-		"#.P..#..Z..#....####...#",
+		"#.P..=..Z..=....####...#",
 		"#....#.....#....#..#...#",
-		"###..###.###....#..#...#",
+		"###..###=###....=..=...#",
 		"#.......H#......#..#...#",
 		"#..Z.....#..I...####...#",
 		"#........#.............#",
-		"####.#####..####.####..#",
+		"####=#####..####=####..#",
 		"#....#......#.......#..#",
 		"#.A..#..D...#...H...#..#",
 		"#....#......#.......#..#",
-		"#....###.####.####.##..#",
+		"#....###=####=####=##..#",
 		"#..............Z.......#",
 		"#.....A................#",
-		"#...............###.####",
-		"#...Z...........#E#....#",
+		"#...............###=####",
+		"#...Z...........=E=....#",
 		"#...............###....#",
 		"########################",
 	],
@@ -68,14 +70,14 @@ const LEVELS = [
 		"############################",
 		"#..........................#",
 		"#..################........#",
-		"#..#..............#..D.....#",
+		"#..=..............=..D.....#",
 		"#..#..H...####....#........#",
-		"#..#......#..#....####..####",
+		"#..#......=..=....####..####",
 		"#..#..Z...#..#.........H...#",
 		"#..#......####.....I.......#",
 		"#..#...............A.......#",
-		"#..########.########..######",
-		"#..........H..........#E#..#",
+		"#..########=########..######",
+		"#..........H..........=E=..#",
 		"#..I...................###..#",
 		"#.....D........Z...........#",
 		"#..A.......................#",
@@ -89,33 +91,17 @@ const LEVELS = [
 type Screen = "title" | "game" | "paused" | "help" | "gameover" | "victory";
 
 interface Player { x: number; y: number; angle: number; health: number; ammo: number; }
-
-interface Enemy {
-	x: number; y: number;
-	health: number; maxHealth: number;
-	speed: number; damage: number;
-	attackCooldown: number;
-	type: "zombie" | "imp" | "demon";
-	dead: boolean;
-}
-
-interface Pickup {
-	x: number; y: number;
-	type: "health" | "ammo";
-	amount: number;
-	collected: boolean;
-}
+interface Enemy { x: number; y: number; health: number; maxHealth: number; speed: number; damage: number; attackCooldown: number; type: "zombie" | "imp" | "demon"; dead: boolean; }
+interface Pickup { x: number; y: number; type: "health" | "ammo"; amount: number; collected: boolean; }
+interface Door { x: number; y: number; open: boolean; timer: number; }
 
 interface State {
 	screen: Screen; prevScreen: Screen;
-	player: Player;
-	enemies: Enemy[];
-	pickups: Pickup[];
+	player: Player; enemies: Enemy[]; pickups: Pickup[]; doors: Door[];
 	map: string[];
 	level: number; kills: number; totalEnemies: number;
 	itemsCollected: number; totalItems: number;
-	startTime: number;
-	damageFlash: number; muzzleFlash: number;
+	startTime: number; damageFlash: number; muzzleFlash: number;
 }
 
 // Entity definitions
@@ -124,36 +110,29 @@ const ENEMY_DEFS: Record<string, Omit<Enemy, "x" | "y" | "attackCooldown" | "dea
 	I: { type: "imp", health: 50, maxHealth: 50, speed: 0.025, damage: 15 },
 	D: { type: "demon", health: 80, maxHealth: 80, speed: 0.04, damage: 25 },
 };
-
 const PICKUP_DEFS: Record<string, { type: "health" | "ammo"; amount: number }> = {
 	H: { type: "health", amount: 25 },
 	A: { type: "ammo", amount: 15 },
 };
 
 // Map parsing
-function parseMap(level: string[]): { map: string[]; px: number; py: number; enemies: Enemy[]; pickups: Pickup[] } {
+function parseMap(level: string[]): { map: string[]; px: number; py: number; enemies: Enemy[]; pickups: Pickup[]; doors: Door[] } {
 	let px = 1.5, py = 1.5;
-	const enemies: Enemy[] = [];
-	const pickups: Pickup[] = [];
+	const enemies: Enemy[] = [], pickups: Pickup[] = [], doors: Door[] = [];
 	
 	const map = level.map((row, y) => {
 		let newRow = "";
 		for (let x = 0; x < row.length; x++) {
 			const c = row[x];
 			if (c === "P") { px = x + 0.5; py = y + 0.5; newRow += "."; }
-			else if (ENEMY_DEFS[c]) {
-				enemies.push({ ...ENEMY_DEFS[c], x: x + 0.5, y: y + 0.5, attackCooldown: 0, dead: false });
-				newRow += ".";
-			} else if (PICKUP_DEFS[c]) {
-				pickups.push({ ...PICKUP_DEFS[c], x: x + 0.5, y: y + 0.5, collected: false });
-				newRow += ".";
-			} else {
-				newRow += c;
-			}
+			else if (ENEMY_DEFS[c]) { enemies.push({ ...ENEMY_DEFS[c], x: x + 0.5, y: y + 0.5, attackCooldown: 0, dead: false }); newRow += "."; }
+			else if (PICKUP_DEFS[c]) { pickups.push({ ...PICKUP_DEFS[c], x: x + 0.5, y: y + 0.5, collected: false }); newRow += "."; }
+			else if (c === "=") { doors.push({ x, y, open: false, timer: 0 }); newRow += "="; }
+			else newRow += c;
 		}
 		return newRow;
 	});
-	return { map, px, py, enemies, pickups };
+	return { map, px, py, enemies, pickups, doors };
 }
 
 function getCell(map: string[], x: number, y: number): string {
@@ -162,15 +141,54 @@ function getCell(map: string[], x: number, y: number): string {
 	return map[my][mx];
 }
 
-function isWall(map: string[], x: number, y: number): boolean { return getCell(map, x, y) === "#"; }
+function isDoor(s: State, x: number, y: number): Door | undefined {
+	const mx = Math.floor(x), my = Math.floor(y);
+	return s.doors.find(d => d.x === mx && d.y === my);
+}
+
+function isBlocked(s: State, x: number, y: number): boolean {
+	const cell = getCell(s.map, x, y);
+	if (cell === "#") return true;
+	if (cell === "=") {
+		const door = isDoor(s, x, y);
+		return door ? !door.open : true;
+	}
+	return false;
+}
 
 function dist(x1: number, y1: number, x2: number, y2: number): number {
 	return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
 }
 
+// Doors (doom-017)
+function updateDoors(s: State): void {
+	const { player: p, doors } = s;
+	
+	for (const d of doors) {
+		// Auto-open when player is close
+		const dx = (d.x + 0.5) - p.x, dy = (d.y + 0.5) - p.y;
+		const distance = Math.sqrt(dx * dx + dy * dy);
+		
+		if (distance < 1.5 && !d.open) {
+			d.open = true;
+			d.timer = DOOR_OPEN_TIME;
+		}
+		
+		// Close after timer expires (if player not nearby)
+		if (d.open && d.timer > 0) {
+			d.timer--;
+			if (d.timer <= 0 && distance > 1.5) {
+				d.open = false;
+			} else if (distance < 1.5) {
+				d.timer = DOOR_OPEN_TIME; // Reset timer if player still near
+			}
+		}
+	}
+}
+
 // Player
 function movePlayer(s: State, fwd: number, strafe: number): void {
-	const { player: p, map, pickups } = s;
+	const { player: p, pickups } = s;
 	const cos = Math.cos(p.angle), sin = Math.sin(p.angle);
 	
 	let dx = cos * fwd - sin * strafe, dy = sin * fwd + cos * strafe;
@@ -178,41 +196,32 @@ function movePlayer(s: State, fwd: number, strafe: number): void {
 	if (len > 0) { dx = dx / len * MOVE_SPEED; dy = dy / len * MOVE_SPEED; }
 
 	const nx = p.x + dx, ny = p.y + dy;
-	if (!isWall(map, nx, ny)) { p.x = nx; p.y = ny; }
+	if (!isBlocked(s, nx, ny)) { p.x = nx; p.y = ny; }
 	else {
-		if (!isWall(map, nx, p.y)) p.x = nx;
-		if (!isWall(map, p.x, ny)) p.y = ny;
+		if (!isBlocked(s, nx, p.y)) p.x = nx;
+		if (!isBlocked(s, p.x, ny)) p.y = ny;
 	}
 
-	// Collect pickups (doom-011)
+	// Collect pickups
 	for (const pk of pickups) {
 		if (pk.collected) continue;
 		if (dist(p.x, p.y, pk.x, pk.y) < PICKUP_RANGE) {
 			if (pk.type === "health" && p.health < 100) {
 				p.health = Math.min(100, p.health + pk.amount);
-				pk.collected = true;
-				s.itemsCollected++;
+				pk.collected = true; s.itemsCollected++;
 			} else if (pk.type === "ammo") {
 				p.ammo += pk.amount;
-				pk.collected = true;
-				s.itemsCollected++;
+				pk.collected = true; s.itemsCollected++;
 			}
 		}
 	}
 
-	// Check exit
-	if (getCell(map, p.x, p.y) === "E") {
-		if (s.level < LEVELS.length) {
-			s.screen = "victory";
-		} else {
-			s.screen = "victory"; // Final victory
-		}
-	}
+	if (getCell(s.map, p.x, p.y) === "E") s.screen = "victory";
 }
 
-// Enemy AI (doom-008b)
+// Enemy AI
 function updateEnemies(s: State): void {
-	const { player: p, map, enemies } = s;
+	const { player: p, enemies } = s;
 	
 	for (const e of enemies) {
 		if (e.dead) continue;
@@ -223,14 +232,13 @@ function updateEnemies(s: State): void {
 		if (d > 0.5) {
 			const mx = (dx / d) * e.speed, my = (dy / d) * e.speed;
 			const nx = e.x + mx, ny = e.y + my;
-			if (!isWall(map, nx, ny)) { e.x = nx; e.y = ny; }
+			if (!isBlocked(s, nx, ny)) { e.x = nx; e.y = ny; }
 			else {
-				if (!isWall(map, nx, e.y)) e.x = nx;
-				else if (!isWall(map, e.x, ny)) e.y = ny;
+				if (!isBlocked(s, nx, e.y)) e.x = nx;
+				else if (!isBlocked(s, e.x, ny)) e.y = ny;
 			}
 		}
 		
-		// Attack (doom-010)
 		if (d < ATTACK_RANGE && e.attackCooldown <= 0) {
 			p.health -= e.damage;
 			s.damageFlash = 5;
@@ -241,7 +249,7 @@ function updateEnemies(s: State): void {
 	}
 }
 
-// Shooting (doom-009)
+// Shooting
 function shoot(s: State): boolean {
 	const { player: p, enemies, map } = s;
 	const dx = Math.cos(p.angle), dy = Math.sin(p.angle);
@@ -256,7 +264,7 @@ function shoot(s: State): boolean {
 		
 		const perpDist = Math.abs(ex * dy - ey * dx);
 		if (perpDist < 0.4) {
-			const { dist: wallDist } = castRay(map, p.x, p.y, p.angle);
+			const { dist: wallDist } = castRay(s, p.x, p.y, p.angle);
 			if (proj < wallDist) { closestHit = e; closestDist = proj; }
 		}
 	}
@@ -269,8 +277,9 @@ function shoot(s: State): boolean {
 	return false;
 }
 
-// Raycasting
-function castRay(map: string[], px: number, py: number, angle: number): { dist: number; side: number } {
+// Raycasting (modified to handle doors)
+function castRay(s: State, px: number, py: number, angle: number): { dist: number; side: number; isDoor: boolean } {
+	const { map } = s;
 	const dx = Math.cos(angle), dy = Math.sin(angle);
 	let mapX = Math.floor(px), mapY = Math.floor(py);
 	
@@ -285,21 +294,28 @@ function castRay(map: string[], px: number, py: number, angle: number): { dist: 
 	for (let i = 0; i < MAX_DEPTH * 2; i++) {
 		if (sideX < sideY) { sideX += ddx; mapX += stepX; side = 0; }
 		else { sideY += ddy; mapY += stepY; side = 1; }
-		if (getCell(map, mapX, mapY) === "#") {
-			return { dist: side === 0 ? sideX - ddx : sideY - ddy, side };
+		
+		const cell = getCell(map, mapX, mapY);
+		if (cell === "#") {
+			return { dist: side === 0 ? sideX - ddx : sideY - ddy, side, isDoor: false };
+		}
+		if (cell === "=") {
+			const door = isDoor(s, mapX, mapY);
+			if (door && !door.open) {
+				return { dist: side === 0 ? sideX - ddx : sideY - ddy, side, isDoor: true };
+			}
 		}
 	}
-	return { dist: MAX_DEPTH, side: 0 };
+	return { dist: MAX_DEPTH, side: 0, isDoor: false };
 }
 
-// Sprite rendering (doom-018)
+// Sprites
 interface Sprite { screenX: number; dist: number; height: number; type: "enemy" | "pickup"; color: string; char: string }
 
 function getSprites(s: State, w: number, h: number): Sprite[] {
 	const { player: p, enemies, pickups } = s;
 	const sprites: Sprite[] = [];
 	
-	// Enemies
 	for (const e of enemies) {
 		if (e.dead) continue;
 		const dx = e.x - p.x, dy = e.y - p.y, d = Math.sqrt(dx * dx + dy * dy);
@@ -316,7 +332,6 @@ function getSprites(s: State, w: number, h: number): Sprite[] {
 		sprites.push({ screenX: Math.floor((0.5 + relAngle / FOV) * w), dist: d, height: Math.floor(h / d), type: "enemy", color, char });
 	}
 	
-	// Pickups
 	for (const pk of pickups) {
 		if (pk.collected) continue;
 		const dx = pk.x - p.x, dy = pk.y - p.y, d = Math.sqrt(dx * dx + dy * dy);
@@ -328,8 +343,7 @@ function getSprites(s: State, w: number, h: number): Sprite[] {
 		if (Math.abs(relAngle) > FOV / 2 + 0.2) continue;
 		
 		const color = pk.type === "health" ? CYAN : YELLOW;
-		const char = pk.type === "health" ? "+" : "*";
-		sprites.push({ screenX: Math.floor((0.5 + relAngle / FOV) * w), dist: d, height: Math.floor(h / d * 0.5), type: "pickup", color, char });
+		sprites.push({ screenX: Math.floor((0.5 + relAngle / FOV) * w), dist: d, height: Math.floor(h / d * 0.5), type: "pickup", color, char: pk.type === "health" ? "+" : "*" });
 	}
 	
 	sprites.sort((a, b) => b.dist - a.dist);
@@ -338,20 +352,16 @@ function getSprites(s: State, w: number, h: number): Sprite[] {
 
 // Rendering
 function render3DView(s: State, w: number, h: number): string[] {
-	const { player: p, map, damageFlash, muzzleFlash } = s;
+	const { player: p, damageFlash, muzzleFlash } = s;
 	const half = Math.floor(h / 2);
 	
-	// Wall distances per column
-	const wallDists: number[] = [];
-	const wallSides: number[] = [];
+	const wallDists: number[] = [], wallSides: number[] = [], wallDoors: boolean[] = [];
 	for (let x = 0; x < w; x++) {
 		const rayAngle = p.angle - FOV / 2 + (x / w) * FOV;
-		const { dist, side } = castRay(map, p.x, p.y, rayAngle);
-		wallDists.push(dist);
-		wallSides.push(side);
+		const { dist, side, isDoor } = castRay(s, p.x, p.y, rayAngle);
+		wallDists.push(dist); wallSides.push(side); wallDoors.push(isDoor);
 	}
 	
-	// Frame buffer
 	const buf: { char: string; color: string }[][] = [];
 	for (let y = 0; y < h; y++) {
 		buf[y] = [];
@@ -367,7 +377,12 @@ function render3DView(s: State, w: number, h: number): string[] {
 			else {
 				const shade = Math.min(Math.floor(dist / (MAX_DEPTH / WALL_SHADES.length)), WALL_SHADES.length - 1);
 				char = WALL_SHADES[shade];
-				color = wallSides[x] === 1 ? DIM : "";
+				// Doors are brown/yellow, walls are gray
+				if (wallDoors[x]) {
+					color = YELLOW + (wallSides[x] === 1 ? DIM : "");
+				} else {
+					color = wallSides[x] === 1 ? DIM : "";
+				}
 			}
 			buf[y][x] = { char, color };
 		}
@@ -404,7 +419,6 @@ function render3DView(s: State, w: number, h: number): string[] {
 		buf[cy][cx] = { char: muzzleFlash > 0 ? "*" : "+", color: chColor + BOLD };
 	}
 	
-	// Output
 	const lines: string[] = [];
 	for (let y = 0; y < h; y++) {
 		let line = "";
@@ -419,7 +433,7 @@ function render3DView(s: State, w: number, h: number): string[] {
 }
 
 function renderMinimap(s: State): string[] {
-	const { player: p, map, enemies, pickups } = s;
+	const { player: p, map, enemies, pickups, doors } = s;
 	const lines: string[] = [], size = 3;
 	const arrows = ["→", "↘", "↓", "↙", "←", "↖", "↑", "↗"];
 
@@ -432,8 +446,10 @@ function renderMinimap(s: State): string[] {
 			} else {
 				const enemy = enemies.find(e => !e.dead && Math.floor(e.x) === mx && Math.floor(e.y) === my);
 				const pickup = pickups.find(pk => !pk.collected && Math.floor(pk.x) === mx && Math.floor(pk.y) === my);
+				const door = doors.find(d => d.x === mx && d.y === my);
 				if (enemy) line += RED + "!" + RESET;
 				else if (pickup) line += (pickup.type === "health" ? CYAN : YELLOW) + "·" + RESET;
+				else if (door) line += (door.open ? DIM : YELLOW) + "=" + RESET;
 				else {
 					const cell = getCell(map, mx, my);
 					line += cell === "#" ? DIM + "█" + RESET : cell === "E" ? GREEN + "E" + RESET : DIM + "·" + RESET;
@@ -476,11 +492,12 @@ function renderScreen(s: State, w: number, h: number): string[] {
 		lines.push("", center(DIM + "ASCII TERMINAL EDITION" + RESET, w), "");
 		lines.push(center(GREEN + "ENTER" + RESET + " Start  " + DIM + "H" + RESET + " Help  " + DIM + "ESC" + RESET + " Quit", w));
 	} else if (s.screen === "help") {
-		pad(Math.floor(h / 2) - 6);
+		pad(Math.floor(h / 2) - 7);
 		lines.push(center(CYAN + BOLD + "═══ CONTROLS ═══" + RESET, w), "");
 		lines.push(center("W/S - Move   A/D - Strafe   Q/E - Turn", w));
 		lines.push(center("SPACE - Shoot   P - Pause", w));
-		lines.push("", center(CYAN + "+" + RESET + " Health   " + YELLOW + "*" + RESET + " Ammo   " + GREEN + "E" + RESET + " Exit", w));
+		lines.push("", center(CYAN + "+" + RESET + " Health   " + YELLOW + "*" + RESET + " Ammo   " + YELLOW + "=" + RESET + " Door   " + GREEN + "E" + RESET + " Exit", w));
+		lines.push("", center(DIM + "Doors open automatically when near" + RESET, w));
 		lines.push("", center(DIM + "Press any key" + RESET, w));
 	} else if (s.screen === "paused") {
 		pad(Math.floor(h / 2) - 2);
@@ -520,11 +537,11 @@ function renderScreen(s: State, w: number, h: number): string[] {
 // State management
 function createState(levelNum: number = 1): State {
 	const levelData = LEVELS[Math.min(levelNum - 1, LEVELS.length - 1)];
-	const { map, px, py, enemies, pickups } = parseMap(levelData);
+	const { map, px, py, enemies, pickups, doors } = parseMap(levelData);
 	return {
 		screen: "title", prevScreen: "title",
 		player: { x: px, y: py, angle: 0, health: 100, ammo: 50 },
-		enemies, pickups, map,
+		enemies, pickups, doors, map,
 		level: levelNum, kills: 0, totalEnemies: enemies.length,
 		itemsCollected: 0, totalItems: pickups.length,
 		startTime: Date.now(), damageFlash: 0, muzzleFlash: 0,
@@ -533,25 +550,18 @@ function createState(levelNum: number = 1): State {
 
 function loadLevel(s: State, levelNum: number): void {
 	const levelData = LEVELS[Math.min(levelNum - 1, LEVELS.length - 1)];
-	const { map, px, py, enemies, pickups } = parseMap(levelData);
-	s.map = map;
-	s.player = { x: px, y: py, angle: 0, health: s.player.health, ammo: s.player.ammo }; // Keep health/ammo
-	s.enemies = enemies;
-	s.pickups = pickups;
-	s.level = levelNum;
-	s.kills = 0;
-	s.totalEnemies = enemies.length;
-	s.itemsCollected = 0;
-	s.totalItems = pickups.length;
-	s.screen = "game";
-	s.startTime = Date.now();
+	const { map, px, py, enemies, pickups, doors } = parseMap(levelData);
+	s.map = map; s.enemies = enemies; s.pickups = pickups; s.doors = doors;
+	s.player.x = px; s.player.y = py; s.player.angle = 0;
+	s.level = levelNum; s.kills = 0; s.totalEnemies = enemies.length;
+	s.itemsCollected = 0; s.totalItems = pickups.length;
+	s.screen = "game"; s.startTime = Date.now();
 	s.damageFlash = s.muzzleFlash = 0;
 }
 
 function resetGame(s: State): void {
 	loadLevel(s, 1);
-	s.player.health = 100;
-	s.player.ammo = 50;
+	s.player.health = 100; s.player.ammo = 50;
 }
 
 // Extension entry
@@ -570,6 +580,7 @@ export default function (pi: ExtensionAPI) {
 						if (s.damageFlash > 0) s.damageFlash--;
 						if (s.muzzleFlash > 0) s.muzzleFlash--;
 						updateEnemies(s);
+						updateDoors(s);
 						tui.invalidate();
 					}
 				}, TICK_MS);
