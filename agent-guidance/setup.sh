@@ -12,6 +12,35 @@ echo "Setting up agent-guidance..."
 # Create directories
 mkdir -p "$PI_AGENT_DIR/extensions"
 
+# Check for AGENTS.md and create placeholder if needed
+AGENTS_FILE="$PI_AGENT_DIR/AGENTS.md"
+CLAUDE_FILE="$PI_AGENT_DIR/CLAUDE.md"
+
+if [ ! -f "$AGENTS_FILE" ]; then
+    # Create placeholder AGENTS.md
+    cat > "$AGENTS_FILE" << 'EOF'
+# AGENTS.md
+
+Universal guidelines for all AI models.
+
+<!-- Add your cross-model guidance here -->
+EOF
+    
+    if [ -f "$CLAUDE_FILE" ] || [ -L "$CLAUDE_FILE" ]; then
+        echo ""
+        echo "  ⚠️  No AGENTS.md found in $PI_AGENT_DIR/"
+        echo "     Created a placeholder."
+        echo "     You have an existing CLAUDE.md - if you want that guidance"
+        echo "     to apply across all models, move it to AGENTS.md."
+        echo ""
+    else
+        echo ""
+        echo "  ⚠️  No AGENTS.md found in $PI_AGENT_DIR/"
+        echo "     Created a placeholder; add your cross-model guidance there."
+        echo ""
+    fi
+fi
+
 # Symlink provider-specific context files from templates/
 for file in CLAUDE.md CODEX.md GEMINI.md; do
     target="$PI_AGENT_DIR/$file"
@@ -21,10 +50,7 @@ for file in CLAUDE.md CODEX.md GEMINI.md; do
         if [ -L "$target" ]; then
             echo "  $file already linked"
         elif [ -f "$target" ]; then
-            echo "  $file exists as file, replacing with symlink"
-            rm "$target"
-            ln -sf "$source" "$target"
-            echo "  Linked $file"
+            echo "  $file exists as file, skipping (keeping your version)"
         else
             ln -sf "$source" "$target"
             echo "  Linked $file"
