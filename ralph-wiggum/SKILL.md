@@ -41,6 +41,7 @@ ralph_start({
 - `/ralph archive <name>` - Move loop to archive
 - `/ralph clean [--all]` - Clean completed loops
 - `/ralph list --archived` - Show archived loops
+- `/ralph nuke [--yes]` - Delete all .ralph data
 - `/ralph-stop` - Stop active loop (idle only)
 
 During streaming: press ESC to interrupt, send a normal message to resume, and run `/ralph-stop` when idle to end the loop.

@@ -14,6 +14,7 @@ Long-running agent loops for iterative development. Port of Geoffrey Huntley's a
 | `/ralph archive <name>` | Move loop to archive |
 | `/ralph clean [--all]` | Clean completed loops |
 | `/ralph list --archived` | Show archived loops |
+| `/ralph nuke [--yes]` | Delete all .ralph data |
 | `/ralph-stop` | Stop active loop (idle only) |
 
 ### Options for start

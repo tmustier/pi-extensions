@@ -92,6 +92,17 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
 
+	function tryRemoveDir(dirPath: string): boolean {
+		try {
+			if (fs.existsSync(dirPath)) {
+				fs.rmSync(dirPath, { recursive: true, force: true });
+			}
+			return true;
+		} catch {
+			return false;
+		}
+	}
+
 	// --- State management ---
 
 	function migrateState(raw: Partial<LoopState> & { name: string }): LoopState {
@@ -481,6 +492,41 @@ export default function (pi: ExtensionAPI) {
 			const label = archived ? "Archived loops" : "Ralph loops";
 			ctx.ui.notify(`${label}:\n${loops.map((l) => formatLoop(l)).join("\n")}`, "info");
 		},
+
+		nuke(rest, ctx) {
+			const force = rest.trim() === "--yes";
+			const warning =
+				"This deletes all .ralph state, task, and archive files. External task files are not removed.";
+
+			const run = () => {
+				const dir = ralphDir(ctx);
+				if (!fs.existsSync(dir)) {
+					if (ctx.hasUI) ctx.ui.notify("No .ralph directory found.", "info");
+					return;
+				}
+
+				currentLoop = null;
+				const ok = tryRemoveDir(dir);
+				if (ctx.hasUI) {
+					ctx.ui.notify(ok ? "Removed .ralph directory." : "Failed to remove .ralph directory.", ok ? "info" : "error");
+				}
+				updateUI(ctx);
+			};
+
+			if (!force) {
+				if (ctx.hasUI) {
+					void ctx.ui.confirm("Delete all Ralph loop files?", warning).then((confirmed) => {
+						if (confirmed) run();
+					});
+				} else {
+					ctx.ui.notify(`Run /ralph nuke --yes to confirm. ${warning}`, "warning");
+				}
+				return;
+			}
+
+			if (ctx.hasUI) ctx.ui.notify(warning, "warning");
+			run();
+		},
 	};
 
 	const HELP = `Ralph Wiggum - Long-running development loops
@@ -494,6 +540,7 @@ Commands:
   /ralph archive <name>               Move loop to archive
   /ralph clean [--all]                Clean completed loops
   /ralph list --archived              Show archived loops
+  /ralph nuke [--yes]                 Delete all .ralph data
   /ralph-stop                         Stop active loop (idle only)
 
 Options:
