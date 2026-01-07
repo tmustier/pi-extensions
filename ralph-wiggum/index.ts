@@ -45,15 +45,14 @@ interface LoopState {
 	taskFile: string;
 	iteration: number;
 	maxIterations: number;
-	itemsPerIteration: number;
-	reflectEveryItems: number;
-	itemsProcessed: number;
+	itemsPerIteration: number; // Prompt hint only - "process N items per turn"
+	reflectEvery: number; // Reflect every N iterations
 	reflectInstructions: string;
-	active: boolean; // Backwards compat, derived from status
+	active: boolean; // Backwards compat
 	status: LoopStatus;
 	startedAt: string;
 	completedAt?: string;
-	lastReflectionAtItems: number;
+	lastReflectionAt: number; // Last iteration we reflected at
 }
 
 const STATUS_ICONS: Record<LoopStatus, string> = { active: "▶", paused: "⏸", completed: "✓" };
@@ -98,6 +97,13 @@ export default function (pi: ExtensionAPI) {
 	function migrateState(raw: Partial<LoopState> & { name: string }): LoopState {
 		if (!raw.status) raw.status = raw.active ? "active" : "paused";
 		raw.active = raw.status === "active";
+		// Migrate old field names
+		if ("reflectEveryItems" in raw && !raw.reflectEvery) {
+			raw.reflectEvery = (raw as any).reflectEveryItems;
+		}
+		if ("lastReflectionAtItems" in raw && raw.lastReflectionAt === undefined) {
+			raw.lastReflectionAt = (raw as any).lastReflectionAtItems;
+		}
 		return raw as LoopState;
 	}
 
@@ -128,38 +134,31 @@ export default function (pi: ExtensionAPI) {
 
 	// --- Loop state transitions ---
 
-	function setStatus(ctx: ExtensionContext, state: LoopState, status: LoopStatus): void {
-		state.status = status;
-		if (status === "completed") state.completedAt = new Date().toISOString();
+	function pauseLoop(ctx: ExtensionContext, state: LoopState, message?: string): void {
+		state.status = "paused";
+		state.active = false;
 		saveState(ctx, state);
-	}
-
-	function deactivateLoop(ctx: ExtensionContext): void {
 		currentLoop = null;
 		updateUI(ctx);
-	}
-
-	function pauseLoop(ctx: ExtensionContext, state: LoopState, message?: string): void {
-		setStatus(ctx, state, "paused");
-		deactivateLoop(ctx);
-		if (message) ctx.ui.notify(message, "info");
+		if (message && ctx.hasUI) ctx.ui.notify(message, "info");
 	}
 
 	function completeLoop(ctx: ExtensionContext, state: LoopState, banner: string): void {
-		setStatus(ctx, state, "completed");
-		deactivateLoop(ctx);
+		state.status = "completed";
+		state.completedAt = new Date().toISOString();
+		state.active = false;
+		saveState(ctx, state);
+		currentLoop = null;
+		updateUI(ctx);
 		pi.sendUserMessage(banner);
 	}
 
 	// --- UI ---
 
-	function formatLoop(l: LoopState, showCompleted = false): string {
+	function formatLoop(l: LoopState): string {
 		const status = `${STATUS_ICONS[l.status]} ${l.status}`;
 		const iter = l.maxIterations > 0 ? `${l.iteration}/${l.maxIterations}` : `${l.iteration}`;
-		const items = l.itemsPerIteration > 0 ? `, ${l.itemsProcessed} items` : "";
-		const completed =
-			showCompleted && l.completedAt ? ` - completed ${new Date(l.completedAt).toLocaleDateString()}` : "";
-		return `${l.name}: ${status} (iteration ${iter}${items})${completed}`;
+		return `${l.name}: ${status} (iteration ${iter})`;
 	}
 
 	function updateUI(ctx: ExtensionContext): void {
@@ -174,9 +173,8 @@ export default function (pi: ExtensionAPI) {
 
 		const { theme } = ctx.ui;
 		const maxStr = state.maxIterations > 0 ? `/${state.maxIterations}` : "";
-		const itemsStr = state.itemsPerIteration > 0 ? ` | ${state.itemsProcessed} items` : "";
 
-		ctx.ui.setStatus("ralph", theme.fg("accent", `🔄 ${state.name} (${state.iteration}${maxStr}${itemsStr})`));
+		ctx.ui.setStatus("ralph", theme.fg("accent", `🔄 ${state.name} (${state.iteration}${maxStr})`));
 
 		const lines = [
 			theme.fg("accent", theme.bold("Ralph Wiggum")),
@@ -185,12 +183,9 @@ export default function (pi: ExtensionAPI) {
 			theme.fg("dim", `Iteration: ${state.iteration}${maxStr}`),
 			theme.fg("dim", `Task: ${state.taskFile}`),
 		];
-		if (state.itemsPerIteration > 0) {
-			lines.push(theme.fg("dim", `Items processed: ${state.itemsProcessed}`));
-		}
-		if (state.reflectEveryItems > 0) {
-			const next = state.reflectEveryItems - (state.itemsProcessed % state.reflectEveryItems);
-			lines.push(theme.fg("dim", `Next reflection in: ${next} items`));
+		if (state.reflectEvery > 0) {
+			const next = state.reflectEvery - ((state.iteration - 1) % state.reflectEvery);
+			lines.push(theme.fg("dim", `Next reflection in: ${next} iterations`));
 		}
 		ctx.ui.setWidget("ralph", lines);
 	}
@@ -199,9 +194,8 @@ export default function (pi: ExtensionAPI) {
 
 	function buildPrompt(state: LoopState, taskContent: string, isReflection: boolean): string {
 		const maxStr = state.maxIterations > 0 ? `/${state.maxIterations}` : "";
-		const itemsStr = state.itemsPerIteration > 0 ? ` | Items: ${state.itemsProcessed}` : "";
 		const header = `───────────────────────────────────────────────────────────────────────
-🔄 RALPH LOOP: ${state.name} | Iteration ${state.iteration}${maxStr}${itemsStr}${isReflection ? " | 🪞 REFLECTION" : ""}
+🔄 RALPH LOOP: ${state.name} | Iteration ${state.iteration}${maxStr}${isReflection ? " | 🪞 REFLECTION" : ""}
 ───────────────────────────────────────────────────────────────────────`;
 
 		const parts = [header, ""];
@@ -214,19 +208,14 @@ export default function (pi: ExtensionAPI) {
 		);
 
 		if (state.itemsPerIteration > 0) {
-			const start = state.itemsProcessed + 1;
-			const end = state.itemsProcessed + state.itemsPerIteration;
-			parts.push(`**THIS ITERATION: Process items ${start}-${end} only, then STOP.**\n`);
-			parts.push(`1. Process the next ${state.itemsPerIteration} items from your checklist`);
-			parts.push(`2. Update the task file (${state.taskFile}) with your progress`);
-			parts.push(`3. After completing ${state.itemsPerIteration} items, STOP and wait for the next iteration`);
-			parts.push(`4. If ALL items are done, respond with: ${COMPLETE_MARKER}`);
+			parts.push(`**THIS ITERATION: Process approximately ${state.itemsPerIteration} items, then STOP.**\n`);
+			parts.push(`1. Work on the next ~${state.itemsPerIteration} items from your checklist`);
 		} else {
-			parts.push(`1. Read the task file above and continue working on it`);
-			parts.push(`2. Update the task file (${state.taskFile}) as you make progress`);
-			parts.push(`3. When the task is FULLY COMPLETE, respond with: ${COMPLETE_MARKER}`);
-			parts.push(`4. Do NOT output ${COMPLETE_MARKER} unless the task is genuinely done`);
+			parts.push(`1. Continue working on the task`);
 		}
+		parts.push(`2. Update the task file (${state.taskFile}) with your progress`);
+		parts.push(`3. When the task is FULLY COMPLETE, respond with: ${COMPLETE_MARKER}`);
+		parts.push(`4. Otherwise, stop after making progress and wait for next iteration`);
 
 		return parts.join("\n");
 	}
@@ -239,7 +228,7 @@ export default function (pi: ExtensionAPI) {
 			name: "",
 			maxIterations: 0,
 			itemsPerIteration: 0,
-			reflectEveryItems: 0,
+			reflectEvery: 0,
 			reflectInstructions: DEFAULT_REFLECT_INSTRUCTIONS,
 		};
 
@@ -253,7 +242,7 @@ export default function (pi: ExtensionAPI) {
 				result.itemsPerIteration = parseInt(next, 10) || 0;
 				i++;
 			} else if (tok === "--reflect-every" && next) {
-				result.reflectEveryItems = parseInt(next, 10) || 0;
+				result.reflectEvery = parseInt(next, 10) || 0;
 				i++;
 			} else if (tok === "--reflect-instructions" && next) {
 				result.reflectInstructions = next.replace(/^"|"$/g, "");
@@ -301,13 +290,12 @@ export default function (pi: ExtensionAPI) {
 				iteration: 1,
 				maxIterations: args.maxIterations,
 				itemsPerIteration: args.itemsPerIteration,
-				reflectEveryItems: args.reflectEveryItems,
-				itemsProcessed: existing?.itemsProcessed || 0,
+				reflectEvery: args.reflectEvery,
 				reflectInstructions: args.reflectInstructions,
 				active: true,
 				status: "active",
 				startedAt: existing?.startedAt || new Date().toISOString(),
-				lastReflectionAtItems: existing?.lastReflectionAtItems || 0,
+				lastReflectionAt: 0,
 			};
 
 			saveState(ctx, state);
@@ -324,7 +312,13 @@ export default function (pi: ExtensionAPI) {
 
 		stop(_rest, ctx) {
 			if (!currentLoop) {
-				ctx.ui.notify("No active Ralph loop", "warning");
+				// Check persisted state for any active loop
+				const active = listLoops(ctx).find((l) => l.status === "active");
+				if (active) {
+					pauseLoop(ctx, active, `Paused Ralph loop: ${active.name} (iteration ${active.iteration})`);
+				} else {
+					ctx.ui.notify("No active Ralph loop", "warning");
+				}
 				return;
 			}
 			const state = loadState(ctx, currentLoop);
@@ -353,17 +347,17 @@ export default function (pi: ExtensionAPI) {
 			// Pause current loop if different
 			if (currentLoop && currentLoop !== loopName) {
 				const curr = loadState(ctx, currentLoop);
-				if (curr) setStatus(ctx, curr, "paused");
+				if (curr) pauseLoop(ctx, curr);
 			}
 
 			state.status = "active";
+			state.active = true;
 			state.iteration++;
 			saveState(ctx, state);
 			currentLoop = loopName;
 			updateUI(ctx);
 
-			const itemsStr = state.itemsPerIteration > 0 ? `, ${state.itemsProcessed} items` : "";
-			ctx.ui.notify(`Resumed: ${loopName} (iteration ${state.iteration}${itemsStr})`, "info");
+			ctx.ui.notify(`Resumed: ${loopName} (iteration ${state.iteration})`, "info");
 
 			const content = tryRead(path.resolve(ctx.cwd, state.taskFile));
 			if (!content) {
@@ -372,16 +366,14 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			const needsReflection =
-				state.reflectEveryItems > 0 &&
-				state.itemsProcessed > 0 &&
-				state.itemsProcessed - state.lastReflectionAtItems >= state.reflectEveryItems;
+				state.reflectEvery > 0 && state.iteration > 1 && (state.iteration - 1) % state.reflectEvery === 0;
 			pi.sendUserMessage(buildPrompt(state, content, needsReflection));
 		},
 
 		status(_rest, ctx) {
 			const loops = listLoops(ctx);
 			if (loops.length === 0) {
-				ctx.ui.notify("No Ralph loops found. Use /ralph list --archived for archived.", "info");
+				ctx.ui.notify("No Ralph loops found.", "info");
 				return;
 			}
 			ctx.ui.notify(`Ralph loops:\n${loops.map((l) => formatLoop(l)).join("\n")}`, "info");
@@ -402,79 +394,6 @@ export default function (pi: ExtensionAPI) {
 			ctx.ui.notify(`Cancelled: ${loopName}`, "info");
 			updateUI(ctx);
 		},
-
-		archive(rest, ctx) {
-			const loopName = rest.trim();
-			if (!loopName) {
-				ctx.ui.notify("Usage: /ralph archive <name>", "warning");
-				return;
-			}
-			const state = loadState(ctx, loopName);
-			if (!state) {
-				ctx.ui.notify(`Loop "${loopName}" not found`, "error");
-				return;
-			}
-			if (state.status === "active") {
-				ctx.ui.notify(`Cannot archive active loop. Stop it first.`, "warning");
-				return;
-			}
-
-			if (currentLoop === loopName) currentLoop = null;
-
-			// Move files to archive
-			const srcState = getPath(ctx, loopName, ".state.json");
-			const dstState = getPath(ctx, loopName, ".state.json", true);
-			ensureDir(dstState);
-			if (fs.existsSync(srcState)) fs.renameSync(srcState, dstState);
-
-			const srcTask = path.resolve(ctx.cwd, state.taskFile);
-			if (srcTask.startsWith(ralphDir(ctx)) && !srcTask.startsWith(archiveDir(ctx))) {
-				const dstTask = getPath(ctx, loopName, ".md", true);
-				if (fs.existsSync(srcTask)) fs.renameSync(srcTask, dstTask);
-			}
-
-			ctx.ui.notify(`Archived: ${loopName}`, "info");
-			updateUI(ctx);
-		},
-
-		clean(rest, ctx) {
-			const all = rest.trim() === "--all";
-			const completed = listLoops(ctx).filter((l) => l.status === "completed");
-
-			if (completed.length === 0) {
-				ctx.ui.notify("No completed loops to clean", "info");
-				return;
-			}
-
-			for (const loop of completed) {
-				tryDelete(getPath(ctx, loop.name, ".state.json"));
-				if (all) tryDelete(getPath(ctx, loop.name, ".md"));
-				if (currentLoop === loop.name) currentLoop = null;
-			}
-
-			const suffix = all ? " (all files)" : " (state only)";
-			ctx.ui.notify(
-				`Cleaned ${completed.length} loop(s)${suffix}:\n${completed.map((l) => `  • ${l.name}`).join("\n")}`,
-				"info",
-			);
-			updateUI(ctx);
-		},
-
-		list(rest, ctx) {
-			const archived = rest.trim() === "--archived";
-			const loops = listLoops(ctx, archived);
-
-			if (loops.length === 0) {
-				ctx.ui.notify(
-					archived ? "No archived loops" : "No loops found. Use /ralph list --archived for archived.",
-					"info",
-				);
-				return;
-			}
-
-			const label = archived ? "Archived loops" : "Ralph loops";
-			ctx.ui.notify(`${label}:\n${loops.map((l) => formatLoop(l, archived)).join("\n")}`, "info");
-		},
 	};
 
 	const HELP = `Ralph Wiggum - Long-running development loops
@@ -485,25 +404,22 @@ Commands:
   /ralph resume <name>                Resume a paused loop
   /ralph status                       Show all loops
   /ralph cancel <name>                Delete loop state
-  /ralph archive <name>               Move to archive
-  /ralph clean [--all]                Clean completed loops
-  /ralph list --archived              Show archived loops
 
 Options:
-  --items-per-iteration N  Process N items per turn
-  --reflect-every N        Reflect every N items
+  --items-per-iteration N  Suggest N items per turn (prompt hint)
+  --reflect-every N        Reflect every N iterations
   --max-iterations N       Stop after N iterations
 
 To stop during streaming: type "stop"
 
 Examples:
   /ralph start my-feature
-  /ralph start review --items-per-iteration 5 --reflect-every 50`;
+  /ralph start review --items-per-iteration 5 --reflect-every 10`;
 
 	pi.registerCommand("ralph", {
 		description: "Ralph Wiggum - long-running development loops",
 		handler: async (args, ctx) => {
-			const [cmd, ...rest] = args.trim().split(/\s+/);
+			const [cmd] = args.trim().split(/\s+/);
 			const handler = commands[cmd];
 			if (handler) {
 				handler(args.slice(cmd.length).trim(), ctx);
@@ -522,8 +438,8 @@ Examples:
 		parameters: Type.Object({
 			name: Type.String({ description: "Loop name (e.g., 'refactor-auth')" }),
 			taskContent: Type.String({ description: "Task in markdown with goals and checklist" }),
-			itemsPerIteration: Type.Optional(Type.Number({ description: "Items per iteration (0 = no limit)" })),
-			reflectEveryItems: Type.Optional(Type.Number({ description: "Reflect every N items" })),
+			itemsPerIteration: Type.Optional(Type.Number({ description: "Suggest N items per turn (0 = no limit)" })),
+			reflectEvery: Type.Optional(Type.Number({ description: "Reflect every N iterations" })),
 			maxIterations: Type.Optional(Type.Number({ description: "Max iterations (default: 50)", default: 50 })),
 		}),
 		async execute(_toolCallId, params, _onUpdate, ctx) {
@@ -544,13 +460,12 @@ Examples:
 				iteration: 1,
 				maxIterations: params.maxIterations ?? 50,
 				itemsPerIteration: params.itemsPerIteration ?? 0,
-				reflectEveryItems: params.reflectEveryItems ?? 0,
-				itemsProcessed: 0,
+				reflectEvery: params.reflectEvery ?? 0,
 				reflectInstructions: DEFAULT_REFLECT_INSTRUCTIONS,
 				active: true,
 				status: "active",
 				startedAt: new Date().toISOString(),
-				lastReflectionAtItems: 0,
+				lastReflectionAt: 0,
 			};
 
 			saveState(ctx, state);
@@ -569,17 +484,16 @@ Examples:
 	// --- Event handlers ---
 
 	pi.on("before_agent_start", async (event, ctx) => {
-		// Handle stop command - check even if currentLoop is null (may be stale after restart)
+		// Handle stop command
 		const prompt = event.prompt.toLowerCase().trim();
 		if (prompt === "stop" || prompt === "/ralph stop" || prompt === "ralph stop") {
-			// Find any active loop to stop
-			const activeLoop = currentLoop 
-				? loadState(ctx, currentLoop) 
-				: listLoops(ctx).find(l => l.status === "active");
-			if (activeLoop && activeLoop.status === "active") {
-				pauseLoop(ctx, activeLoop, `Ralph loop "${activeLoop.name}" stopped.`);
-				return;
+			const state = currentLoop
+				? loadState(ctx, currentLoop)
+				: listLoops(ctx).find((l) => l.status === "active");
+			if (state && state.status === "active") {
+				pauseLoop(ctx, state, `Ralph loop "${state.name}" stopped.`);
 			}
+			return; // Don't continue with loop prompt injection
 		}
 
 		if (!currentLoop) return;
@@ -587,18 +501,17 @@ Examples:
 		if (!state || state.status !== "active") return;
 
 		const iterStr = `${state.iteration}${state.maxIterations > 0 ? `/${state.maxIterations}` : ""}`;
-		const itemsStr = state.itemsPerIteration > 0 ? ` | ${state.itemsProcessed} items done` : "";
 
 		let instructions = `You are in a Ralph loop working on: ${state.taskFile}\n`;
 		if (state.itemsPerIteration > 0) {
-			instructions += `- Process ${state.itemsPerIteration} items this iteration, then STOP\n`;
+			instructions += `- Work on ~${state.itemsPerIteration} items this iteration\n`;
 		}
 		instructions += `- Update the task file as you progress\n`;
 		instructions += `- When FULLY COMPLETE: ${COMPLETE_MARKER}\n`;
-		instructions += `- Do NOT output completion marker unless genuinely done`;
+		instructions += `- Otherwise, stop after making progress`;
 
 		return {
-			systemPromptAppend: `\n[RALPH LOOP - ${state.name} - Iteration ${iterStr}${itemsStr}]\n\n${instructions}`,
+			systemPromptAppend: `\n[RALPH LOOP - ${state.name} - Iteration ${iterStr}]\n\n${instructions}`,
 		};
 	});
 
@@ -642,13 +555,10 @@ Examples:
 
 		// Continue to next iteration
 		state.iteration++;
-		if (state.itemsPerIteration > 0) state.itemsProcessed += state.itemsPerIteration;
 
 		const needsReflection =
-			state.reflectEveryItems > 0 &&
-			state.itemsProcessed > 0 &&
-			state.itemsProcessed - state.lastReflectionAtItems >= state.reflectEveryItems;
-		if (needsReflection) state.lastReflectionAtItems = state.itemsProcessed;
+			state.reflectEvery > 0 && (state.iteration - 1) % state.reflectEvery === 0;
+		if (needsReflection) state.lastReflectionAt = state.iteration;
 
 		saveState(ctx, state);
 		updateUI(ctx);
