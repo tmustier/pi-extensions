@@ -20,7 +20,8 @@ if [ ! -f "$AGENTS_FILE" ]; then
     if [ -f "$CLAUDE_FILE" ] || [ -L "$CLAUDE_FILE" ]; then
         echo ""
         echo "  ⚠️  No AGENTS.md found in $PI_AGENT_DIR/"
-        echo "     You have an existing CLAUDE.md - if you want that guidance"
+        echo "     You have an existing CLAUDE.md which was being used by Pi"
+        echo "     across all models - if you want that guidance to continue"
         echo "     to apply across all models, it should be in AGENTS.md."
         echo ""
         read -p "     Copy CLAUDE.md content to AGENTS.md? [y/N] " -n 1 -r
