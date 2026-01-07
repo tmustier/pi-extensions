@@ -28,8 +28,9 @@ ralph_start({
 
 1. Task content is saved to `.ralph/<name>.md`
 2. Each iteration: work on task, update file
-3. When complete: output `<promise>COMPLETE</promise>`
-4. Loop ends on completion or max iterations
+3. Call `ralph_done` tool to proceed to next iteration
+4. When complete: output `<promise>COMPLETE</promise>`
+5. Loop ends on completion or max iterations
 
 ## User Commands
 
