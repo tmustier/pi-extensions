@@ -607,12 +607,6 @@ Examples:
 		const state = loadState(ctx, currentLoop);
 		if (!state || state.status !== "active") return;
 
-		// Pause if user has pending input
-		if (ctx.hasPendingMessages()) {
-			pauseLoop(ctx, state, `Ralph loop "${state.name}" paused. Use /ralph resume ${state.name} to continue.`);
-			return;
-		}
-
 		// Check for completion marker
 		const lastAssistant = [...event.messages].reverse().find((m) => m.role === "assistant");
 		const text =
