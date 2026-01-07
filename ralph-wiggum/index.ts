@@ -153,6 +153,16 @@ export default function (pi: ExtensionAPI) {
 		pi.sendUserMessage(banner);
 	}
 
+	function stopLoop(ctx: ExtensionContext, state: LoopState, message?: string): void {
+		state.status = "completed";
+		state.completedAt = new Date().toISOString();
+		state.active = false;
+		saveState(ctx, state);
+		currentLoop = null;
+		updateUI(ctx);
+		if (message && ctx.hasUI) ctx.ui.notify(message, "info");
+	}
+
 	// --- UI ---
 
 	function formatLoop(l: LoopState): string {
@@ -189,8 +199,8 @@ export default function (pi: ExtensionAPI) {
 		}
 		// Warning about stopping
 		lines.push("");
-		lines.push(theme.fg("warning", "⚠ ESC won't stop loop"));
-		lines.push(theme.fg("warning", "Type: ralph-stop"));
+		lines.push(theme.fg("warning", "ESC pauses the assistant"));
+		lines.push(theme.fg("warning", "Send a message to resume; /ralph-stop ends the loop"));
 		ctx.ui.setWidget("ralph", lines);
 	}
 
@@ -207,6 +217,7 @@ export default function (pi: ExtensionAPI) {
 
 		parts.push(`## Current Task (from ${state.taskFile})\n\n${taskContent}\n\n---`);
 		parts.push(`\n## Instructions\n`);
+		parts.push("User controls: ESC pauses the assistant. Send a message to resume. Run /ralph-stop when idle to stop the loop.\n");
 		parts.push(
 			`You are in a Ralph loop (iteration ${state.iteration}${state.maxIterations > 0 ? ` of ${state.maxIterations}` : ""}).\n`,
 		);
@@ -219,8 +230,7 @@ export default function (pi: ExtensionAPI) {
 		}
 		parts.push(`2. Update the task file (${state.taskFile}) with your progress`);
 		parts.push(`3. When FULLY COMPLETE, respond with: ${COMPLETE_MARKER}`);
-		parts.push(`4. If user sends "ralph-stop", immediately respond with: ${COMPLETE_MARKER}`);
-		parts.push(`5. Otherwise, call the ralph_done tool to proceed to next iteration`);
+		parts.push(`4. Otherwise, call the ralph_done tool to proceed to next iteration`);
 
 		return parts.join("\n");
 	}
@@ -409,13 +419,14 @@ Commands:
   /ralph resume <name>                Resume a paused loop
   /ralph status                       Show all loops
   /ralph cancel <name>                Delete loop state
+  /ralph-stop                          Stop active loop (idle only)
 
 Options:
   --items-per-iteration N  Suggest N items per turn (prompt hint)
   --reflect-every N        Reflect every N iterations
   --max-iterations N       Stop after N iterations
 
-To stop during streaming: type "stop"
+To stop: press ESC to interrupt, then run /ralph-stop when idle
 
 Examples:
   /ralph start my-feature
@@ -431,6 +442,35 @@ Examples:
 			} else {
 				ctx.ui.notify(HELP, "info");
 			}
+		},
+	});
+
+	pi.registerCommand("ralph-stop", {
+		description: "Stop active Ralph loop (idle only)",
+		handler: async (_args, ctx) => {
+			if (!ctx.isIdle()) {
+				if (ctx.hasUI) {
+					ctx.ui.notify("Agent is busy. Press ESC to interrupt, then run /ralph-stop.", "warning");
+				}
+				return;
+			}
+
+			let state = currentLoop ? loadState(ctx, currentLoop) : null;
+			if (!state) {
+				const active = listLoops(ctx).find((l) => l.status === "active");
+				if (!active) {
+					if (ctx.hasUI) ctx.ui.notify("No active Ralph loop", "warning");
+					return;
+				}
+				state = active;
+			}
+
+			if (state.status !== "active") {
+				if (ctx.hasUI) ctx.ui.notify(`Loop "${state.name}" is not active`, "warning");
+				return;
+			}
+
+			stopLoop(ctx, state, `Stopped Ralph loop: ${state.name} (iteration ${state.iteration})`);
 		},
 	});
 
@@ -502,6 +542,13 @@ Examples:
 				return { content: [{ type: "text", text: "Ralph loop is not active." }], details: {} };
 			}
 
+			if (ctx.hasPendingMessages()) {
+				return {
+					content: [{ type: "text", text: "Pending messages already queued. Skipping ralph_done." }],
+					details: {},
+				};
+			}
+
 			// Increment iteration
 			state.iteration++;
 
@@ -554,7 +601,6 @@ Examples:
 		}
 		instructions += `- Update the task file as you progress\n`;
 		instructions += `- When FULLY COMPLETE: ${COMPLETE_MARKER}\n`;
-		instructions += `- If user sends "ralph-stop": immediately output ${COMPLETE_MARKER}\n`;
 		instructions += `- Otherwise, call ralph_done tool to proceed to next iteration`;
 
 		return {

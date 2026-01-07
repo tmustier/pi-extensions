@@ -38,7 +38,9 @@ ralph_start({
 - `/ralph resume <name>` - Resume loop
 - `/ralph status` - Show loops
 - `/ralph cancel <name>` - Delete loop
-- Type `ralph-stop` during streaming - Agent outputs completion marker (ESC won't work)
+- `/ralph-stop` - Stop active loop (idle only)
+
+During streaming: press ESC to interrupt, send a normal message to resume, and run `/ralph-stop` when idle to end the loop.
 
 ## Task File Format
 

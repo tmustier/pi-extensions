@@ -11,6 +11,7 @@ Long-running agent loops for iterative development. Port of Geoffrey Huntley's a
 | `/ralph resume <name>` | Resume a paused loop |
 | `/ralph status` | Show all loops |
 | `/ralph cancel <name>` | Delete a loop |
+| `/ralph-stop` | Stop active loop (idle only) |
 
 ### Options for start
 
@@ -22,9 +23,7 @@ Long-running agent loops for iterative development. Port of Geoffrey Huntley's a
 
 ### Stopping During Streaming
 
-To stop a loop while the agent is streaming, type `ralph-stop`. The agent will output the completion marker and the loop will end.
-
-**Note:** ESC/abort won't stop the loop - you must type `ralph-stop`.
+Press ESC to interrupt the assistant. Send a normal message to resume the loop. To stop the loop, wait until the assistant is idle and run `/ralph-stop`.
 
 ## How It Works
 
