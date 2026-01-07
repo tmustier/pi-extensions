@@ -115,8 +115,10 @@ export default function (pi: ExtensionAPI) {
 	function saveState(ctx: ExtensionContext, state: LoopState, archived = false): void {
 		state.active = state.status === "active";
 		const filePath = getPath(ctx, state.name, ".state.json", archived);
+		console.error(`[RALPH DEBUG] saveState: cwd=${ctx.cwd}, filePath=${filePath}`);
 		ensureDir(filePath);
 		fs.writeFileSync(filePath, JSON.stringify(state, null, 2), "utf-8");
+		console.error(`[RALPH DEBUG] saveState: wrote file, exists=${fs.existsSync(filePath)}`);
 	}
 
 	function listLoops(ctx: ExtensionContext, archived = false): LoopState[] {
