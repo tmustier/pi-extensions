@@ -36,6 +36,7 @@ Or add to `~/.pi/agent/settings.json`:
 | `/ralph resume <name>` | Resume a paused loop |
 | `/ralph status` | Show all loops |
 | `/ralph cancel <name>` | Delete a loop |
+| `ctrl+shift+r` | Stop loop (works during streaming) |
 
 ## Options
 
