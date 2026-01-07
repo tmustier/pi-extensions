@@ -104,20 +104,37 @@ function getCandidateFiles(modelId: string | undefined, provider: string, config
 
 /**
  * Check if we should load a provider file from a directory.
- * Skip if core already loaded the same file (to avoid duplication).
+ * Skip if:
+ * - Core already loaded the same file (to avoid duplication)
+ * - AGENTS.md and provider file have identical content
  */
 function shouldLoadProviderFile(dir: string, providerFile: string): boolean {
 	const providerFilePath = path.join(dir, providerFile);
 	if (!fs.existsSync(providerFilePath)) return false;
 
+	const agentsMdPath = path.join(dir, "AGENTS.md");
+	const agentsMdExists = fs.existsSync(agentsMdPath);
+	const claudeMdExists = fs.existsSync(path.join(dir, "CLAUDE.md"));
+
 	// Determine what core would have loaded from this directory
 	// Core prefers AGENTS.md, falls back to CLAUDE.md
-	const agentsMdExists = fs.existsSync(path.join(dir, "AGENTS.md"));
-	const claudeMdExists = fs.existsSync(path.join(dir, "CLAUDE.md"));
 	const coreLoadedFile = agentsMdExists ? "AGENTS.md" : claudeMdExists ? "CLAUDE.md" : null;
 
-	// Skip only if core loaded this exact file
-	return coreLoadedFile !== providerFile;
+	// Skip if core loaded this exact file
+	if (coreLoadedFile === providerFile) return false;
+
+	// Skip if AGENTS.md exists and has identical content to provider file
+	if (agentsMdExists) {
+		try {
+			const agentsContent = fs.readFileSync(agentsMdPath, "utf-8");
+			const providerContent = fs.readFileSync(providerFilePath, "utf-8");
+			if (agentsContent === providerContent) return false;
+		} catch {
+			// Ignore read errors, proceed with loading
+		}
+	}
+
+	return true;
 }
 
 /**
