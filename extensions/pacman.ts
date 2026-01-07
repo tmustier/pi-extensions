@@ -1,5 +1,5 @@
 /**
- * Picman game extension - play with /picman
+ * Picman - Pi eats tokens, avoids bugs! Play with /picman
  */
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
@@ -7,13 +7,14 @@ import { matchesKey, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui"
 
 const TICK_MS = 100;
 const POWER_DURATION = 50;
-const GHOST_RESPAWN_TICKS = 30;
+const BUG_RESPAWN_TICKS = 30;
 const INITIAL_LIVES = 3;
-const GHOST_MOVE_INTERVAL = 2;
+const BUG_MOVE_INTERVAL = 2;
 const SAVE_TYPE = "picman-save";
 
 type Direction = "up" | "down" | "left" | "right";
 
+// The codebase - navigate and collect tokens!
 const MAZE_TEMPLATE = [
 	"#####################",
 	"#.........#.........#",
@@ -23,10 +24,10 @@ const MAZE_TEMPLATE = [
 	"#.###.#.#####.#.###.#",
 	"#.....#...#...#.....#",
 	"#####.### # ###.#####",
-	"    #.#  G G  #.#    ",
-	"#####.# GGG G#.#####",
-	"     .  GGG G .     ",
-	"#####.# GGGGG #.#####",
+	"    #.#  B B  #.#    ",
+	"#####.# BBB B#.#####",
+	"     .  BBB B .     ",
+	"#####.# BBBBB #.#####",
 	"    #.#       #.#    ",
 	"#####.# ##### #.#####",
 	"#.........#.........#",
@@ -44,24 +45,25 @@ const DIRECTIONS: Record<Direction, { x: number; y: number }> = {
 const OPPOSITE: Record<Direction, Direction> = { up: "down", down: "up", left: "right", right: "left" };
 
 // ANSI colors
-const [RESET, YELLOW, BLUE, WHITE, DIM, RED] = ["\x1b[0m", "\x1b[1;93m", "\x1b[1;34m", "\x1b[1;97m", "\x1b[2m", "\x1b[1;91m"];
-const GHOST_COLORS = ["\x1b[1;91m", "\x1b[1;95m", "\x1b[1;96m", "\x1b[1;33m"]; // Red, Pink, Cyan, Orange
-const GHOST_NAMES = ["Blinky", "Pinky", "Inky", "Clyde"];
+const [RESET, CYAN, BLUE, WHITE, DIM, RED] = ["\x1b[0m", "\x1b[1;96m", "\x1b[1;34m", "\x1b[1;97m", "\x1b[2m", "\x1b[1;91m"];
+const GREEN = "\x1b[1;32m";
+const BUG_COLORS = ["\x1b[1;91m", "\x1b[1;95m", "\x1b[1;93m", "\x1b[1;31m"]; // Red, Magenta, Yellow, Dark Red
+const BUG_NAMES = ["Bug", "Error", "Crash", "Glitch"];
 
-interface Ghost {
+interface Bug {
 	x: number; y: number; homeX: number; homeY: number;
 	direction: Direction; color: string; name: string;
-	eaten: boolean; respawnTimer: number;
+	squashed: boolean; respawnTimer: number;
 }
 
 interface GameState {
-	pacman: { x: number; y: number };
-	pacmanDir: Direction;
+	pi: { x: number; y: number };
+	piDir: Direction;
 	nextDir: Direction | null;
-	ghosts: Ghost[];
+	bugs: Bug[];
 	maze: string[][];
-	score: number; highScore: number; lives: number; level: number;
-	dotsRemaining: number; powerMode: number; tickCount: number;
+	tokens: number; highScore: number; lives: number; level: number;
+	tokensRemaining: number; caffeine: number; tickCount: number;
 	gameOver: boolean; paused: boolean; mouthOpen: boolean;
 	deathAnimation: number; levelCompleteTimer: number;
 }
@@ -76,31 +78,30 @@ const findInMaze = (char: string): { x: number; y: number }[] => {
 
 const createMaze = (): string[][] => {
 	const maze = MAZE_TEMPLATE.map(row => row.split(""));
-	// Clear markers
 	for (let y = 0; y < maze.length; y++)
 		for (let x = 0; x < maze[y].length; x++)
-			if (maze[y][x] === "P" || maze[y][x] === "G") maze[y][x] = " ";
+			if (maze[y][x] === "P" || maze[y][x] === "B") maze[y][x] = " ";
 	return maze;
 };
 
-const countDots = (maze: string[][]): number =>
+const countTokens = (maze: string[][]): number =>
 	maze.flat().filter(c => c === "." || c === "O").length;
 
-const createGhosts = (): Ghost[] =>
-	findInMaze("G").slice(0, 4).map((pos, i) => ({
+const createBugs = (): Bug[] =>
+	findInMaze("B").slice(0, 4).map((pos, i) => ({
 		x: pos.x, y: pos.y, homeX: pos.x, homeY: pos.y,
-		direction: "up" as Direction, color: GHOST_COLORS[i], name: GHOST_NAMES[i],
-		eaten: false, respawnTimer: 0,
+		direction: "up" as Direction, color: BUG_COLORS[i], name: BUG_NAMES[i],
+		squashed: false, respawnTimer: 0,
 	}));
 
 const createState = (highScore = 0): GameState => {
 	const maze = createMaze();
-	const pacStart = findInMaze("P")[0] || { x: 10, y: 16 };
+	const piStart = findInMaze("P")[0] || { x: 10, y: 16 };
 	return {
-		pacman: pacStart, pacmanDir: "right", nextDir: null,
-		ghosts: createGhosts(), maze,
-		score: 0, highScore, lives: INITIAL_LIVES, level: 1,
-		dotsRemaining: countDots(maze), powerMode: 0, tickCount: 0,
+		pi: piStart, piDir: "right", nextDir: null,
+		bugs: createBugs(), maze,
+		tokens: 0, highScore, lives: INITIAL_LIVES, level: 1,
+		tokensRemaining: countTokens(maze), caffeine: 0, tickCount: 0,
 		gameOver: false, paused: false, mouthOpen: true,
 		deathAnimation: 0, levelCompleteTimer: 0,
 	};
@@ -108,18 +109,18 @@ const createState = (highScore = 0): GameState => {
 
 const resetLevel = (s: GameState): void => {
 	s.maze = createMaze();
-	s.pacman = findInMaze("P")[0] || { x: 10, y: 16 };
-	s.pacmanDir = "right"; s.nextDir = null;
-	s.ghosts = createGhosts();
-	s.dotsRemaining = countDots(s.maze);
-	s.powerMode = s.deathAnimation = s.levelCompleteTimer = 0;
+	s.pi = findInMaze("P")[0] || { x: 10, y: 16 };
+	s.piDir = "right"; s.nextDir = null;
+	s.bugs = createBugs();
+	s.tokensRemaining = countTokens(s.maze);
+	s.caffeine = s.deathAnimation = s.levelCompleteTimer = 0;
 };
 
 const resetPositions = (s: GameState): void => {
-	s.pacman = findInMaze("P")[0] || { x: 10, y: 16 };
-	s.pacmanDir = "right"; s.nextDir = null;
-	s.powerMode = s.deathAnimation = 0;
-	s.ghosts.forEach(g => { g.x = g.homeX; g.y = g.homeY; g.eaten = false; g.respawnTimer = 0; });
+	s.pi = findInMaze("P")[0] || { x: 10, y: 16 };
+	s.piDir = "right"; s.nextDir = null;
+	s.caffeine = s.deathAnimation = 0;
+	s.bugs.forEach(b => { b.x = b.homeX; b.y = b.homeY; b.squashed = false; b.respawnTimer = 0; });
 };
 
 const isWalkable = (maze: string[][], x: number, y: number): boolean =>
@@ -137,30 +138,30 @@ const getValidDirs = (maze: string[][], x: number, y: number, exclude?: Directio
 		return isWalkable(maze, x + d.x, y + d.y);
 	});
 
-const moveGhost = (g: Ghost, s: GameState): void => {
-	if (g.eaten) {
-		if (--g.respawnTimer <= 0) { g.eaten = false; g.x = g.homeX; g.y = g.homeY; }
+const moveBug = (b: Bug, s: GameState): void => {
+	if (b.squashed) {
+		if (--b.respawnTimer <= 0) { b.squashed = false; b.x = b.homeX; b.y = b.homeY; }
 		return;
 	}
 
-	const { maze, pacman, powerMode } = s;
-	const validDirs = getValidDirs(maze, g.x, g.y, OPPOSITE[g.direction]);
+	const { maze, pi, caffeine } = s;
+	const validDirs = getValidDirs(maze, b.x, b.y, OPPOSITE[b.direction]);
 
 	if (validDirs.length === 0) {
-		const rev = OPPOSITE[g.direction], d = DIRECTIONS[rev];
-		if (isWalkable(maze, g.x + d.x, g.y + d.y)) {
-			g.direction = rev; g.x = wrap(g.x + d.x, maze[0].length); g.y += d.y;
+		const rev = OPPOSITE[b.direction], d = DIRECTIONS[rev];
+		if (isWalkable(maze, b.x + d.x, b.y + d.y)) {
+			b.direction = rev; b.x = wrap(b.x + d.x, maze[0].length); b.y += d.y;
 		}
 		return;
 	}
 
-	// Target: flee if scared, else chase with personality
-	let target = pacman;
-	if (powerMode <= 0) {
-		if (g.name === "Pinky") {
-			const d = DIRECTIONS[s.pacmanDir];
-			target = { x: pacman.x + d.x * 4, y: pacman.y + d.y * 4 };
-		} else if (g.name === "Clyde" && dist(g, pacman) < 8) {
+	// Target: flee if Pi is caffeinated, else chase with personality
+	let target = pi;
+	if (caffeine <= 0) {
+		if (b.name === "Error") {
+			const d = DIRECTIONS[s.piDir];
+			target = { x: pi.x + d.x * 4, y: pi.y + d.y * 4 };
+		} else if (b.name === "Glitch" && dist(b, pi) < 8) {
 			target = { x: 0, y: maze.length - 1 };
 		}
 	}
@@ -168,41 +169,41 @@ const moveGhost = (g: Ghost, s: GameState): void => {
 	// Pick best direction
 	const bestDir = validDirs.reduce((best, dir) => {
 		const d = DIRECTIONS[dir];
-		const nx = wrap(g.x + d.x, maze[0].length), ny = g.y + d.y;
+		const nx = wrap(b.x + d.x, maze[0].length), ny = b.y + d.y;
 		const score = dist({ x: nx, y: ny }, target);
-		const bestScore = dist({ x: wrap(g.x + DIRECTIONS[best].x, maze[0].length), y: g.y + DIRECTIONS[best].y }, target);
-		return powerMode > 0 ? (score > bestScore ? dir : best) : (score < bestScore ? dir : best);
+		const bestScore = dist({ x: wrap(b.x + DIRECTIONS[best].x, maze[0].length), y: b.y + DIRECTIONS[best].y }, target);
+		return caffeine > 0 ? (score > bestScore ? dir : best) : (score < bestScore ? dir : best);
 	}, validDirs[0]);
 
-	g.direction = bestDir;
+	b.direction = bestDir;
 	const d = DIRECTIONS[bestDir];
-	g.x = wrap(g.x + d.x, maze[0].length); g.y += d.y;
+	b.x = wrap(b.x + d.x, maze[0].length); b.y += d.y;
 };
 
-const movePacman = (s: GameState): void => {
-	const { maze, pacman } = s;
+const movePi = (s: GameState): void => {
+	const { maze, pi } = s;
 
 	// Try queued direction
 	if (s.nextDir) {
 		const d = DIRECTIONS[s.nextDir];
-		if (isWalkable(maze, pacman.x + d.x, pacman.y + d.y)) { s.pacmanDir = s.nextDir; s.nextDir = null; }
+		if (isWalkable(maze, pi.x + d.x, pi.y + d.y)) { s.piDir = s.nextDir; s.nextDir = null; }
 	}
 
-	const d = DIRECTIONS[s.pacmanDir];
-	if (isWalkable(maze, pacman.x + d.x, pacman.y + d.y)) {
-		pacman.x = wrap(pacman.x + d.x, maze[0].length); pacman.y += d.y;
-		const cell = maze[pacman.y][pacman.x];
-		if (cell === ".") { maze[pacman.y][pacman.x] = " "; s.score += 10; s.dotsRemaining--; }
-		else if (cell === "O") { maze[pacman.y][pacman.x] = " "; s.score += 50; s.dotsRemaining--; s.powerMode = POWER_DURATION; }
+	const d = DIRECTIONS[s.piDir];
+	if (isWalkable(maze, pi.x + d.x, pi.y + d.y)) {
+		pi.x = wrap(pi.x + d.x, maze[0].length); pi.y += d.y;
+		const cell = maze[pi.y][pi.x];
+		if (cell === ".") { maze[pi.y][pi.x] = " "; s.tokens += 10; s.tokensRemaining--; }
+		else if (cell === "O") { maze[pi.y][pi.x] = " "; s.tokens += 50; s.tokensRemaining--; s.caffeine = POWER_DURATION; }
 	}
 
 	if (s.tickCount % 3 === 0) s.mouthOpen = !s.mouthOpen;
 };
 
 const checkCollisions = (s: GameState): void => {
-	for (const g of s.ghosts) {
-		if (g.eaten || g.x !== s.pacman.x || g.y !== s.pacman.y) continue;
-		if (s.powerMode > 0) { g.eaten = true; g.respawnTimer = GHOST_RESPAWN_TICKS; s.score += 200; }
+	for (const b of s.bugs) {
+		if (b.squashed || b.x !== s.pi.x || b.y !== s.pi.y) continue;
+		if (s.caffeine > 0) { b.squashed = true; b.respawnTimer = BUG_RESPAWN_TICKS; s.tokens += 200; }
 		else if (--s.lives <= 0) s.gameOver = true;
 		else s.deathAnimation = 10;
 	}
@@ -230,14 +231,14 @@ class PicmanComponent {
 
 		if (s.deathAnimation > 0) { if (--s.deathAnimation === 0) resetPositions(s); }
 		else if (s.levelCompleteTimer > 0) { if (--s.levelCompleteTimer === 0) { s.level++; resetLevel(s); } }
-		else if (s.dotsRemaining === 0) s.levelCompleteTimer = 20;
+		else if (s.tokensRemaining === 0) s.levelCompleteTimer = 20;
 		else {
-			if (s.powerMode > 0) s.powerMode--;
-			movePacman(s);
-			const ghostInterval = Math.max(1, GHOST_MOVE_INTERVAL - Math.floor(s.level / 3));
-			if (s.tickCount % ghostInterval === 0) s.ghosts.forEach(g => moveGhost(g, s));
+			if (s.caffeine > 0) s.caffeine--;
+			movePi(s);
+			const bugInterval = Math.max(1, BUG_MOVE_INTERVAL - Math.floor(s.level / 3));
+			if (s.tickCount % bugInterval === 0) s.bugs.forEach(b => moveBug(b, s));
 			checkCollisions(s);
-			if (s.score > s.highScore) s.highScore = s.score;
+			if (s.tokens > s.highScore) s.highScore = s.tokens;
 		}
 
 		this.version++;

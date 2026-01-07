@@ -9,7 +9,7 @@ Small set of personal extensions for the Pi coding agent.
 - `extensions/ping.ts`: Ping (Pong-style) game extension (`/ping`).
 - `extensions/picman.ts`: Picman game extension (`/picman`).
 - `extensions/tetris.ts`: Tetris game extension (`/tetris`).
-- `extensions/badlogic-game.ts`: Side-scrolling platformer (`/badlogic-game`).
+- `wip/badlogic-game.ts`: Side-scrolling platformer (WIP, not loaded).
 
 ## Install
 
@@ -22,8 +22,7 @@ Add the extension path(s) to `~/.pi/agent/settings.json`:
     "~/pi-extensions/extensions/space-invaders.ts",
     "~/pi-extensions/extensions/ping.ts",
     "~/pi-extensions/extensions/picman.ts",
-    "~/pi-extensions/extensions/tetris.ts",
-    "~/pi-extensions/extensions/badlogic-game.ts"
+    "~/pi-extensions/extensions/tetris.ts"
   ]
 }
 ```
