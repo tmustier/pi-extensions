@@ -4,10 +4,33 @@ Loads different context files based on the current model's provider, supplementi
 
 ## How It Works
 
+**Option A: Tweak label**
 ```mermaid
 flowchart LR
     subgraph Core ["Pi Core"]
-        A[Start] --> B[Load AGENTS.md]
+        A[Start] --> B[Load all AGENTS.md]
+    end
+    
+    subgraph Ext ["agent-guidance extension"]
+        B --> C{Which provider?}
+        C -->|Anthropic| D[+ CLAUDE.md]
+        C -->|OpenAI/Codex| E[+ CODEX.md]
+        C -->|Google| F[+ GEMINI.md]
+    end
+    
+    D --> G[System Prompt]
+    E --> G
+    F --> G
+```
+
+**Option B: Show sources**
+```mermaid
+flowchart LR
+    S1["~/.pi/agent/"] --> B
+    S2["project/"] --> B
+    
+    subgraph Core ["Pi Core"]
+        B[Load AGENTS.md]
     end
     
     subgraph Ext ["agent-guidance extension"]
@@ -29,6 +52,45 @@ flowchart LR
 | Anthropic (Claude) | `CLAUDE.md` |
 | OpenAI / Codex | `CODEX.md` |
 | Google (Gemini) | `GEMINI.md` |
+
+### Currently, the existing Pi Core:
+
+1. Starts at `~/.pi/agent/` (global)
+2. Walks up from cwd to root, collecting each directory
+3. For **each directory**, looks for `AGENTS.md` first, falls back to `CLAUDE.md`
+4. Returns all found files in order (global → root → cwd)
+
+So the existing Pi Core loads:
+```
+~/.pi/agent/AGENTS.md     (global)
+/some/parent/AGENTS.md    (if exists in parent dirs)
+./AGENTS.md               (project)
+```
+
+If any directory has no `AGENTS.md` but has `CLAUDE.md`, it loads `CLAUDE.md` as fallback for that directory.
+
+### What agent-guidance adds:
+
+1. Checks current model's provider
+2. Walks the same directories (global + ancestors)
+3. For each directory:
+   - If `AGENTS.md` exists → core loaded it → extension adds provider file (CLAUDE.md/CODEX.md/GEMINI.md)
+   - If only `CLAUDE.md` exists → core already loaded it → extension **skips** CLAUDE.md (avoids duplicate) but still loads CODEX.md for OpenAI
+
+**Example with Anthropic model:**
+```
+~/.pi/agent/AGENTS.md     ← Core
+~/.pi/agent/CLAUDE.md     ← Extension adds
+./AGENTS.md               ← Core  
+./CLAUDE.md               ← Extension adds
+```
+
+**Example with OpenAI model:**
+```
+~/.pi/agent/AGENTS.md     ← Core
+~/.pi/agent/CODEX.md      ← Extension adds
+./AGENTS.md               ← Core
+```
 
 ## Install
 
