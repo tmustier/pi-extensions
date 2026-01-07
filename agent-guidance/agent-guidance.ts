@@ -1,43 +1,19 @@
 /**
- * Provider-Specific Context Extension
+ * agent-guidance - Provider-specific context loading
  *
- * Loads different context files based on the current model's provider,
- * supplementing the core AGENTS.md loading with provider-specific additions.
+ * Loads CLAUDE.md, CODEX.md, or GEMINI.md based on current model provider,
+ * supplementing Pi Core's AGENTS.md loading.
  *
- * How it works:
- * - Core loads AGENTS.md (or CLAUDE.md as fallback)
- * - This extension loads provider-specific files (CLAUDE.md, CODEX.md, GEMINI.md)
- * - Skips loading if core already loaded that exact file (avoids duplication)
- *
- * Examples:
- * - Repo has AGENTS.md + CLAUDE.md → Anthropic gets both, OpenAI gets AGENTS.md + CODEX.md
- * - Repo has only CLAUDE.md → Anthropic gets CLAUDE.md, OpenAI gets CLAUDE.md + CODEX.md
- *
- * Configuration (optional):
- * Create ~/.pi/agent/provider-context.json to customize mappings:
- *
- * {
- *   "providers": {
- *     "anthropic": ["CLAUDE.md"],
- *     "openai": ["CODEX.md", "OPENAI.md"]
- *   },
- *   "models": {
- *     "claude-3-5-sonnet*": ["CLAUDE-3-5.md"],
- *     "o1*": ["O1.md"]
- *   }
- * }
- *
- * Usage:
- * 1. Copy to ~/.pi/agent/extensions/ or .pi/extensions/
- * 2. Create provider-specific files alongside your AGENTS.md
+ * Deduplication:
+ * - Skips if core already loaded the file (CLAUDE.md fallback case)
+ * - Skips if AGENTS.md has identical content
  */
 
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 
-// Built-in provider to context file mappings
-const DEFAULT_PROVIDER_FILES: Record<string, string[]> = {
+const PROVIDER_FILES: Record<string, string[]> = {
 	anthropic: ["CLAUDE.md"],
 	openai: ["CODEX.md"],
 	"openai-codex": ["CODEX.md"],
@@ -46,153 +22,94 @@ const DEFAULT_PROVIDER_FILES: Record<string, string[]> = {
 	"google-gemini-cli": ["GEMINI.md"],
 	"google-antigravity": ["GEMINI.md"],
 	"google-vertex": ["GEMINI.md"],
-	mistral: ["MISTRAL.md"],
-	xai: ["XAI.md"],
-	groq: ["GROQ.md"],
 };
 
-interface ProviderContextConfig {
+interface Config {
 	providers?: Record<string, string[]>;
 	models?: Record<string, string[]>;
 }
 
-/**
- * Simple glob matching for model patterns.
- * Supports * as wildcard.
- */
-function globMatch(pattern: string, value: string): boolean {
-	const regex = new RegExp(`^${pattern.replace(/\*/g, ".*")}$`, "i");
-	return regex.test(value);
-}
-
-/**
- * Load configuration from ~/.pi/agent/provider-context.json
- */
-function loadConfig(agentDir: string): ProviderContextConfig {
-	const configPath = path.join(agentDir, "provider-context.json");
+function loadConfig(agentDir: string): Config {
+	const configPath = path.join(agentDir, "agent-guidance.json");
 	if (fs.existsSync(configPath)) {
 		try {
 			return JSON.parse(fs.readFileSync(configPath, "utf-8"));
 		} catch {
-			// Ignore parse errors, use defaults
+			return {};
 		}
 	}
 	return {};
 }
 
-/**
- * Get candidate filenames for a model/provider combination.
- */
-function getCandidateFiles(modelId: string | undefined, provider: string, config: ProviderContextConfig): string[] {
-	// First check model-specific patterns
-	if (modelId && config.models) {
-		for (const [pattern, files] of Object.entries(config.models)) {
-			if (globMatch(pattern, modelId)) {
-				return files;
-			}
-		}
-	}
-
-	// Then check provider mappings (config overrides defaults)
-	if (config.providers?.[provider]) {
-		return config.providers[provider];
-	}
-
-	// Fall back to built-in defaults
-	return DEFAULT_PROVIDER_FILES[provider] ?? [];
+function globMatch(pattern: string, value: string): boolean {
+	return new RegExp(`^${pattern.replace(/\*/g, ".*")}$`, "i").test(value);
 }
 
-/**
- * Check if we should load a provider file from a directory.
- * Skip if:
- * - Core already loaded the same file (to avoid duplication)
- * - AGENTS.md and provider file have identical content
- */
-function shouldLoadProviderFile(dir: string, providerFile: string): boolean {
-	const providerFilePath = path.join(dir, providerFile);
-	if (!fs.existsSync(providerFilePath)) return false;
+function getCandidateFiles(modelId: string | undefined, provider: string, config: Config): string[] {
+	// Model-specific patterns take priority
+	if (modelId && config.models) {
+		for (const [pattern, files] of Object.entries(config.models)) {
+			if (globMatch(pattern, modelId)) return files;
+		}
+	}
+	// Then provider config, then defaults
+	return config.providers?.[provider] ?? PROVIDER_FILES[provider] ?? [];
+}
 
-	const agentsMdPath = path.join(dir, "AGENTS.md");
-	const agentsMdExists = fs.existsSync(agentsMdPath);
-	const claudeMdExists = fs.existsSync(path.join(dir, "CLAUDE.md"));
+function shouldLoad(dir: string, providerFile: string): boolean {
+	const providerPath = path.join(dir, providerFile);
+	if (!fs.existsSync(providerPath)) return false;
 
-	// Determine what core would have loaded from this directory
-	// Core prefers AGENTS.md, falls back to CLAUDE.md
-	const coreLoadedFile = agentsMdExists ? "AGENTS.md" : claudeMdExists ? "CLAUDE.md" : null;
+	const agentsPath = path.join(dir, "AGENTS.md");
+	const agentsExists = fs.existsSync(agentsPath);
+	const claudeExists = fs.existsSync(path.join(dir, "CLAUDE.md"));
 
-	// Skip if core loaded this exact file
-	if (coreLoadedFile === providerFile) return false;
+	// What did core load? (prefers AGENTS.md, falls back to CLAUDE.md)
+	const coreLoaded = agentsExists ? "AGENTS.md" : claudeExists ? "CLAUDE.md" : null;
+	if (coreLoaded === providerFile) return false;
 
-	// Skip if AGENTS.md exists and has identical content to provider file
-	if (agentsMdExists) {
+	// Skip if identical to AGENTS.md
+	if (agentsExists) {
 		try {
-			const agentsContent = fs.readFileSync(agentsMdPath, "utf-8");
-			const providerContent = fs.readFileSync(providerFilePath, "utf-8");
+			const agentsContent = fs.readFileSync(agentsPath, "utf-8");
+			const providerContent = fs.readFileSync(providerPath, "utf-8");
 			if (agentsContent === providerContent) return false;
 		} catch {
-			// Ignore read errors, proceed with loading
+			// Proceed with loading
 		}
 	}
 
 	return true;
 }
 
-/**
- * Walk up from cwd to root, collecting directories to check.
- * Returns in order: global → ancestors (root to cwd) → cwd
- */
-function getDirectoriesToCheck(cwd: string, agentDir: string): string[] {
+function getDirectories(cwd: string, agentDir: string): string[] {
 	const dirs: string[] = [];
 	const seen = new Set<string>();
 
-	// 1. Global agent dir
-	if (fs.existsSync(agentDir) && !seen.has(agentDir)) {
+	// Global agent dir first
+	if (fs.existsSync(agentDir)) {
 		dirs.push(agentDir);
 		seen.add(agentDir);
 	}
 
-	// 2. Walk up from cwd to root, collect ancestors
+	// Walk up from cwd to root
+	let current = cwd;
 	const ancestors: string[] = [];
-	let currentDir = cwd;
-	const root = path.resolve("/");
-
 	while (true) {
-		if (!seen.has(currentDir)) {
-			ancestors.unshift(currentDir); // Add to front for root→cwd order
-			seen.add(currentDir);
+		if (!seen.has(current)) {
+			ancestors.unshift(current);
+			seen.add(current);
 		}
-
-		if (currentDir === root) break;
-		const parentDir = path.resolve(currentDir, "..");
-		if (parentDir === currentDir) break;
-		currentDir = parentDir;
+		const parent = path.resolve(current, "..");
+		if (parent === current) break;
+		current = parent;
 	}
 
 	dirs.push(...ancestors);
 	return dirs;
 }
 
-/**
- * Load provider-specific context file content from a directory.
- */
-function loadProviderFileFromDir(dir: string, candidates: string[]): { path: string; content: string } | null {
-	for (const filename of candidates) {
-		if (shouldLoadProviderFile(dir, filename)) {
-			const filePath = path.join(dir, filename);
-			try {
-				return {
-					path: filePath,
-					content: fs.readFileSync(filePath, "utf-8"),
-				};
-			} catch {
-				// Ignore read errors
-			}
-		}
-	}
-	return null;
-}
-
-export default function providerContextExtension(pi: ExtensionAPI) {
+export default function agentGuidance(pi: ExtensionAPI) {
 	const agentDir = path.join(process.env.HOME || "", ".pi", "agent");
 	const config = loadConfig(agentDir);
 
@@ -200,28 +117,29 @@ export default function providerContextExtension(pi: ExtensionAPI) {
 		const provider = ctx.model?.provider;
 		if (!provider) return;
 
-		const modelId = ctx.model?.id;
-		const candidates = getCandidateFiles(modelId, provider, config);
+		const candidates = getCandidateFiles(ctx.model?.id, provider, config);
 		if (candidates.length === 0) return;
 
-		// Collect all provider-specific context files
-		const contextFiles: Array<{ path: string; content: string }> = [];
-		const dirs = getDirectoriesToCheck(ctx.cwd, agentDir);
+		const files: Array<{ path: string; content: string }> = [];
 
-		for (const dir of dirs) {
-			const file = loadProviderFileFromDir(dir, candidates);
-			if (file) {
-				contextFiles.push(file);
+		for (const dir of getDirectories(ctx.cwd, agentDir)) {
+			for (const filename of candidates) {
+				if (shouldLoad(dir, filename)) {
+					const filePath = path.join(dir, filename);
+					try {
+						files.push({ path: filePath, content: fs.readFileSync(filePath, "utf-8") });
+					} catch {
+						// Skip unreadable files
+					}
+				}
 			}
 		}
 
-		if (contextFiles.length === 0) return;
+		if (files.length === 0) return;
 
-		// Build the system prompt append
 		let append = "\n\n# Provider-Specific Context\n\n";
-		append += "The following provider-specific context files have been loaded:\n\n";
-		for (const { path: filePath, content } of contextFiles) {
-			append += `## ${filePath}\n\n${content}\n\n`;
+		for (const { path: p, content } of files) {
+			append += `## ${p}\n\n${content}\n\n`;
 		}
 
 		return { systemPromptAppend: append };

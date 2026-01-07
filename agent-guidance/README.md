@@ -1,6 +1,6 @@
 # agent-guidance
 
-Loads different context files based on the current model's provider, supplementing Pi's core `AGENTS.md` loading with provider-specific additions.
+Loads provider-specific context files (CLAUDE.md, CODEX.md, GEMINI.md) based on current model, supplementing Pi's AGENTS.md loading.
 
 ## How It Works
 
@@ -25,52 +25,21 @@ flowchart LR
     F --> G
 ```
 
-**Files are loaded from:** `~/.pi/agent/` (global) and `project/` (local), walking up parent directories.
+| Provider | File |
+|----------|------|
+| Anthropic | CLAUDE.md |
+| OpenAI / Codex | CODEX.md |
+| Google | GEMINI.md |
 
-| Model Provider | Context File |
-|---------------|--------------|
-| Anthropic (Claude) | `CLAUDE.md` |
-| OpenAI / Codex | `CODEX.md` |
-| Google (Gemini) | `GEMINI.md` |
+### Pi Core behavior
 
-### Currently, the existing Pi Core:
+Pi Core loads `AGENTS.md` from `~/.pi/agent/` and project directories (walking up from cwd). Falls back to `CLAUDE.md` if no `AGENTS.md` exists.
 
-1. Starts at `~/.pi/agent/` (global)
-2. Walks up from cwd to root, collecting each directory
-3. For **each directory**, looks for `AGENTS.md` first, falls back to `CLAUDE.md`
-4. Returns all found files in order (global → root → cwd)
+### What this extension adds
 
-So the existing Pi Core loads:
-```
-~/.pi/agent/AGENTS.md     (global)
-/some/parent/AGENTS.md    (if exists in parent dirs)
-./AGENTS.md               (project)
-```
-
-If any directory has no `AGENTS.md` but has `CLAUDE.md`, it loads `CLAUDE.md` as fallback for that directory.
-
-### What agent-guidance adds:
-
-1. Checks current model's provider
-2. Walks the same directories (global + ancestors)
-3. For each directory:
-   - If `AGENTS.md` exists → core loaded it → extension adds provider file (CLAUDE.md/CODEX.md/GEMINI.md)
-   - If only `CLAUDE.md` exists → core already loaded it → extension **skips** CLAUDE.md (avoids duplicate) but still loads CODEX.md for OpenAI
-
-**Example with Anthropic model:**
-```
-~/.pi/agent/AGENTS.md     ← Core
-~/.pi/agent/CLAUDE.md     ← Extension adds
-./AGENTS.md               ← Core  
-./CLAUDE.md               ← Extension adds
-```
-
-**Example with OpenAI model:**
-```
-~/.pi/agent/AGENTS.md     ← Core
-~/.pi/agent/CODEX.md      ← Extension adds
-./AGENTS.md               ← Core
-```
+For each directory, loads the provider-specific file if:
+- `AGENTS.md` exists (so core didn't load the provider file as fallback)
+- Content differs from `AGENTS.md` (handles copy scenario)
 
 ## Install
 
@@ -78,33 +47,27 @@ If any directory has no `AGENTS.md` but has `CLAUDE.md`, it loads `CLAUDE.md` as
 ./setup.sh
 ```
 
-This symlinks:
-- Template context files to `~/.pi/agent/`
-- The extension to `~/.pi/agent/extensions/`
-
-Edit files in `templates/` to customize your guidelines.
-
-## Configuration (Optional)
-
-Create `~/.pi/agent/provider-context.json` to customize mappings:
-
-```json
-{
-  "providers": {
-    "anthropic": ["CLAUDE.md"],
-    "openai": ["CODEX.md", "OPENAI.md"]
-  },
-  "models": {
-    "claude-3-5-sonnet*": ["CLAUDE-3-5.md"],
-    "o1*": ["O1.md"]
-  }
-}
-```
+Links the extension to `~/.pi/agent/extensions/`.
 
 ## Templates
 
-- `templates/CLAUDE.md` - Claude-specific guidelines
-- `templates/CODEX.md` - OpenAI/Codex guidelines (adapted from [steipete/agent-scripts](https://github.com/steipete/agent-scripts))
-- `templates/GEMINI.md` - Gemini-specific guidelines
+Starter templates in `templates/`:
+- `CLAUDE.md` - Claude-specific guidelines
+- `CODEX.md` - OpenAI guidelines (from [steipete/agent-scripts](https://github.com/steipete/agent-scripts))
+- `GEMINI.md` - Gemini guidelines
 
-Note: `AGENTS.md` is not included - that's your own config that Pi Core loads. This extension only adds provider-specific files on top.
+Install with:
+```bash
+ln -s ~/pi-extensions/agent-guidance/templates/CLAUDE.md ~/.pi/agent/
+```
+
+## Configuration (Optional)
+
+Create `~/.pi/agent/agent-guidance.json`:
+
+```json
+{
+  "providers": { "anthropic": ["CLAUDE.md"] },
+  "models": { "claude-3-5*": ["CLAUDE-3-5.md"] }
+}
+```
