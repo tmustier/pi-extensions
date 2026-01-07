@@ -76,7 +76,7 @@
           }
         ],
         "files": [
-          "extensions/space-invaders.ts",
+          "extensions/arcade/space-invaders.ts",
           "README.md"
         ],
         "decisions": [
@@ -168,7 +168,7 @@
           }
         ],
         "files": [
-          "extensions/pacman.ts",
+          "extensions/arcade/pacman.ts",
           "README.md"
         ],
         "decisions": [
@@ -202,7 +202,7 @@
           }
         ],
         "files": [
-          "extensions/tetris.ts",
+          "extensions/arcade/tetris.ts",
           "README.md"
         ],
         "decisions": []
