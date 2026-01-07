@@ -1,6 +1,6 @@
 #!/bin/bash
 # Setup script for pi-extensions
-# Copies context files and symlinks extension to ~/.pi/agent/
+# Symlinks context files and extension to ~/.pi/agent/
 
 set -e
 
@@ -12,29 +12,38 @@ echo "Setting up pi-extensions..."
 # Create directories
 mkdir -p "$PI_AGENT_DIR/extensions"
 
-# Copy context files (don't overwrite existing)
+# Symlink context files
 for file in AGENTS.md CLAUDE.md CODEX.md GEMINI.md; do
-    if [ -f "$SCRIPT_DIR/context/$file" ]; then
-        if [ -f "$PI_AGENT_DIR/$file" ]; then
-            echo "  $file already exists, skipping (won't overwrite your config)"
+    target="$PI_AGENT_DIR/$file"
+    source="$SCRIPT_DIR/context/$file"
+    
+    if [ -f "$source" ]; then
+        if [ -L "$target" ]; then
+            echo "  $file already linked"
+        elif [ -f "$target" ]; then
+            echo "  $file exists as file, replacing with symlink"
+            rm "$target"
+            ln -sf "$source" "$target"
+            echo "  Linked $file"
         else
-            cp "$SCRIPT_DIR/context/$file" "$PI_AGENT_DIR/$file"
-            echo "  Copied $file"
+            ln -sf "$source" "$target"
+            echo "  Linked $file"
         fi
     fi
 done
 
 # Symlink provider-context extension
-if [ -L "$PI_AGENT_DIR/extensions/provider-context.ts" ]; then
+target="$PI_AGENT_DIR/extensions/provider-context.ts"
+if [ -L "$target" ]; then
     echo "  provider-context.ts already linked"
 else
-    ln -sf "$SCRIPT_DIR/provider-context.ts" "$PI_AGENT_DIR/extensions/provider-context.ts"
+    ln -sf "$SCRIPT_DIR/provider-context.ts" "$target"
     echo "  Linked provider-context.ts"
 fi
 
 echo ""
-echo "Done! Your context files are in $PI_AGENT_DIR/"
-echo "Edit them to customize your agent guidelines."
+echo "Done! Context files symlinked to $PI_AGENT_DIR/"
+echo "Edit files in $SCRIPT_DIR/context/ to customize."
 echo ""
 echo "Files:"
-ls -la "$PI_AGENT_DIR"/*.md 2>/dev/null || echo "  (no .md files yet)"
+ls -la "$PI_AGENT_DIR"/*.md 2>/dev/null || echo "  (no .md files)"
