@@ -1,5 +1,5 @@
 /**
- * ASCII Doom - First-person raycasting shooter. Play with /doom-ascii
+ * ASCII Doom - First-person raycasting shooter. Play with /pi-doom
  */
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 
@@ -313,7 +313,7 @@ function reset(s: State) { load(s, 1); s.player.health = 100; s.player.ammo = 50
 
 // Extension
 export default function (pi: ExtensionAPI) {
-	pi.registerCommand("doom-ascii", {
+	pi.registerCommand("pi-doom", {
 		description: "Play ASCII Doom - first-person shooter",
 		handler: async (_, ctx: ExtensionCommandContext) => {
 			if (!ctx.hasUI) { ctx.ui.notify("Requires interactive mode", "error"); return; }
