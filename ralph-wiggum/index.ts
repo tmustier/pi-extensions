@@ -1,24 +1,6 @@
 /**
- * Ralph Wiggum Extension
- *
- * Long-running agent loop for iterative development.
- * A Pi port of Geoffrey Huntley's Ralph Wiggum approach.
- *
- * The loop:
- * 1. Read a task file (markdown, json, whatever)
- * 2. Send it to the agent with instructions
- * 3. Agent works, updates the file as needed
- * 4. Agent says <promise>COMPLETE</promise> when done
- * 5. Repeat until complete or max iterations
- *
- * Usage:
- *   /ralph start my-feature                    # Creates .ralph/my-feature.md
- *   /ralph start ./path/to/tasks.md            # Uses existing file
- *   /ralph start my-feature --max-iterations 50 --reflect-every 10
- *   /ralph stop                                # Pause current loop
- *   /ralph resume my-feature                   # Resume a paused loop
- *   /ralph status                              # Show all loops
- *   /ralph cancel my-feature                   # Delete loop entirely
+ * Ralph Wiggum - Long-running agent loops for iterative development.
+ * Port of Geoffrey Huntley's approach.
  */
 
 import * as fs from "node:fs";
@@ -63,613 +45,465 @@ interface LoopState {
 	taskFile: string;
 	iteration: number;
 	maxIterations: number;
-	itemsPerIteration: number; // How many items to process per iteration (0 = no limit)
-	reflectEveryItems: number; // Reflect every N items (not iterations)
-	itemsProcessed: number; // Total items processed so far
+	itemsPerIteration: number;
+	reflectEveryItems: number;
+	itemsProcessed: number;
 	reflectInstructions: string;
-	active: boolean; // Kept for backwards compatibility, derived from status
+	active: boolean; // Backwards compat, derived from status
 	status: LoopStatus;
 	startedAt: string;
 	completedAt?: string;
 	lastReflectionAtItems: number;
 }
 
-interface RuntimeState {
-	currentLoop: string | null;
-}
+const STATUS_ICONS: Record<LoopStatus, string> = { active: "▶", paused: "⏸", completed: "✓" };
 
 export default function (pi: ExtensionAPI) {
-	const runtime: RuntimeState = {
-		currentLoop: null,
-	};
+	let currentLoop: string | null = null;
 
-	function getRalphDir(ctx: ExtensionContext): string {
-		return path.resolve(ctx.cwd, RALPH_DIR);
+	// --- File helpers ---
+
+	const ralphDir = (ctx: ExtensionContext) => path.resolve(ctx.cwd, RALPH_DIR);
+	const archiveDir = (ctx: ExtensionContext) => path.join(ralphDir(ctx), "archive");
+	const sanitize = (name: string) => name.replace(/[^a-zA-Z0-9_-]/g, "_").replace(/_+/g, "_");
+
+	function getPath(ctx: ExtensionContext, name: string, ext: string, archived = false): string {
+		const dir = archived ? archiveDir(ctx) : ralphDir(ctx);
+		return path.join(dir, `${sanitize(name)}${ext}`);
 	}
 
-	function getArchiveDir(ctx: ExtensionContext): string {
-		return path.join(getRalphDir(ctx), "archive");
+	function ensureDir(filePath: string): void {
+		const dir = path.dirname(filePath);
+		if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 	}
 
-	function sanitizeName(name: string): string {
-		return name.replace(/[^a-zA-Z0-9_-]/g, "_").replace(/_+/g, "_");
+	function tryDelete(filePath: string): void {
+		try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch { /* ignore */ }
 	}
 
-	function getStateFile(ctx: ExtensionContext, name: string, archived = false): string {
-		const dir = archived ? getArchiveDir(ctx) : getRalphDir(ctx);
-		return path.join(dir, `${sanitizeName(name)}.state.json`);
+	function tryRead(filePath: string): string | null {
+		try { return fs.readFileSync(filePath, "utf-8"); } catch { return null; }
 	}
 
-	function getTaskFile(ctx: ExtensionContext, name: string, archived = false): string {
-		const dir = archived ? getArchiveDir(ctx) : getRalphDir(ctx);
-		return path.join(dir, `${sanitizeName(name)}.md`);
-	}
+	// --- State management ---
 
-	function migrateState(state: Partial<LoopState> & { name: string }): LoopState {
-		// Backwards compatibility: derive status from active if status is missing
-		if (!state.status) {
-			state.status = state.active ? "active" : "paused";
-		}
-		// Keep active in sync with status for backwards compatibility
-		state.active = state.status === "active";
-		return state as LoopState;
+	function migrateState(raw: Partial<LoopState> & { name: string }): LoopState {
+		if (!raw.status) raw.status = raw.active ? "active" : "paused";
+		raw.active = raw.status === "active";
+		return raw as LoopState;
 	}
 
 	function loadState(ctx: ExtensionContext, name: string, archived = false): LoopState | null {
-		const stateFile = getStateFile(ctx, name, archived);
-		try {
-			if (fs.existsSync(stateFile)) {
-				const raw = JSON.parse(fs.readFileSync(stateFile, "utf-8"));
-				return migrateState(raw);
-			}
-		} catch {
-			// Ignore
-		}
-		return null;
+		const content = tryRead(getPath(ctx, name, ".state.json", archived));
+		return content ? migrateState(JSON.parse(content)) : null;
 	}
 
 	function saveState(ctx: ExtensionContext, state: LoopState, archived = false): void {
-		const dir = archived ? getArchiveDir(ctx) : getRalphDir(ctx);
-		if (!fs.existsSync(dir)) {
-			fs.mkdirSync(dir, { recursive: true });
-		}
-		// Keep active in sync with status
 		state.active = state.status === "active";
-		fs.writeFileSync(getStateFile(ctx, state.name, archived), JSON.stringify(state, null, 2), "utf-8");
-	}
-
-	function deleteState(ctx: ExtensionContext, name: string, archived = false): void {
-		try {
-			const stateFile = getStateFile(ctx, name, archived);
-			if (fs.existsSync(stateFile)) fs.unlinkSync(stateFile);
-		} catch {
-			// Ignore
-		}
-	}
-
-	function deleteTaskFile(ctx: ExtensionContext, name: string, archived = false): void {
-		try {
-			const taskFile = getTaskFile(ctx, name, archived);
-			if (fs.existsSync(taskFile)) fs.unlinkSync(taskFile);
-		} catch {
-			// Ignore
-		}
+		const filePath = getPath(ctx, state.name, ".state.json", archived);
+		ensureDir(filePath);
+		fs.writeFileSync(filePath, JSON.stringify(state, null, 2), "utf-8");
 	}
 
 	function listLoops(ctx: ExtensionContext, archived = false): LoopState[] {
-		const dir = archived ? getArchiveDir(ctx) : getRalphDir(ctx);
-		const loops: LoopState[] = [];
-		try {
-			if (fs.existsSync(dir)) {
-				for (const file of fs.readdirSync(dir)) {
-					if (file.endsWith(".state.json")) {
-						const raw = JSON.parse(fs.readFileSync(path.join(dir, file), "utf-8"));
-						loops.push(migrateState(raw));
-					}
-				}
-			}
-		} catch {
-			// Ignore
-		}
-		return loops;
+		const dir = archived ? archiveDir(ctx) : ralphDir(ctx);
+		if (!fs.existsSync(dir)) return [];
+		return fs.readdirSync(dir)
+			.filter(f => f.endsWith(".state.json"))
+			.map(f => {
+				const content = tryRead(path.join(dir, f));
+				return content ? migrateState(JSON.parse(content)) : null;
+			})
+			.filter((s): s is LoopState => s !== null);
 	}
 
-	function archiveLoop(ctx: ExtensionContext, name: string): boolean {
-		const state = loadState(ctx, name);
-		if (!state) return false;
+	// --- Loop state transitions ---
 
-		const archiveDir = getArchiveDir(ctx);
-		if (!fs.existsSync(archiveDir)) {
-			fs.mkdirSync(archiveDir, { recursive: true });
-		}
-
-		// Move state file
-		const srcStateFile = getStateFile(ctx, name);
-		const dstStateFile = getStateFile(ctx, name, true);
-		if (fs.existsSync(srcStateFile)) {
-			fs.renameSync(srcStateFile, dstStateFile);
-		}
-
-		// Move task file if it's in .ralph/
-		const srcTaskFile = path.resolve(ctx.cwd, state.taskFile);
-		if (srcTaskFile.startsWith(getRalphDir(ctx)) && !srcTaskFile.startsWith(archiveDir)) {
-			const dstTaskFile = getTaskFile(ctx, name, true);
-			if (fs.existsSync(srcTaskFile)) {
-				fs.renameSync(srcTaskFile, dstTaskFile);
-			}
-		}
-
-		return true;
+	function setStatus(ctx: ExtensionContext, state: LoopState, status: LoopStatus): void {
+		state.status = status;
+		if (status === "completed") state.completedAt = new Date().toISOString();
+		saveState(ctx, state);
 	}
 
-	function readTaskFile(ctx: ExtensionContext, taskFile: string): string | null {
-		try {
-			return fs.readFileSync(path.resolve(ctx.cwd, taskFile), "utf-8");
-		} catch {
-			return null;
-		}
+	function deactivateLoop(ctx: ExtensionContext): void {
+		currentLoop = null;
+		updateUI(ctx);
 	}
 
-	function getStatusIcon(status: LoopStatus): string {
-		switch (status) {
-			case "active":
-				return "▶";
-			case "paused":
-				return "⏸";
-			case "completed":
-				return "✓";
-		}
+	function pauseLoop(ctx: ExtensionContext, state: LoopState, message?: string): void {
+		setStatus(ctx, state, "paused");
+		deactivateLoop(ctx);
+		if (message) ctx.ui.notify(message, "info");
 	}
 
-	function updateStatus(ctx: ExtensionContext): void {
+	function completeLoop(ctx: ExtensionContext, state: LoopState, banner: string): void {
+		setStatus(ctx, state, "completed");
+		deactivateLoop(ctx);
+		pi.sendUserMessage(banner);
+	}
+
+	// --- UI ---
+
+	function formatLoop(l: LoopState, showCompleted = false): string {
+		const status = `${STATUS_ICONS[l.status]} ${l.status}`;
+		const iter = l.maxIterations > 0 ? `${l.iteration}/${l.maxIterations}` : `${l.iteration}`;
+		const items = l.itemsPerIteration > 0 ? `, ${l.itemsProcessed} items` : "";
+		const completed = showCompleted && l.completedAt
+			? ` - completed ${new Date(l.completedAt).toLocaleDateString()}`
+			: "";
+		return `${l.name}: ${status} (iteration ${iter}${items})${completed}`;
+	}
+
+	function updateUI(ctx: ExtensionContext): void {
 		if (!ctx.hasUI) return;
 
-		if (!runtime.currentLoop) {
-			ctx.ui.setStatus("ralph", undefined);
-			ctx.ui.setWidget("ralph", undefined);
-			return;
-		}
-
-		const state = loadState(ctx, runtime.currentLoop);
+		const state = currentLoop ? loadState(ctx, currentLoop) : null;
 		if (!state) {
 			ctx.ui.setStatus("ralph", undefined);
 			ctx.ui.setWidget("ralph", undefined);
 			return;
 		}
 
+		const { theme } = ctx.ui;
 		const maxStr = state.maxIterations > 0 ? `/${state.maxIterations}` : "";
 		const itemsStr = state.itemsPerIteration > 0 ? ` | ${state.itemsProcessed} items` : "";
-		ctx.ui.setStatus("ralph", ctx.ui.theme.fg("accent", `🔄 ${state.name} (${state.iteration}${maxStr}${itemsStr})`));
 
-		const lines: string[] = [
-			ctx.ui.theme.fg("accent", ctx.ui.theme.bold("Ralph Wiggum")),
-			ctx.ui.theme.fg("muted", `Loop: ${state.name}`),
-			ctx.ui.theme.fg("dim", `Status: ${getStatusIcon(state.status)} ${state.status}`),
-			ctx.ui.theme.fg("dim", `Iteration: ${state.iteration}${maxStr}`),
-			ctx.ui.theme.fg("dim", `Task: ${state.taskFile}`),
+		ctx.ui.setStatus("ralph", theme.fg("accent", `🔄 ${state.name} (${state.iteration}${maxStr}${itemsStr})`));
+
+		const lines = [
+			theme.fg("accent", theme.bold("Ralph Wiggum")),
+			theme.fg("muted", `Loop: ${state.name}`),
+			theme.fg("dim", `Status: ${STATUS_ICONS[state.status]} ${state.status}`),
+			theme.fg("dim", `Iteration: ${state.iteration}${maxStr}`),
+			theme.fg("dim", `Task: ${state.taskFile}`),
 		];
 		if (state.itemsPerIteration > 0) {
-			lines.push(ctx.ui.theme.fg("dim", `Items processed: ${state.itemsProcessed}`));
+			lines.push(theme.fg("dim", `Items processed: ${state.itemsProcessed}`));
 		}
 		if (state.reflectEveryItems > 0) {
-			const nextReflect = state.reflectEveryItems - (state.itemsProcessed % state.reflectEveryItems);
-			lines.push(ctx.ui.theme.fg("dim", `Next reflection in: ${nextReflect} items`));
+			const next = state.reflectEveryItems - (state.itemsProcessed % state.reflectEveryItems);
+			lines.push(theme.fg("dim", `Next reflection in: ${next} items`));
 		}
 		ctx.ui.setWidget("ralph", lines);
 	}
 
+	// --- Prompt building ---
+
 	function buildPrompt(state: LoopState, taskContent: string, isReflection: boolean): string {
 		const maxStr = state.maxIterations > 0 ? `/${state.maxIterations}` : "";
 		const itemsStr = state.itemsPerIteration > 0 ? ` | Items: ${state.itemsProcessed}` : "";
-		let prompt = `───────────────────────────────────────────────────────────────────────
+		const header = `───────────────────────────────────────────────────────────────────────
 🔄 RALPH LOOP: ${state.name} | Iteration ${state.iteration}${maxStr}${itemsStr}${isReflection ? " | 🪞 REFLECTION" : ""}
-───────────────────────────────────────────────────────────────────────
+───────────────────────────────────────────────────────────────────────`;
 
-`;
+		const parts = [header, ""];
+		if (isReflection) parts.push(state.reflectInstructions, "\n---\n");
 
-		if (isReflection) {
-			prompt += `${state.reflectInstructions}\n\n---\n\n`;
-		}
-
-		prompt += `## Current Task (from ${state.taskFile})\n\n${taskContent}\n\n---\n\n`;
-		prompt += `## Instructions\n\n`;
-		prompt += `You are in a Ralph loop (iteration ${state.iteration}`;
-		if (state.maxIterations > 0) prompt += ` of ${state.maxIterations}`;
-		prompt += `).\n\n`;
+		parts.push(`## Current Task (from ${state.taskFile})\n\n${taskContent}\n\n---`);
+		parts.push(`\n## Instructions\n`);
+		parts.push(`You are in a Ralph loop (iteration ${state.iteration}${state.maxIterations > 0 ? ` of ${state.maxIterations}` : ""}).\n`);
 
 		if (state.itemsPerIteration > 0) {
-			const startItem = state.itemsProcessed + 1;
-			const endItem = state.itemsProcessed + state.itemsPerIteration;
-			prompt += `**THIS ITERATION: Process items ${startItem}-${endItem} only, then STOP.**\n\n`;
-			prompt += `1. Process the next ${state.itemsPerIteration} items from your checklist\n`;
-			prompt += `2. Update the task file (${state.taskFile}) with your progress\n`;
-			prompt += `3. After completing ${state.itemsPerIteration} items, STOP and wait for the next iteration\n`;
-			prompt += `4. If ALL items are done before reaching ${state.itemsPerIteration}, respond with: ${COMPLETE_MARKER}\n`;
+			const start = state.itemsProcessed + 1;
+			const end = state.itemsProcessed + state.itemsPerIteration;
+			parts.push(`**THIS ITERATION: Process items ${start}-${end} only, then STOP.**\n`);
+			parts.push(`1. Process the next ${state.itemsPerIteration} items from your checklist`);
+			parts.push(`2. Update the task file (${state.taskFile}) with your progress`);
+			parts.push(`3. After completing ${state.itemsPerIteration} items, STOP and wait for the next iteration`);
+			parts.push(`4. If ALL items are done, respond with: ${COMPLETE_MARKER}`);
 		} else {
-			prompt += `1. Read the task file above and continue working on it\n`;
-			prompt += `2. Update the task file (${state.taskFile}) as you make progress\n`;
-			prompt += `3. When the task is FULLY COMPLETE, respond with: ${COMPLETE_MARKER}\n`;
-			prompt += `4. Do NOT output ${COMPLETE_MARKER} unless the task is genuinely done\n`;
+			parts.push(`1. Read the task file above and continue working on it`);
+			parts.push(`2. Update the task file (${state.taskFile}) as you make progress`);
+			parts.push(`3. When the task is FULLY COMPLETE, respond with: ${COMPLETE_MARKER}`);
+			parts.push(`4. Do NOT output ${COMPLETE_MARKER} unless the task is genuinely done`);
 		}
 
-		return prompt;
+		return parts.join("\n");
 	}
 
-	function parseArgs(argsStr: string): {
-		name: string;
-		maxIterations: number;
-		itemsPerIteration: number;
-		reflectEveryItems: number;
-		reflectInstructions: string;
-	} {
-		const args = argsStr.match(/(?:[^\s"]+|"[^"]*")+/g) || [];
-		let name = "";
-		let maxIterations = 0;
-		let itemsPerIteration = 0;
-		let reflectEveryItems = 0;
-		let reflectInstructions = DEFAULT_REFLECT_INSTRUCTIONS;
+	// --- Arg parsing ---
 
-		let i = 0;
-		while (i < args.length) {
-			const arg = args[i];
-			if (arg === "--max-iterations" && i + 1 < args.length) {
-				maxIterations = parseInt(args[i + 1], 10) || 0;
-				i += 2;
-			} else if (arg === "--items-per-iteration" && i + 1 < args.length) {
-				itemsPerIteration = parseInt(args[i + 1], 10) || 0;
-				i += 2;
-			} else if (arg === "--reflect-every" && i + 1 < args.length) {
-				reflectEveryItems = parseInt(args[i + 1], 10) || 0;
-				i += 2;
-			} else if (arg === "--reflect-instructions" && i + 1 < args.length) {
-				reflectInstructions = args[i + 1].replace(/^"|"$/g, "");
-				i += 2;
-			} else if (!arg.startsWith("--")) {
-				name = arg;
-				i++;
-			} else {
-				i++;
+	function parseArgs(argsStr: string) {
+		const tokens = argsStr.match(/(?:[^\s"]+|"[^"]*")+/g) || [];
+		const result = {
+			name: "",
+			maxIterations: 0,
+			itemsPerIteration: 0,
+			reflectEveryItems: 0,
+			reflectInstructions: DEFAULT_REFLECT_INSTRUCTIONS,
+		};
+
+		for (let i = 0; i < tokens.length; i++) {
+			const tok = tokens[i];
+			const next = tokens[i + 1];
+			if (tok === "--max-iterations" && next) { result.maxIterations = parseInt(next, 10) || 0; i++; }
+			else if (tok === "--items-per-iteration" && next) { result.itemsPerIteration = parseInt(next, 10) || 0; i++; }
+			else if (tok === "--reflect-every" && next) { result.reflectEveryItems = parseInt(next, 10) || 0; i++; }
+			else if (tok === "--reflect-instructions" && next) { result.reflectInstructions = next.replace(/^"|"$/g, ""); i++; }
+			else if (!tok.startsWith("--")) { result.name = tok; }
+		}
+		return result;
+	}
+
+	// --- Commands ---
+
+	const commands: Record<string, (rest: string, ctx: ExtensionContext) => void> = {
+		start(rest, ctx) {
+			const args = parseArgs(rest);
+			if (!args.name) {
+				ctx.ui.notify("Usage: /ralph start <name|path> [--items-per-iteration N] [--reflect-every N] [--max-iterations N]", "warning");
+				return;
 			}
-		}
 
-		return { name, maxIterations, itemsPerIteration, reflectEveryItems, reflectInstructions };
-	}
+			const isPath = args.name.includes("/") || args.name.includes("\\");
+			const loopName = isPath ? sanitize(path.basename(args.name, path.extname(args.name))) : args.name;
+			const taskFile = isPath ? args.name : path.join(RALPH_DIR, `${loopName}.md`);
 
-	pi.registerCommand("ralph", {
-		description: "Ralph Wiggum - long-running development loops",
-		handler: async (args, ctx) => {
-			const parts = args.trim().split(/\s+/);
-			const subcommand = parts[0];
-			const rest = args.slice(subcommand.length).trim();
+			const existing = loadState(ctx, loopName);
+			if (existing?.status === "active") {
+				ctx.ui.notify(`Loop "${loopName}" is already active. Use /ralph resume ${loopName}`, "warning");
+				return;
+			}
 
-			switch (subcommand) {
-				case "start": {
-					const parsed = parseArgs(rest);
-					if (!parsed.name) {
-						ctx.ui.notify(
-							"Usage: /ralph start <name|path> [--items-per-iteration N] [--reflect-every N] [--max-iterations N]",
-							"warning",
-						);
-						return;
-					}
+			const fullPath = path.resolve(ctx.cwd, taskFile);
+			if (!fs.existsSync(fullPath)) {
+				ensureDir(fullPath);
+				fs.writeFileSync(fullPath, DEFAULT_TEMPLATE, "utf-8");
+				ctx.ui.notify(`Created task file: ${taskFile}`, "info");
+			}
 
-					const isPath = parsed.name.includes("/") || parsed.name.includes("\\");
-					let taskFile: string;
-					let loopName: string;
+			const state: LoopState = {
+				name: loopName,
+				taskFile,
+				iteration: 1,
+				maxIterations: args.maxIterations,
+				itemsPerIteration: args.itemsPerIteration,
+				reflectEveryItems: args.reflectEveryItems,
+				itemsProcessed: existing?.itemsProcessed || 0,
+				reflectInstructions: args.reflectInstructions,
+				active: true,
+				status: "active",
+				startedAt: existing?.startedAt || new Date().toISOString(),
+				lastReflectionAtItems: existing?.lastReflectionAtItems || 0,
+			};
 
-					if (isPath) {
-						taskFile = parsed.name;
-						loopName = sanitizeName(path.basename(parsed.name, path.extname(parsed.name)));
-					} else {
-						loopName = parsed.name;
-						taskFile = path.join(RALPH_DIR, `${loopName}.md`);
-					}
+			saveState(ctx, state);
+			currentLoop = loopName;
+			updateUI(ctx);
 
-					const existingState = loadState(ctx, loopName);
-					if (existingState?.status === "active") {
-						ctx.ui.notify(`Loop "${loopName}" is already active. Use /ralph resume ${loopName}`, "warning");
-						return;
-					}
+			const content = tryRead(fullPath);
+			if (!content) {
+				ctx.ui.notify(`Could not read task file: ${taskFile}`, "error");
+				return;
+			}
+			pi.sendUserMessage(buildPrompt(state, content, false));
+		},
 
-					const fullTaskPath = path.resolve(ctx.cwd, taskFile);
-					if (!fs.existsSync(fullTaskPath)) {
-						const dir = path.dirname(fullTaskPath);
-						if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-						fs.writeFileSync(fullTaskPath, DEFAULT_TEMPLATE, "utf-8");
-						ctx.ui.notify(`Created task file: ${taskFile}`, "info");
-					}
+		stop(_rest, ctx) {
+			if (!currentLoop) {
+				ctx.ui.notify("No active Ralph loop", "warning");
+				return;
+			}
+			const state = loadState(ctx, currentLoop);
+			if (state) {
+				pauseLoop(ctx, state, `Paused Ralph loop: ${currentLoop} (iteration ${state.iteration})`);
+			}
+		},
 
-					const state: LoopState = {
-						name: loopName,
-						taskFile,
-						iteration: existingState?.iteration || 0,
-						maxIterations: parsed.maxIterations,
-						itemsPerIteration: parsed.itemsPerIteration,
-						reflectEveryItems: parsed.reflectEveryItems,
-						itemsProcessed: existingState?.itemsProcessed || 0,
-						reflectInstructions: parsed.reflectInstructions,
-						active: true,
-						status: "active",
-						startedAt: existingState?.startedAt || new Date().toISOString(),
-						lastReflectionAtItems: existingState?.lastReflectionAtItems || 0,
-					};
+		resume(rest, ctx) {
+			const loopName = rest.trim();
+			if (!loopName) {
+				ctx.ui.notify("Usage: /ralph resume <name>", "warning");
+				return;
+			}
 
-					saveState(ctx, state);
-					runtime.currentLoop = loopName;
-					updateStatus(ctx);
+			const state = loadState(ctx, loopName);
+			if (!state) {
+				ctx.ui.notify(`Loop "${loopName}" not found`, "error");
+				return;
+			}
+			if (state.status === "completed") {
+				ctx.ui.notify(`Loop "${loopName}" is completed. Use /ralph start ${loopName} to restart`, "warning");
+				return;
+			}
 
-					const taskContent = readTaskFile(ctx, taskFile);
-					if (!taskContent) {
-						ctx.ui.notify(`Could not read task file: ${taskFile}`, "error");
-						return;
-					}
+			// Pause current loop if different
+			if (currentLoop && currentLoop !== loopName) {
+				const curr = loadState(ctx, currentLoop);
+				if (curr) setStatus(ctx, curr, "paused");
+			}
 
-					state.iteration = 1;
-					saveState(ctx, state);
-					pi.sendUserMessage(buildPrompt(state, taskContent, false));
-					break;
-				}
+			state.status = "active";
+			state.iteration++;
+			saveState(ctx, state);
+			currentLoop = loopName;
+			updateUI(ctx);
 
-				case "stop": {
-					if (!runtime.currentLoop) {
-						ctx.ui.notify("No active Ralph loop", "warning");
-						return;
-					}
-					const state = loadState(ctx, runtime.currentLoop);
-					if (state) {
-						state.status = "paused";
-						state.active = false;
-						saveState(ctx, state);
-					}
-					ctx.ui.notify(`Paused Ralph loop: ${runtime.currentLoop} (iteration ${state?.iteration || 0})`, "info");
-					runtime.currentLoop = null;
-					updateStatus(ctx);
-					break;
-				}
+			const itemsStr = state.itemsPerIteration > 0 ? `, ${state.itemsProcessed} items` : "";
+			ctx.ui.notify(`Resumed: ${loopName} (iteration ${state.iteration}${itemsStr})`, "info");
 
-				case "resume": {
-					const loopName = rest.trim();
-					if (!loopName) {
-						ctx.ui.notify("Usage: /ralph resume <name>", "warning");
-						return;
-					}
+			const content = tryRead(path.resolve(ctx.cwd, state.taskFile));
+			if (!content) {
+				ctx.ui.notify(`Could not read task file: ${state.taskFile}`, "error");
+				return;
+			}
 
-					const state = loadState(ctx, loopName);
-					if (!state) {
-						ctx.ui.notify(`Loop "${loopName}" not found`, "error");
-						return;
-					}
+			const needsReflection = state.reflectEveryItems > 0 && state.itemsProcessed > 0 &&
+				state.itemsProcessed - state.lastReflectionAtItems >= state.reflectEveryItems;
+			pi.sendUserMessage(buildPrompt(state, content, needsReflection));
+		},
 
-					if (state.status === "completed") {
-						ctx.ui.notify(`Loop "${loopName}" is already completed. Use /ralph start ${loopName} to restart`, "warning");
-						return;
-					}
+		status(_rest, ctx) {
+			const loops = listLoops(ctx);
+			if (loops.length === 0) {
+				ctx.ui.notify("No Ralph loops found. Use /ralph list --archived for archived.", "info");
+				return;
+			}
+			ctx.ui.notify(`Ralph loops:\n${loops.map(l => formatLoop(l)).join("\n")}`, "info");
+		},
 
-					if (runtime.currentLoop && runtime.currentLoop !== loopName) {
-						const currentState = loadState(ctx, runtime.currentLoop);
-						if (currentState) {
-							currentState.status = "paused";
-							currentState.active = false;
-							saveState(ctx, currentState);
-						}
-					}
+		cancel(rest, ctx) {
+			const loopName = rest.trim();
+			if (!loopName) {
+				ctx.ui.notify("Usage: /ralph cancel <name>", "warning");
+				return;
+			}
+			if (!loadState(ctx, loopName)) {
+				ctx.ui.notify(`Loop "${loopName}" not found`, "error");
+				return;
+			}
+			if (currentLoop === loopName) currentLoop = null;
+			tryDelete(getPath(ctx, loopName, ".state.json"));
+			ctx.ui.notify(`Cancelled: ${loopName}`, "info");
+			updateUI(ctx);
+		},
 
-					state.status = "active";
-					state.active = true;
-					state.iteration++;
-					saveState(ctx, state);
-					runtime.currentLoop = loopName;
-					updateStatus(ctx);
+		archive(rest, ctx) {
+			const loopName = rest.trim();
+			if (!loopName) {
+				ctx.ui.notify("Usage: /ralph archive <name>", "warning");
+				return;
+			}
+			const state = loadState(ctx, loopName);
+			if (!state) {
+				ctx.ui.notify(`Loop "${loopName}" not found`, "error");
+				return;
+			}
+			if (state.status === "active") {
+				ctx.ui.notify(`Cannot archive active loop. Stop it first.`, "warning");
+				return;
+			}
 
-					const itemsStr = state.itemsPerIteration > 0 ? `, ${state.itemsProcessed} items` : "";
-					ctx.ui.notify(`Resumed Ralph loop: ${loopName} (iteration ${state.iteration}${itemsStr})`, "info");
+			if (currentLoop === loopName) currentLoop = null;
 
-					const taskContent = readTaskFile(ctx, state.taskFile);
-					if (!taskContent) {
-						ctx.ui.notify(`Could not read task file: ${state.taskFile}`, "error");
-						return;
-					}
+			// Move files to archive
+			const srcState = getPath(ctx, loopName, ".state.json");
+			const dstState = getPath(ctx, loopName, ".state.json", true);
+			ensureDir(dstState);
+			if (fs.existsSync(srcState)) fs.renameSync(srcState, dstState);
 
-					const isReflection =
-						state.reflectEveryItems > 0 &&
-						state.itemsProcessed > 0 &&
-						state.itemsProcessed - state.lastReflectionAtItems >= state.reflectEveryItems;
-					pi.sendUserMessage(buildPrompt(state, taskContent, isReflection));
-					break;
-				}
+			const srcTask = path.resolve(ctx.cwd, state.taskFile);
+			if (srcTask.startsWith(ralphDir(ctx)) && !srcTask.startsWith(archiveDir(ctx))) {
+				const dstTask = getPath(ctx, loopName, ".md", true);
+				if (fs.existsSync(srcTask)) fs.renameSync(srcTask, dstTask);
+			}
 
-				case "status": {
-					const loops = listLoops(ctx);
-					if (loops.length === 0) {
-						ctx.ui.notify("No Ralph loops found. Use /ralph list --archived to see archived loops.", "info");
-						return;
-					}
-					const lines = loops.map((l) => {
-						const statusStr = `${getStatusIcon(l.status)} ${l.status}`;
-						const maxStr = l.maxIterations > 0 ? `/${l.maxIterations}` : "";
-						const itemsStr = l.itemsPerIteration > 0 ? `, ${l.itemsProcessed} items` : "";
-						return `${l.name}: ${statusStr} (iteration ${l.iteration}${maxStr}${itemsStr})`;
-					});
-					ctx.ui.notify(`Ralph loops:\n${lines.join("\n")}`, "info");
-					break;
-				}
+			ctx.ui.notify(`Archived: ${loopName}`, "info");
+			updateUI(ctx);
+		},
 
-				case "cancel": {
-					const loopName = rest.trim();
-					if (!loopName) {
-						ctx.ui.notify("Usage: /ralph cancel <name>", "warning");
-						return;
-					}
-					const state = loadState(ctx, loopName);
-					if (!state) {
-						ctx.ui.notify(`Loop "${loopName}" not found`, "error");
-						return;
-					}
-					if (runtime.currentLoop === loopName) runtime.currentLoop = null;
-					deleteState(ctx, loopName);
-					ctx.ui.notify(`Cancelled Ralph loop: ${loopName}`, "info");
-					updateStatus(ctx);
-					break;
-				}
+		clean(rest, ctx) {
+			const all = rest.trim() === "--all";
+			const completed = listLoops(ctx).filter(l => l.status === "completed");
 
-				case "archive": {
-					const loopName = rest.trim();
-					if (!loopName) {
-						ctx.ui.notify("Usage: /ralph archive <name>", "warning");
-						return;
-					}
-					const state = loadState(ctx, loopName);
-					if (!state) {
-						ctx.ui.notify(`Loop "${loopName}" not found`, "error");
-						return;
-					}
-					if (state.status === "active") {
-						ctx.ui.notify(`Cannot archive active loop "${loopName}". Stop it first with /ralph stop`, "warning");
-						return;
-					}
-					if (runtime.currentLoop === loopName) runtime.currentLoop = null;
-					if (archiveLoop(ctx, loopName)) {
-						ctx.ui.notify(`Archived Ralph loop: ${loopName}`, "info");
-					} else {
-						ctx.ui.notify(`Failed to archive loop: ${loopName}`, "error");
-					}
-					updateStatus(ctx);
-					break;
-				}
+			if (completed.length === 0) {
+				ctx.ui.notify("No completed loops to clean", "info");
+				return;
+			}
 
-				case "clean": {
-					const allFlag = rest.trim() === "--all";
-					const loops = listLoops(ctx);
-					const completedLoops = loops.filter((l) => l.status === "completed");
+			for (const loop of completed) {
+				tryDelete(getPath(ctx, loop.name, ".state.json"));
+				if (all) tryDelete(getPath(ctx, loop.name, ".md"));
+				if (currentLoop === loop.name) currentLoop = null;
+			}
 
-					if (completedLoops.length === 0) {
-						ctx.ui.notify("No completed loops to clean", "info");
-						return;
-					}
+			const suffix = all ? " (all files)" : " (state only)";
+			ctx.ui.notify(`Cleaned ${completed.length} loop(s)${suffix}:\n${completed.map(l => `  • ${l.name}`).join("\n")}`, "info");
+			updateUI(ctx);
+		},
 
-					const cleaned: string[] = [];
-					for (const loop of completedLoops) {
-						if (allFlag) {
-							// Remove both state file and task file
-							deleteState(ctx, loop.name);
-							deleteTaskFile(ctx, loop.name);
-							cleaned.push(`${loop.name} (all files)`);
-						} else {
-							// Remove only state file, keep .md
-							deleteState(ctx, loop.name);
-							cleaned.push(`${loop.name} (state only)`);
-						}
-						if (runtime.currentLoop === loop.name) runtime.currentLoop = null;
-					}
+		list(rest, ctx) {
+			const archived = rest.trim() === "--archived";
+			const loops = listLoops(ctx, archived);
 
-					ctx.ui.notify(`Cleaned ${cleaned.length} completed loop(s):\n${cleaned.map((n) => `  • ${n}`).join("\n")}`, "info");
-					updateStatus(ctx);
-					break;
-				}
+			if (loops.length === 0) {
+				ctx.ui.notify(archived ? "No archived loops" : "No loops found. Use /ralph list --archived for archived.", "info");
+				return;
+			}
 
-				case "list": {
-					const archivedFlag = rest.trim() === "--archived";
-					if (archivedFlag) {
-						const archivedLoops = listLoops(ctx, true);
-						if (archivedLoops.length === 0) {
-							ctx.ui.notify("No archived loops found", "info");
-							return;
-						}
-						const lines = archivedLoops.map((l) => {
-							const statusStr = `${getStatusIcon(l.status)} ${l.status}`;
-							const maxStr = l.maxIterations > 0 ? `/${l.maxIterations}` : "";
-							const itemsStr = l.itemsPerIteration > 0 ? `, ${l.itemsProcessed} items` : "";
-							const completedStr = l.completedAt ? ` - completed ${new Date(l.completedAt).toLocaleDateString()}` : "";
-							return `${l.name}: ${statusStr} (iteration ${l.iteration}${maxStr}${itemsStr})${completedStr}`;
-						});
-						ctx.ui.notify(`Archived loops:\n${lines.join("\n")}`, "info");
-					} else {
-						// Same as status
-						const loops = listLoops(ctx);
-						if (loops.length === 0) {
-							ctx.ui.notify("No Ralph loops found. Use /ralph list --archived to see archived loops.", "info");
-							return;
-						}
-						const lines = loops.map((l) => {
-							const statusStr = `${getStatusIcon(l.status)} ${l.status}`;
-							const maxStr = l.maxIterations > 0 ? `/${l.maxIterations}` : "";
-							const itemsStr = l.itemsPerIteration > 0 ? `, ${l.itemsProcessed} items` : "";
-							return `${l.name}: ${statusStr} (iteration ${l.iteration}${maxStr}${itemsStr})`;
-						});
-						ctx.ui.notify(`Ralph loops:\n${lines.join("\n")}`, "info");
-					}
-					break;
-				}
+			const label = archived ? "Archived loops" : "Ralph loops";
+			ctx.ui.notify(`${label}:\n${loops.map(l => formatLoop(l, archived)).join("\n")}`, "info");
+		},
+	};
 
-				default:
-					ctx.ui.notify(
-						`Ralph Wiggum - Long-running development loops
+	const HELP = `Ralph Wiggum - Long-running development loops
 
 Commands:
   /ralph start <name|path> [options]  Start a new loop
   /ralph stop                         Pause current loop
   /ralph resume <name>                Resume a paused loop
-  /ralph status                       Show all loops (active/paused/completed)
-  /ralph cancel <name>                Delete a loop's state file
-  /ralph archive <name>               Move completed/paused loop to archive
-  /ralph clean                        Remove state files for completed loops
-  /ralph clean --all                  Remove all files for completed loops
+  /ralph status                       Show all loops
+  /ralph cancel <name>                Delete loop state
+  /ralph archive <name>               Move to archive
+  /ralph clean [--all]                Clean completed loops
   /ralph list --archived              Show archived loops
 
-Options for start:
-  --items-per-iteration N  Process N items per iteration (default: unlimited)
-  --reflect-every N        Reflect every N items (not iterations)
-  --max-iterations N       Stop after N iterations (default: unlimited)
-  --reflect-instructions   Custom reflection prompt
+Options:
+  --items-per-iteration N  Process N items per turn
+  --reflect-every N        Reflect every N items
+  --max-iterations N       Stop after N iterations
 
 Examples:
   /ralph start my-feature
-  /ralph start review --items-per-iteration 5 --reflect-every 50
-  /ralph start ./tasks.md --max-iterations 100`,
-						"info",
-					);
+  /ralph start review --items-per-iteration 5 --reflect-every 50`;
+
+	pi.registerCommand("ralph", {
+		description: "Ralph Wiggum - long-running development loops",
+		handler: async (args, ctx) => {
+			const [cmd, ...rest] = args.trim().split(/\s+/);
+			const handler = commands[cmd];
+			if (handler) {
+				handler(args.slice(cmd.length).trim(), ctx);
+			} else {
+				ctx.ui.notify(HELP, "info");
 			}
 		},
 	});
 
-	// Tool for agent to start a loop
+	// --- Tool for agent self-invocation ---
+
 	pi.registerTool({
 		name: "ralph_start",
 		label: "Start Ralph Loop",
-		description:
-			"Start a long-running development loop on yourself. Use this when you have a complex task that requires multiple iterations. Write the task content, then this tool will set up the loop and you'll work through it iteratively.",
+		description: "Start a long-running development loop. Use for complex multi-iteration tasks.",
 		parameters: Type.Object({
-			name: Type.String({ description: "Loop name (e.g., 'refactor-auth', 'add-tests')" }),
-			taskContent: Type.String({
-				description: "The task description in markdown format. Include goals, checklist, and any relevant context.",
-			}),
-			itemsPerIteration: Type.Optional(
-				Type.Number({ description: "Process N items per iteration (default: 0 = no limit)" }),
-			),
-			reflectEveryItems: Type.Optional(
-				Type.Number({ description: "Reflect every N items (default: 0 = no reflection)" }),
-			),
-			maxIterations: Type.Optional(
-				Type.Number({ description: "Maximum iterations before stopping (default: 50)", default: 50 }),
-			),
+			name: Type.String({ description: "Loop name (e.g., 'refactor-auth')" }),
+			taskContent: Type.String({ description: "Task in markdown with goals and checklist" }),
+			itemsPerIteration: Type.Optional(Type.Number({ description: "Items per iteration (0 = no limit)" })),
+			reflectEveryItems: Type.Optional(Type.Number({ description: "Reflect every N items" })),
+			maxIterations: Type.Optional(Type.Number({ description: "Max iterations (default: 50)", default: 50 })),
 		}),
 		async execute(_toolCallId, params, _onUpdate, ctx) {
-			const loopName = sanitizeName(params.name);
+			const loopName = sanitize(params.name);
 			const taskFile = path.join(RALPH_DIR, `${loopName}.md`);
 
-			const existingState = loadState(ctx, loopName);
-			if (existingState?.active) {
-				return {
-					content: [{ type: "text", text: `Loop "${loopName}" is already active. Complete it first or cancel it.` }],
-					details: {},
-				};
+			if (loadState(ctx, loopName)?.status === "active") {
+				return { content: [{ type: "text", text: `Loop "${loopName}" already active.` }], details: {} };
 			}
 
-			// Create task file with provided content
-			const fullTaskPath = path.resolve(ctx.cwd, taskFile);
-			const dir = path.dirname(fullTaskPath);
-			if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-			fs.writeFileSync(fullTaskPath, params.taskContent, "utf-8");
+			const fullPath = path.resolve(ctx.cwd, taskFile);
+			ensureDir(fullPath);
+			fs.writeFileSync(fullPath, params.taskContent, "utf-8");
 
 			const state: LoopState = {
 				name: loopName,
@@ -687,40 +521,30 @@ Examples:
 			};
 
 			saveState(ctx, state);
-			runtime.currentLoop = loopName;
-			updateStatus(ctx);
+			currentLoop = loopName;
+			updateUI(ctx);
 
-			// Queue the first iteration prompt using buildPrompt for consistency
-			// Use followUp since agent is still processing the tool call
 			pi.sendUserMessage(buildPrompt(state, params.taskContent, false), { deliverAs: "followUp" });
 
 			return {
-				content: [
-					{
-						type: "text",
-						text: `Started Ralph loop "${loopName}" with max ${state.maxIterations} iterations. The loop will begin on the next turn.`,
-					},
-				],
+				content: [{ type: "text", text: `Started loop "${loopName}" (max ${state.maxIterations} iterations).` }],
 				details: {},
 			};
 		},
 	});
 
+	// --- Event handlers ---
+
 	pi.on("before_agent_start", async (event, ctx) => {
-		if (!runtime.currentLoop) return;
-		const state = loadState(ctx, runtime.currentLoop);
+		if (!currentLoop) return;
+		const state = loadState(ctx, currentLoop);
 		if (!state || state.status !== "active") return;
 
-		// Check if user sent a stop command (typed during streaming)
+		// Handle stop command during streaming
 		const prompt = event.prompt.toLowerCase().trim();
 		if (prompt === "stop" || prompt === "/ralph stop" || prompt === "ralph stop") {
-			state.status = "paused";
-			state.active = false;
-			saveState(ctx, state);
-			ctx.ui.notify(`Ralph loop "${state.name}" stopped.`, "info");
-			runtime.currentLoop = null;
-			updateStatus(ctx);
-			return; // Don't append system prompt, let the message through normally
+			pauseLoop(ctx, state, `Ralph loop "${state.name}" stopped.`);
+			return;
 		}
 
 		const iterStr = `${state.iteration}${state.maxIterations > 0 ? `/${state.maxIterations}` : ""}`;
@@ -730,121 +554,82 @@ Examples:
 		if (state.itemsPerIteration > 0) {
 			instructions += `- Process ${state.itemsPerIteration} items this iteration, then STOP\n`;
 		}
-		instructions += `- Update the task file as you make progress\n`;
-		instructions += `- When FULLY COMPLETE, respond with: ${COMPLETE_MARKER}\n`;
-		instructions += `- Do NOT output the completion marker unless genuinely done`;
+		instructions += `- Update the task file as you progress\n`;
+		instructions += `- When FULLY COMPLETE: ${COMPLETE_MARKER}\n`;
+		instructions += `- Do NOT output completion marker unless genuinely done`;
 
 		return {
-			systemPromptAppend: `
-[RALPH WIGGUM LOOP - ${state.name} - Iteration ${iterStr}${itemsStr}]
-
-${instructions}`,
+			systemPromptAppend: `\n[RALPH LOOP - ${state.name} - Iteration ${iterStr}${itemsStr}]\n\n${instructions}`,
 		};
 	});
 
 	pi.on("agent_end", async (event, ctx) => {
-		if (!runtime.currentLoop) return;
-
-		const state = loadState(ctx, runtime.currentLoop);
+		if (!currentLoop) return;
+		const state = loadState(ctx, currentLoop);
 		if (!state || state.status !== "active") return;
 
-		// Check for user pending messages - if user typed something, pause to let them through
+		// Pause if user has pending input
 		if (ctx.hasPendingMessages()) {
-			state.status = "paused";
-			state.active = false;
-			saveState(ctx, state);
-			runtime.currentLoop = null;
-			updateStatus(ctx);
-			ctx.ui.notify(`Ralph loop "${state.name}" paused. Use /ralph resume ${state.name} to continue.`, "info");
+			pauseLoop(ctx, state, `Ralph loop "${state.name}" paused. Use /ralph resume ${state.name} to continue.`);
 			return;
 		}
 
-		const lastAssistant = [...event.messages].reverse().find((m) => m.role === "assistant");
-		let assistantText = "";
-		if (lastAssistant && Array.isArray(lastAssistant.content)) {
-			assistantText = lastAssistant.content
-				.filter((c): c is { type: "text"; text: string } => c.type === "text")
-				.map((c) => c.text)
-				.join("\n");
-		}
-		const hasCompleteMarker = assistantText.includes(COMPLETE_MARKER);
+		// Check for completion marker
+		const lastAssistant = [...event.messages].reverse().find(m => m.role === "assistant");
+		const text = lastAssistant && Array.isArray(lastAssistant.content)
+			? lastAssistant.content.filter((c): c is { type: "text"; text: string } => c.type === "text").map(c => c.text).join("\n")
+			: "";
 
-		if (hasCompleteMarker) {
-			state.status = "completed";
-			state.active = false;
-			state.completedAt = new Date().toISOString();
-			saveState(ctx, state);
-			runtime.currentLoop = null;
-			updateStatus(ctx);
-			pi.sendUserMessage(`───────────────────────────────────────────────────────────────────────
+		if (text.includes(COMPLETE_MARKER)) {
+			completeLoop(ctx, state, `───────────────────────────────────────────────────────────────────────
 ✅ RALPH LOOP COMPLETE: ${state.name} | ${state.iteration} iterations
 ───────────────────────────────────────────────────────────────────────`);
 			return;
 		}
 
+		// Check max iterations
 		if (state.maxIterations > 0 && state.iteration >= state.maxIterations) {
-			state.status = "completed";
-			state.active = false;
-			state.completedAt = new Date().toISOString();
-			saveState(ctx, state);
-			runtime.currentLoop = null;
-			updateStatus(ctx);
-			pi.sendUserMessage(`───────────────────────────────────────────────────────────────────────
+			completeLoop(ctx, state, `───────────────────────────────────────────────────────────────────────
 ⚠️ RALPH LOOP STOPPED: ${state.name} | Max iterations (${state.maxIterations}) reached
 ───────────────────────────────────────────────────────────────────────`);
 			return;
 		}
 
+		// Continue to next iteration
 		state.iteration++;
-		// Track items processed
-		if (state.itemsPerIteration > 0) {
-			state.itemsProcessed += state.itemsPerIteration;
-		}
-		// Check if reflection is due (based on items, not iterations)
-		const isReflection =
-			state.reflectEveryItems > 0 &&
-			state.itemsProcessed > 0 &&
-			state.itemsProcessed - state.lastReflectionAtItems >= state.reflectEveryItems;
-		if (isReflection) state.lastReflectionAtItems = state.itemsProcessed;
-		saveState(ctx, state);
-		updateStatus(ctx);
+		if (state.itemsPerIteration > 0) state.itemsProcessed += state.itemsPerIteration;
 
-		const taskContent = readTaskFile(ctx, state.taskFile);
-		if (!taskContent) {
-			state.status = "paused";
-			state.active = false;
-			saveState(ctx, state);
-			runtime.currentLoop = null;
-			updateStatus(ctx);
+		const needsReflection = state.reflectEveryItems > 0 && state.itemsProcessed > 0 &&
+			state.itemsProcessed - state.lastReflectionAtItems >= state.reflectEveryItems;
+		if (needsReflection) state.lastReflectionAtItems = state.itemsProcessed;
+
+		saveState(ctx, state);
+		updateUI(ctx);
+
+		const content = tryRead(path.resolve(ctx.cwd, state.taskFile));
+		if (!content) {
+			pauseLoop(ctx, state);
 			pi.sendUserMessage(`───────────────────────────────────────────────────────────────────────
 ❌ RALPH LOOP ERROR: ${state.name} | Could not read task file: ${state.taskFile}
 ───────────────────────────────────────────────────────────────────────`);
 			return;
 		}
 
-		pi.sendUserMessage(buildPrompt(state, taskContent, isReflection));
+		pi.sendUserMessage(buildPrompt(state, content, needsReflection));
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
-		const loops = listLoops(ctx);
-		const activeLoops = loops.filter((l) => l.status === "active");
-
-		if (activeLoops.length > 0 && ctx.hasUI) {
-			const lines = activeLoops.map((l) => {
-				const maxStr = l.maxIterations > 0 ? `/${l.maxIterations}` : "";
-				return `  • ${l.name} (iteration ${l.iteration}${maxStr})`;
-			});
-			ctx.ui.notify(
-				`Active Ralph loops detected:\n${lines.join("\n")}\n\nUse /ralph resume <name> to continue`,
-				"info",
-			);
+		const active = listLoops(ctx).filter(l => l.status === "active");
+		if (active.length > 0 && ctx.hasUI) {
+			const lines = active.map(l => `  • ${l.name} (iteration ${l.iteration}${l.maxIterations > 0 ? `/${l.maxIterations}` : ""})`);
+			ctx.ui.notify(`Active Ralph loops:\n${lines.join("\n")}\n\nUse /ralph resume <name> to continue`, "info");
 		}
-		updateStatus(ctx);
+		updateUI(ctx);
 	});
 
 	pi.on("session_shutdown", async (_event, ctx) => {
-		if (runtime.currentLoop) {
-			const state = loadState(ctx, runtime.currentLoop);
+		if (currentLoop) {
+			const state = loadState(ctx, currentLoop);
 			if (state) saveState(ctx, state);
 		}
 	});
