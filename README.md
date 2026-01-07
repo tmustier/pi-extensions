@@ -7,7 +7,7 @@ Personal extensions for the [Pi coding agent](https://github.com/badlogic/pi-mon
 | Extension | Description |
 |-----------|-------------|
 | [agent-guidance](agent-guidance/) | Switch between Claude/Codex/Gemini with model-specific guidance (CLAUDE.md, CODEX.md, GEMINI.md)
-| [tab-status](tab-status/) | Manage as many parallel sessions as your mind can handle: terminal tab indicators for ✅ done, 🚧 stuck , and 🛑 timed out
+| [tab-status](tab-status/) | Manage as many parallel sessions as your mind can handle<br>Terminal tab indicators for ✅ done, 🚧 stuck , and 🛑 timed out
 | [arcade](arcade/) | Play minigames while you wait for CI: 👾 sPIce-invaders, 👻 picman, 🏓 ping, 🧩 tetris |
 
 ## Quick Setup
