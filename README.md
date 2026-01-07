@@ -6,13 +6,17 @@ Personal extensions for the [Pi coding agent](https://github.com/badlogic/pi-mon
 
 | Extension | Description |
 |-----------|-------------|
-| [agent-guidance](agent-guidance/) | Switch between Claude/Codex/Gemini with model-specific guidance (CLAUDE.md, CODEX.md, GEMINI.md)
-| [tab-status](tab-status/) | Manage as many parallel sessions as your mind can handle<br>Terminal tab indicators for ✅ done, 🚧 stuck , and 🛑 timed out
-| [arcade](arcade/) | Play minigames while your tests run: 👾 sPIce-invaders, 👻 picman, 🏓 ping, 🧩 tetris |
+| [agent-guidance](agent-guidance/) | Switch between Claude/Codex/Gemini with model-specific guidance (CLAUDE.md, CODEX.md, GEMINI.md) |
+| [ralph-wiggum](ralph-wiggum/) | Run arbitrarily-long tasks without diluting model attention. Inspired by [ralph-loop](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/ralph-loop). |
+| [tab-status](tab-status/) | Manage as many parallel sessions as your mind can handle. Terminal tab indicators for done/stuck/timed out. |
+| [arcade](arcade/) | Play minigames while your tests run: sPIce-invaders, picman, ping, tetris |
 
 ## Quick Setup
 
 ```bash
+# Ralph Wiggum (long-running loops)
+ln -s ~/pi-extensions/ralph-wiggum ~/.pi/agent/extensions/
+
 # Agent guidance (provider-specific rules)
 cd agent-guidance && ./setup.sh
 
