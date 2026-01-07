@@ -1,5 +1,5 @@
 /**
- * Lobster Invaders game extension - play with /space-invaders
+ * sPIce Invaders game extension - play with /spice-invaders
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -1071,7 +1071,7 @@ class SpaceInvadersComponent {
 }
 
 export default function (pi: ExtensionAPI) {
-	pi.registerCommand("space-invaders", {
+	pi.registerCommand("spice-invaders", {
 		description: "Play Lobster Invaders!",
 		handler: async (_args, ctx) => {
 			if (!ctx.hasUI) {
