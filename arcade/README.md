@@ -26,7 +26,7 @@ ln -s ~/pi-extensions/arcade/*.ts ~/.pi/agent/extensions/
 
 # Or individual games
 ln -s ~/pi-extensions/arcade/spice-invaders.ts ~/.pi/agent/extensions/
-ln -s ~/pi-extensions/arcade/pacman.ts ~/.pi/agent/extensions/
+ln -s ~/pi-extensions/arcade/picman.ts ~/.pi/agent/extensions/
 ln -s ~/pi-extensions/arcade/ping.ts ~/.pi/agent/extensions/
 ln -s ~/pi-extensions/arcade/tetris.ts ~/.pi/agent/extensions/
 ```
@@ -37,7 +37,7 @@ Or add to `~/.pi/agent/settings.json`:
 {
   "extensions": [
     "~/pi-extensions/arcade/spice-invaders.ts",
-    "~/pi-extensions/arcade/pacman.ts",
+    "~/pi-extensions/arcade/picman.ts",
     "~/pi-extensions/arcade/ping.ts",
     "~/pi-extensions/arcade/tetris.ts"
   ]
