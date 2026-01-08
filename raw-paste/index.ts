@@ -66,15 +66,6 @@ class RawPasteEditor extends CustomEditor {
 	}
 
 	handleInput(data: string): void {
-		if (
-			matchesKey(data, "cmd+shift+v") ||
-			matchesKey(data, "ctrl+alt+v") ||
-			matchesKey(data, "ctrl+shift+v")
-		) {
-			this.armRawPaste();
-			return;
-		}
-
 		if (this.rawPasteArmed || this.isInRawPaste) {
 			if (this.handleRawPasteInput(data)) {
 				return;
@@ -111,17 +102,11 @@ export default function (pi: ExtensionAPI) {
 		});
 	});
 
-	pi.registerCommand("rawpaste", {
+	pi.registerCommand("paste", {
 		description: "Arm raw paste for the next paste operation",
 		handler: async (_args, ctx) => {
 			armRawPaste(ctx);
 		},
 	});
 
-	pi.registerShortcut("ctrl+alt+v", {
-		description: "Arm raw paste for the next paste operation",
-		handler: async (ctx) => {
-			armRawPaste(ctx);
-		},
-	});
 }
