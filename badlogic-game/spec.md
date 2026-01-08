@@ -413,51 +413,136 @@
 - Tech + Delivery
   - Save/Resume
     - Autosave cadence
-      - Design intent: [TBD]
-      - Implementation details: [TBD]
-      - Verification: [TBD]
+      - Design intent:
+        - Preserve progress without manual saves.
+        - Avoid saving in unstable states (mid-death, mid-transition).
+      - Implementation details:
+        - Autosave on: pause, quit, level clear, and every 5–10 seconds during play.
+        - Do not autosave during `dead` animation or `game_over`.
+        - Save after physics step to ensure consistent state.
+      - Verification:
+        - Quitting always resumes at last autosave point.
+        - No saves are written during death animation.
     - Persisted fields
-      - Design intent: [TBD]
-      - Implementation details: [TBD]
-      - Verification: [TBD]
+      - Design intent:
+        - Resume with minimal surprise; preserve meaningful progress.
+      - Implementation details:
+        - Persist: level index, player position/velocity, power state, coins, score, lives, time, checkpoint, RNG seed.
+        - Persist world state: used blocks, removed bricks, collected coins, enemy alive flags.
+        - Do not persist transient particles or text cues.
+      - Verification:
+        - After reload, used blocks remain used and coins stay collected.
+        - Player resumes with same power state and score.
     - Resume behavior
-      - Design intent: [TBD]
-      - Implementation details: [TBD]
-      - Verification: [TBD]
+      - Design intent:
+        - Resume should feel immediate but safe (no surprise hazards).
+      - Implementation details:
+        - On resume, load saved state and start in `ready` (paused) with hint "Press any key".
+        - Give 0.5s invulnerability on resume to prevent instant death.
+        - If saved during pause, resume stays paused until input.
+        - If no save, start new run at Level 1 start.
+      - Verification:
+        - Resume does not move player until input.
+        - Immediate hazards do not kill player during invuln window.
   - Technical Architecture
     - Data model
-      - Design intent: [TBD]
-      - Implementation details: [TBD]
-      - Verification: [TBD]
+      - Design intent:
+        - Keep state structured and serializable for save/resume.
+      - Implementation details:
+        - `GameState`: levelIndex, time, score, coins, lives, rngSeed, state, cameraX.
+        - `PlayerState`: x, y, vx, vy, facing, power, onGround, invulnTimer.
+        - `LevelState`: tiles[][], width, height, usedBlocks set, collectedCoins set.
+        - `EnemyState[]`: type, x, y, vx, vy, alive.
+        - `ItemState[]`: type, x, y, vx, vy, active.
+        - `SaveState`: snapshot of GameState + PlayerState + LevelState + entities.
+      - Verification:
+        - SaveState can be JSON-serialized without custom classes.
     - Update order
-      - Design intent: [TBD]
-      - Implementation details: [TBD]
-      - Verification: [TBD]
+      - Design intent:
+        - Ensure deterministic behavior per tick.
+      - Implementation details:
+        - Per tick: handle input -> update player physics -> resolve tile collisions -> update enemies -> resolve entity collisions -> update items -> update camera -> render.
+        - Timers (time, invuln, animation) update only in playing state.
+        - Save hook runs after physics/collision step.
+      - Verification:
+        - Stomp logic runs after player movement but before enemy AI for the next frame.
     - Collision handling
-      - Design intent: [TBD]
-      - Implementation details: [TBD]
-      - Verification: [TBD]
+      - Design intent:
+        - Separate tile vs entity collisions for clarity and testability.
+      - Implementation details:
+        - Tile collisions handled via grid probe (corners) per axis.
+        - Entity collisions via AABB overlap after movement.
+        - Priority: resolve tiles first, then entities (stomp/side hit), then items.
+        - Use discrete tile size; clamp positions on impact.
+      - Verification:
+        - Player never passes through solid tiles at max speed.
+        - Stomp and side-hit outcomes are consistent.
     - Input handling
-      - Design intent: [TBD]
-      - Implementation details: [TBD]
-      - Verification: [TBD]
+      - Design intent:
+        - Translate raw keypresses into stable per-tick actions.
+      - Implementation details:
+        - Use `handleInput(data)` to set intent flags (left/right/jump/run).
+        - Clear intents after a short timeout (e.g., 100–150ms) to simulate keyup.
+        - Input buffering: store last jump press timestamp for buffer/coyote.
+        - Ignore movement inputs in non-playing states (except ready/unpause).
+      - Verification:
+        - Holding key results in continuous movement via repeated key events.
+        - Jump buffer triggers within specified window.
     - Serialization
-      - Design intent: [TBD]
-      - Implementation details: [TBD]
-      - Verification: [TBD]
+      - Design intent:
+        - Keep save format stable and forward-compatible.
+      - Implementation details:
+        - Save as JSON via session entries; include version field.
+        - On load, migrate older versions with defaults.
+        - Validate required fields; if invalid, discard save.
+      - Verification:
+        - Old save versions load with reasonable defaults.
+        - Corrupt save is ignored without crashing.
   - Feature Stories & Sequencing
-    - Design intent: [TBD]
-    - Implementation details: [TBD]
-    - Verification: [TBD]
+    - Design intent:
+      - Enable incremental delivery with playable checkpoints.
+    - Implementation details:
+      - Story 1: Core loop (movement, gravity, tiles, Level 1 layout).
+      - Story 2: Enemies + stomp + hazards.
+      - Story 3: Blocks + coins + scoring + HUD.
+      - Story 4: Power-ups (mushroom) + big state.
+      - Story 5: Save/resume + pause/quit.
+      - Story 6: Polish (particles, text cues, camera dead-zone).
+      - Each story has a playable demo gate.
+    - Verification:
+      - Each story can be validated independently in TUI.
   - Test Plan
-    - Design intent: [TBD]
-    - Implementation details: [TBD]
-    - Verification: [TBD]
+    - Design intent:
+      - Validate core mechanics quickly in a terminal.
+    - Implementation details:
+      - Manual checks:
+        - Movement/jump feel (walk/run, short/long jumps).
+        - Stomp enemy vs side collision outcomes.
+        - Block interactions (brick break, question use).
+        - Save/resume: quit and resume at same spot.
+        - Camera: dead-zone, no overscroll.
+      - Automated checks (optional):
+        - Simulate physics step for jump apex height.
+        - Serialize/deserialize SaveState and compare fields.
+    - Verification:
+      - All manual checks pass in under 5 minutes.
   - Milestones
-    - Design intent: [TBD]
-    - Implementation details: [TBD]
-    - Verification: [TBD]
+    - Design intent:
+      - Provide checkpoints for incremental shipping.
+    - Implementation details:
+      - M1: Basic Level 1 playable (movement, tiles, camera).
+      - M2: Enemies + hazards + scoring.
+      - M3: Blocks + items + power-ups.
+      - M4: Save/resume + polish (FX, cues).
+    - Verification:
+      - Each milestone yields a playable build.
   - Open Questions
-    - Design intent: [TBD]
-    - Implementation details: [TBD]
-    - Verification: [TBD]
+    - Design intent:
+      - Track decisions that affect feel or scope.
+    - Implementation details:
+      - Finalize run modifier key (Shift vs X fallback).
+      - Decide if pipe entry is implemented in v1.
+      - Confirm scoring values and time limit.
+      - Determine if coins grant extra life at 100.
+    - Verification:
+      - Open questions resolved before M3.
