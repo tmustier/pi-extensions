@@ -360,7 +360,7 @@
           - Ground: "##"; Brick: "[]"; Question: "??"; Used: "..";
           - Coin: "o "; Pipe top/body: "||"; Flag/Goal: "|>";
           - Spike: "/\\"; Water: "~~"; Empty: "  ".
-        - Player: small "<>" body, big uses "<>", "[]" stack (2x3 tiles).
+        - Player: small "<>" body; big uses "<>", "[]" stack (1x3 tiles, 2-char wide).
         - Enemy (goomba): "GG".
         - All glyphs must be ASCII; avoid Unicode blocks.
       - Verification:
