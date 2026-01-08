@@ -10,6 +10,7 @@ Personal extensions for the [Pi coding agent](https://github.com/badlogic/pi-mon
 | [ralph-wiggum](ralph-wiggum/) | Run arbitrarily-long tasks without diluting model attention. Inspired by [ralph-loop](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/ralph-loop). |
 | [tab-status](tab-status/) | Manage as many parallel sessions as your mind can handle. Terminal tab indicators for done/stuck/timed out. |
 | [arcade](arcade/) | Play minigames while your tests run: sPIce-invaders, picman, ping, tetris |
+| [raw-paste](raw-paste/) | Arm a one-shot raw paste that keeps full text in the editor. |
 
 ## Quick Setup
 
@@ -22,6 +23,9 @@ cd agent-guidance && ./setup.sh
 
 # Tab status
 ln -s ~/pi-extensions/tab-status/tab-status.ts ~/.pi/agent/extensions/
+
+# Raw paste
+ln -s ~/pi-extensions/raw-paste ~/.pi/agent/extensions/
 
 # Arcade games
 ln -s ~/pi-extensions/arcade/*.ts ~/.pi/agent/extensions/
