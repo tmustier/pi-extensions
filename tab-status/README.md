@@ -26,6 +26,11 @@ Or add to `~/.pi/agent/settings.json`:
 }
 ```
 
+## Status export
+
+This extension writes a JSON file per running session to `~/.pi/agent/tab-status/`.
+The menu bar app reads these files to show status and focus tabs.
+
 ## Todo
 
 - [x] Status indicators in terminal tabs
