@@ -119,6 +119,25 @@ test("stepGame reduces time by dt", () => {
 	assert.equal(state.time, 9);
 });
 
+test("paused step does not decrement time", () => {
+	const level = makeLevel([
+		"    ",
+		"    ",
+		"    ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 1,
+		startY: 2,
+		config: { dt: 1, gravity: 0 },
+	});
+	state.player.onGround = true;
+	setPaused(state, true);
+	stepGame(state, {});
+	assert.equal(state.time, 300);
+});
+
 test("createGame sets player onGround", () => {
 	const level = makeLevel([
 		"    ",

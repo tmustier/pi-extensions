@@ -54,12 +54,12 @@ Implement `/badlogic-game` per `badlogic-game/spec.md` with deterministic core l
 - Spec: `badlogic-game/spec.md`
 - Existing WIP: `arcade/wip/badlogic-game.ts`
 
-## Reflection (Iteration 29)
+## Reflection (Iteration 30)
 1. What has been accomplished so far?
-   - Added time decrement regression test and lives HUD E2E fixture.
-   - Verification: `node --test badlogic-game/tests/*.test.js` -> 66 pass; `npx tsc --noEmit -p badlogic-game/tsconfig.json` -> ok.
+   - Added paused-time regression test and HUD coins E2E fixture.
+   - Verification: `node --test badlogic-game/tests/*.test.js` -> 68 pass; `npx tsc --noEmit -p badlogic-game/tsconfig.json` -> ok.
 2. What's working well?
-   - Time progression and HUD lives display are covered deterministically.
+   - Pause-time behavior and HUD coin display are covered deterministically.
 3. What's not working or blocking progress?
    - Manual M4 run still pending (interactive UI required).
 4. Should the approach be adjusted?
