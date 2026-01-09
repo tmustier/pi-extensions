@@ -16,6 +16,7 @@ const { renderFrame, renderViewport, renderHud, getCameraX } = require("./render
  * @property {number} groundDecel
  * @property {number} airAccel
  * @property {number} enemySpeed
+ * @property {number} mushroomScore
  */
 
 /**
@@ -34,6 +35,8 @@ const { renderFrame, renderViewport, renderHud, getCameraX } = require("./render
  * @property {number} facing
  * @property {boolean} onGround
  * @property {boolean} dead
+ * @property {"small" | "big"} size
+ * @property {number} invuln
  */
 
 /**
@@ -54,11 +57,13 @@ const { renderFrame, renderViewport, renderHud, getCameraX } = require("./render
  * @property {number} tick
  * @property {PlayerState} player
  * @property {EnemyState[]} enemies
+ * @property {{ x: number, y: number, vx: number, vy: number, alive: boolean, onGround: boolean }[]} items
  * @property {number} score
  * @property {number} coins
  * @property {number} lives
  * @property {number} time
  * @property {number} levelIndex
+ * @property {boolean} mushroomSpawned
  */
 
 /**
@@ -91,17 +96,24 @@ const DEFAULT_CONFIG = {
 	groundDecel: 30,
 	airAccel: 22,
 	enemySpeed: 1,
+	mushroomScore: 1000,
 };
 
 const SCORE_VALUES = {
 	coin: 100,
 	stomp: 50,
+	mushroom: 1000,
 };
 
 const PLAYER_W = 1;
-const PLAYER_H = 1;
+const PLAYER_H_SMALL = 1;
+const PLAYER_H_BIG = 2;
 const ENEMY_W = 1;
 const ENEMY_H = 1;
+const ITEM_W = 1;
+const ITEM_H = 1;
+const ITEM_SPEED = 1.2;
+const INVULN_TIME = 1.2;
 const START_LIVES = 3;
 const START_TIME = 300;
 
@@ -190,6 +202,7 @@ function createGame(options) {
 		lives: START_LIVES,
 		time: START_TIME,
 		levelIndex: typeof opts.levelIndex === "number" ? opts.levelIndex : 1,
+		mushroomSpawned: false,
 		player: {
 			x: startX,
 			y: startY,
@@ -198,8 +211,11 @@ function createGame(options) {
 			facing: 1,
 			onGround: false,
 			dead: false,
+			size: /** @type {"small" | "big"} */ ("small"),
+			invuln: 0,
 		},
 		enemies,
+		items: [],
 	};
 	state.player.onGround = isSolidAt(state.level, startX, startY + 1);
 	return state;
@@ -219,6 +235,10 @@ function stepGame(state, input) {
 	if (player.dead) {
 		state.tick += 1;
 		return state;
+	}
+
+	if (player.invuln > 0) {
+		player.invuln = Math.max(0, player.invuln - dt);
 	}
 
 	let move = 0;
@@ -261,15 +281,17 @@ function stepGame(state, input) {
 		if (!enemy.alive) continue;
 		updateEnemy(state.level, enemy, cfg);
 	}
+	updateItems(state.level, state);
 
 	resolveEnemyCollisions(state, prevY);
 	collectCoin(state);
+	collectItems(state);
 
 	if (isHazardAt(state.level, player.x, player.y)) {
-		player.dead = true;
+		applyPlayerDamage(state);
 	}
 	if (player.y >= state.level.height) {
-		player.dead = true;
+		applyPlayerDamage(state, true);
 	}
 
 	state.time = Math.max(0, state.time - dt);
@@ -293,8 +315,51 @@ function handleHeadBump(state, tileX, tileY) {
 	const tile = getTile(state.level, tileX, tileY);
 	if (tile === "?") {
 		setTile(state.level, tileX, tileY, "U");
-		awardCoin(state);
+		if (!state.mushroomSpawned) {
+			spawnMushroom(state, tileX, tileY);
+			state.mushroomSpawned = true;
+		} else {
+			awardCoin(state);
+		}
 	}
+}
+
+/** @param {GameState} state */
+function collectItems(state) {
+	if (state.player.dead) return;
+	const items = state.items;
+	const player = state.player;
+	const collected = [];
+	for (let i = 0; i < items.length; i += 1) {
+		const item = items[i];
+		if (!item.alive) continue;
+		if (overlaps(player.x, player.y, PLAYER_W, getPlayerHeight(player), item.x, item.y, ITEM_W, ITEM_H)) {
+			collected.push(i);
+			if (player.size === "small") {
+				player.size = /** @type {"small" | "big"} */ ("big");
+				player.invuln = INVULN_TIME;
+			} else {
+				awardScore(state, SCORE_VALUES.mushroom);
+			}
+		}
+	}
+	for (let i = collected.length - 1; i >= 0; i -= 1) {
+		items.splice(collected[i], 1);
+	}
+}
+
+/** @param {GameState} state @param {number} tileX @param {number} tileY */
+function spawnMushroom(state, tileX, tileY) {
+	const spawnX = tileX;
+	const spawnY = tileY - 1;
+	state.items.push({
+		x: spawnX,
+		y: spawnY,
+		vx: ITEM_SPEED,
+		vy: 0,
+		alive: true,
+		onGround: false,
+	});
 }
 
 /** @param {GameState} state */
@@ -321,11 +386,32 @@ function updateEnemy(level, enemy, cfg) {
 	resolveVertical(level, enemy, dt);
 }
 
+/** @param {Level} level @param {GameState} state */
+function updateItems(level, state) {
+	const cfg = state.config;
+	for (const item of state.items) {
+		if (!item.alive) continue;
+		item.vy = Math.min(item.vy + cfg.gravity * cfg.dt, cfg.maxFall);
+		const nextX = item.x + item.vx * cfg.dt;
+		if (isSolidAt(level, nextX, item.y)) {
+			item.vx = -item.vx;
+		} else {
+			item.x = nextX;
+		}
+		resolveVertical(level, item, cfg.dt);
+	}
+}
+
+/** @param {PlayerState} player @returns {number} */
+function getPlayerHeight(player) {
+	return player.size === "big" ? PLAYER_H_BIG : PLAYER_H_SMALL;
+}
+
 /** @param {GameState} state @param {number} prevY */
 function resolveEnemyCollisions(state, prevY) {
 	const player = state.player;
-	const prevBottom = prevY + PLAYER_H;
-	const currBottom = player.y + PLAYER_H;
+	const prevBottom = prevY + getPlayerHeight(player);
+	const currBottom = player.y + getPlayerHeight(player);
 	const falling = currBottom > prevBottom + 0.0001;
 	for (const enemy of state.enemies) {
 		if (!enemy.alive) continue;
@@ -334,7 +420,7 @@ function resolveEnemyCollisions(state, prevY) {
 				player.x,
 				player.y,
 				PLAYER_W,
-				PLAYER_H,
+				getPlayerHeight(player),
 				enemy.x,
 				enemy.y,
 				ENEMY_W,
@@ -350,7 +436,7 @@ function resolveEnemyCollisions(state, prevY) {
 				player.vy = -state.config.jumpVel * 0.6;
 				awardScore(state, SCORE_VALUES.stomp);
 			} else {
-				player.dead = true;
+				applyPlayerDamage(state);
 			}
 		}
 	}
@@ -391,9 +477,21 @@ function overlaps(ax, ay, aw, ah, bx, by, bw, bh) {
 	return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
 }
 
+/** @param {GameState} state @param {boolean} [forceDeath] */
+function applyPlayerDamage(state, forceDeath) {
+	const player = state.player;
+	if (player.invuln > 0) return;
+	if (!forceDeath && player.size === "big") {
+		player.size = /** @type {"small" | "big"} */ ("small");
+		player.invuln = INVULN_TIME;
+		return;
+	}
+	player.dead = true;
+}
+
 /**
  * @param {GameState} state
- * @returns {{ tick: number, score: number, coins: number, lives: number, time: number, levelIndex: number, player: { x: number, y: number, vx: number, vy: number, onGround: boolean, facing: number, dead: boolean }, enemies: { x: number, y: number, vx: number, vy: number, alive: boolean }[] }}
+ * @returns {{ tick: number, score: number, coins: number, lives: number, time: number, levelIndex: number, mushroomSpawned: boolean, player: { x: number, y: number, vx: number, vy: number, onGround: boolean, facing: number, dead: boolean, size: "small" | "big", invuln: number }, enemies: { x: number, y: number, vx: number, vy: number, alive: boolean }[], items: { x: number, y: number, vx: number, vy: number, alive: boolean, onGround: boolean }[] }}
  */
 function snapshotState(state) {
 	return {
@@ -403,6 +501,7 @@ function snapshotState(state) {
 		lives: state.lives,
 		time: round(state.time),
 		levelIndex: state.levelIndex,
+		mushroomSpawned: state.mushroomSpawned,
 		player: {
 			x: round(state.player.x),
 			y: round(state.player.y),
@@ -411,6 +510,8 @@ function snapshotState(state) {
 			onGround: state.player.onGround,
 			facing: state.player.facing,
 			dead: state.player.dead,
+			size: state.player.size,
+			invuln: round(state.player.invuln),
 		},
 		enemies: state.enemies.map((enemy) => ({
 			x: round(enemy.x),
@@ -418,6 +519,14 @@ function snapshotState(state) {
 			vx: round(enemy.vx),
 			vy: round(enemy.vy),
 			alive: enemy.alive,
+		})),
+		items: state.items.map((item) => ({
+			x: round(item.x),
+			y: round(item.y),
+			vx: round(item.vx),
+			vy: round(item.vy),
+			alive: item.alive,
+			onGround: item.onGround,
 		})),
 	};
 }

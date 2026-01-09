@@ -96,7 +96,7 @@ test("coin pickup updates score and clears tile", () => {
 	assert.equal(state.level.tiles[2][1], " ");
 });
 
-test("question block awards coin and becomes used", () => {
+test("question block spawns mushroom and becomes used", () => {
 	const level = makeLevel([
 		"    ",
 		" ?  ",
@@ -112,9 +112,73 @@ test("question block awards coin and becomes used", () => {
 	state.player.vy = -1;
 	state.player.onGround = false;
 	stepGame(state, {});
-	assert.equal(state.coins, 1);
-	assert.equal(state.score, 100);
+	assert.equal(state.items.length, 1);
 	assert.equal(state.level.tiles[1][1], "U");
+});
+
+test("second question block awards coin", () => {
+	const level = makeLevel([
+		"    ",
+		" ? ?",
+		"    ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 1,
+		startY: 2,
+		config: { dt: 1, gravity: 0 },
+	});
+	state.player.vy = -1;
+	state.player.onGround = false;
+	stepGame(state, {});
+	state.player.x = 3;
+	state.player.vy = -1;
+	state.player.onGround = false;
+	stepGame(state, {});
+	assert.equal(state.coins, 1);
+	assert.equal(state.level.tiles[1][1], "U");
+	assert.equal(state.level.tiles[1][3], "U");
+});
+
+test("mushroom pickup grows player", () => {
+	const level = makeLevel([
+		"    ",
+		"    ",
+		"    ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 1,
+		startY: 2,
+		config: { dt: 1, gravity: 0 },
+	});
+	state.items.push({ x: 1, y: 2, vx: 0, vy: 0, alive: true });
+	state.player.onGround = true;
+	stepGame(state, {});
+	assert.equal(state.player.size, "big");
+	assert.equal(state.items.length, 0);
+});
+
+test("mushroom pickup grants score if already big", () => {
+	const level = makeLevel([
+		"    ",
+		"    ",
+		"    ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 1,
+		startY: 2,
+		config: { dt: 1, gravity: 0 },
+	});
+	state.player.size = "big";
+	state.items.push({ x: 1, y: 2, vx: 0, vy: 0, alive: true });
+	state.player.onGround = true;
+	stepGame(state, {});
+	assert.equal(state.score, 1000);
 });
 
 test("stomp defeats enemy", () => {
@@ -162,6 +226,27 @@ test("side collision kills player", () => {
 	state.player.onGround = true;
 	stepGame(state, { right: true });
 	assert.equal(state.player.dead, true);
+});
+
+test("big player shrinks on enemy hit", () => {
+	const level = makeLevel([
+		"    ",
+		"    ",
+		" E  ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 1,
+		startY: 2,
+		config: { dt: 1, gravity: 0, enemySpeed: 0 },
+	});
+	state.player.size = "big";
+	state.player.onGround = true;
+	state.player.invuln = 0;
+	stepGame(state, {});
+	assert.equal(state.player.size, "small");
+	assert.equal(state.player.dead, false);
 });
 
 test("hazard tiles kill player", () => {

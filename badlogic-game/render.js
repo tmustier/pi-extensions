@@ -14,6 +14,7 @@ const { tileGlyph } = require("./tiles.js");
  * @typedef {Object} PlayerState
  * @property {number} x
  * @property {number} y
+ * @property {"small" | "big"} [size]
  */
 
 /**
@@ -28,14 +29,24 @@ const { tileGlyph } = require("./tiles.js");
  * @property {Level} level
  * @property {PlayerState} player
  * @property {EnemyState[]} enemies
+ * @property {ItemState[]} items
  * @property {number} score
  * @property {number} coins
  * @property {number} lives
  * @property {number} time
  * @property {number} levelIndex
+ * @property {"small" | "big"} [size]
+ */
+
+/**
+ * @typedef {Object} ItemState
+ * @property {number} x
+ * @property {number} y
+ * @property {boolean} alive
  */
 
 const ENEMY_GLYPH = "GG";
+const ITEM_GLYPH = "MM";
 
 /** @param {number} value @param {number} min @param {number} max @returns {number} */
 function clamp(value, min, max) {
@@ -68,10 +79,15 @@ function renderViewport(state, viewportWidth, viewportHeight) {
 		rows.push(row);
 	}
 	renderEnemies(rows, state.enemies, cameraX);
+	renderItems(rows, state.items, cameraX);
 	const px = Math.floor(state.player.x - cameraX);
 	const py = Math.floor(state.player.y);
+	const playerGlyph = state.player.size === "big" ? "[]" : "<>";
 	if (py >= 0 && py < viewportHeight && px >= 0 && px < viewportWidth) {
-		rows[py][px] = "<>";
+		rows[py][px] = playerGlyph;
+		if (state.player.size === "big" && py - 1 >= 0) {
+			rows[py - 1][px] = "<>";
+		}
 	}
 	return rows.map((row) => row.join("")).join("\n");
 }
@@ -89,10 +105,15 @@ function renderFrame(state) {
 		rows.push(row);
 	}
 	renderEnemies(rows, state.enemies, 0);
+	renderItems(rows, state.items, 0);
 	const px = Math.floor(state.player.x);
 	const py = Math.floor(state.player.y);
+	const playerGlyph = state.player.size === "big" ? "[]" : "<>";
 	if (py >= 0 && py < level.height && px >= 0 && px < level.width) {
-		rows[py][px] = "<>";
+		rows[py][px] = playerGlyph;
+		if (state.player.size === "big" && py - 1 >= 0) {
+			rows[py - 1][px] = "<>";
+		}
 	}
 	return rows.map((row) => row.join("")).join("\n");
 }
@@ -123,6 +144,20 @@ function renderEnemies(rows, enemies, offsetX) {
 	}
 }
 
+/** @param {string[][]} rows @param {ItemState[]} items @param {number} offsetX */
+function renderItems(rows, items, offsetX) {
+	const height = rows.length;
+	const width = rows[0] ? rows[0].length : 0;
+	for (const item of items) {
+		if (!item.alive) continue;
+		const ix = Math.floor(item.x - offsetX);
+		const iy = Math.floor(item.y);
+		if (iy >= 0 && iy < height && ix >= 0 && ix < width) {
+			rows[iy][ix] = ITEM_GLYPH;
+		}
+	}
+}
+
 /** @param {string} line @param {number} width @returns {string} */
 function fitLine(line, width) {
 	if (typeof width !== "number") return line;
@@ -141,4 +176,5 @@ module.exports = {
 	renderFrame,
 	renderViewport,
 	renderHud,
+	ITEM_GLYPH,
 };
