@@ -1,5 +1,6 @@
 # Relaunch Extension
 
+!!!!!!!WORK-IN-PROGRESS!!!!!!!!
 Exit pi and immediately resume the current session.
 
 ## Usage
