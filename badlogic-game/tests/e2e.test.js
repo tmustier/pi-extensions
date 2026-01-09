@@ -107,6 +107,29 @@ test("e2e: hazard glyphs render", () => {
 	assert.equal(frame, expected);
 });
 
+test("e2e: used block glyph renders", () => {
+	const level = makeLevel([
+		" U ",
+		"   ",
+		"   ",
+		"###",
+	]);
+	const state = createGame({
+		level,
+		startX: 10,
+		startY: 10,
+		config: { dt: 1, gravity: 0 },
+	});
+	const frame = renderFrame(state)
+		.split("\n")
+		.map((line) => line.trimEnd())
+		.join("\n");
+	const expected = fs
+		.readFileSync(path.join(__dirname, "fixtures", "story12-used-block.txt"), "utf8")
+		.trimEnd();
+	assert.equal(frame, expected);
+});
+
 test("e2e: enemy renders with goomba glyph", () => {
 	const level = makeLevel([
 		"    ",
