@@ -12,6 +12,7 @@
  * @property {number} groundAccel
  * @property {number} groundDecel
  * @property {number} airAccel
+ * @property {number} enemySpeed
  */
 
 /**
@@ -29,6 +30,17 @@
  * @property {number} vy
  * @property {number} facing
  * @property {boolean} onGround
+ * @property {boolean} dead
+ */
+
+/**
+ * @typedef {Object} EnemyState
+ * @property {number} x
+ * @property {number} y
+ * @property {number} vx
+ * @property {number} vy
+ * @property {boolean} alive
+ * @property {boolean} onGround
  */
 
 /**
@@ -38,6 +50,7 @@
  * @property {Config} config
  * @property {number} tick
  * @property {PlayerState} player
+ * @property {EnemyState[]} enemies
  */
 
 /**
@@ -68,10 +81,19 @@ const DEFAULT_CONFIG = {
 	groundAccel: 35,
 	groundDecel: 30,
 	airAccel: 22,
+	enemySpeed: 1,
 };
+
+const PLAYER_W = 1;
+const PLAYER_H = 1;
+const ENEMY_W = 1;
+const ENEMY_H = 1;
+const ENEMY_GLYPH = "GG";
 
 /** @type {Set<string>} */
 const SOLID_TILES = new Set(["#", "B", "?", "U", "T", "P"]);
+/** @type {Set<string>} */
+const HAZARD_TILES = new Set(["^", "~"]);
 /** @type {Record<string, string>} */
 const TILE_GLYPHS = {
 	"#": "##",
@@ -81,6 +103,8 @@ const TILE_GLYPHS = {
 	"T": "||",
 	"P": "||",
 	"G": "|>",
+	"^": "/\\",
+	"~": "~~",
 };
 
 /** @param {number} seed @returns {() => number} */
@@ -113,6 +137,36 @@ function makeLevel(lines) {
 	};
 }
 
+/** @param {Level} level @returns {{ level: Level, enemies: EnemyState[] }} */
+function extractEnemies(level) {
+	const tiles = level.tiles.map((row) => row.split(""));
+	/** @type {EnemyState[]} */
+	const enemies = [];
+	for (let y = 0; y < level.height; y += 1) {
+		for (let x = 0; x < level.width; x += 1) {
+			if (tiles[y][x] === "E") {
+				enemies.push({
+					x,
+					y,
+					vx: -1,
+					vy: 0,
+					alive: true,
+					onGround: false,
+				});
+				tiles[y][x] = " ";
+			}
+		}
+	}
+	return {
+		level: {
+			width: level.width,
+			height: level.height,
+			tiles: tiles.map((row) => row.join("")),
+		},
+		enemies,
+	};
+}
+
 /** @param {GameOptions} options @returns {GameState} */
 function createGame(options) {
 	const opts = options || {};
@@ -122,8 +176,14 @@ function createGame(options) {
 	const rng = createRng(opts.seed || 1);
 	const startX = typeof opts.startX === "number" ? opts.startX : 1;
 	const startY = typeof opts.startY === "number" ? opts.startY : 1;
+	const extracted = extractEnemies(level);
+	const enemies = extracted.enemies.map((enemy) => {
+		const seeded = { ...enemy, vx: -config.enemySpeed };
+		seeded.onGround = isSolidAt(extracted.level, seeded.x, seeded.y + 1);
+		return seeded;
+	});
 	const state = {
-		level,
+		level: extracted.level,
 		rng,
 		config,
 		tick: 0,
@@ -134,9 +194,11 @@ function createGame(options) {
 			vy: 0,
 			facing: 1,
 			onGround: false,
+			dead: false,
 		},
+		enemies,
 	};
-	state.player.onGround = isSolidAt(level, startX, startY + 1);
+	state.player.onGround = isSolidAt(state.level, startX, startY + 1);
 	return state;
 }
 
@@ -149,6 +211,12 @@ function stepGame(state, input) {
 	const jump = !!(input && input.jump);
 	const run = !!(input && input.run);
 	const player = state.player;
+	const prevY = player.y;
+
+	if (player.dead) {
+		state.tick += 1;
+		return state;
+	}
 
 	let move = 0;
 	if (moveLeft) move -= 1;
@@ -182,29 +250,104 @@ function stepGame(state, input) {
 		player.vx = 0;
 	}
 
-	let nextY = player.y + player.vy * dt;
-	if (player.vy >= 0) {
-		if (isSolidAt(state.level, player.x, nextY + 1)) {
-			const footY = Math.floor(nextY + 1);
-			player.y = footY - 1;
-			player.vy = 0;
-			player.onGround = true;
-		} else {
-			player.y = nextY;
-			player.onGround = false;
-		}
-	} else {
-		if (isSolidAt(state.level, player.x, nextY)) {
-			const headY = Math.floor(nextY);
-			player.y = headY + 1;
-			player.vy = 0;
-		} else {
-			player.y = nextY;
-		}
+	resolveVertical(state.level, player, dt);
+
+	for (const enemy of state.enemies) {
+		if (!enemy.alive) continue;
+		updateEnemy(state.level, enemy, cfg);
+	}
+
+	resolveEnemyCollisions(state, prevY);
+
+	if (isHazardAt(state.level, player.x, player.y)) {
+		player.dead = true;
+	}
+	if (player.y >= state.level.height) {
+		player.dead = true;
 	}
 
 	state.tick += 1;
 	return state;
+}
+
+/** @param {Level} level @param {EnemyState} enemy @param {Config} cfg */
+function updateEnemy(level, enemy, cfg) {
+	const dt = cfg.dt;
+	enemy.vy = Math.min(enemy.vy + cfg.gravity * dt, cfg.maxFall);
+	const nextX = enemy.x + enemy.vx * dt;
+	if (isSolidAt(level, nextX, enemy.y)) {
+		enemy.vx = -enemy.vx;
+	} else {
+		enemy.x = nextX;
+	}
+	resolveVertical(level, enemy, dt);
+}
+
+/** @param {GameState} state @param {number} prevY */
+function resolveEnemyCollisions(state, prevY) {
+	const player = state.player;
+	const prevBottom = prevY + PLAYER_H;
+	const currBottom = player.y + PLAYER_H;
+	const falling = currBottom > prevBottom + 0.0001;
+	for (const enemy of state.enemies) {
+		if (!enemy.alive) continue;
+		if (
+			overlaps(
+				player.x,
+				player.y,
+				PLAYER_W,
+				PLAYER_H,
+				enemy.x,
+				enemy.y,
+				ENEMY_W,
+				ENEMY_H
+			)
+		) {
+			const stomp =
+				falling &&
+				prevBottom <= enemy.y + 0.01 &&
+				currBottom >= enemy.y;
+			if (stomp) {
+				enemy.alive = false;
+				player.vy = -state.config.jumpVel * 0.6;
+			} else {
+				player.dead = true;
+			}
+		}
+	}
+}
+
+/**
+ * @param {Level} level
+ * @param {{ x: number, y: number, vx: number, vy: number, onGround: boolean }} entity
+ * @param {number} dt
+ */
+function resolveVertical(level, entity, dt) {
+	const nextY = entity.y + entity.vy * dt;
+	if (entity.vy >= 0) {
+		if (isSolidAt(level, entity.x, nextY + 1)) {
+			const footY = Math.floor(nextY + 1);
+			entity.y = footY - 1;
+			entity.vy = 0;
+			entity.onGround = true;
+		} else {
+			entity.y = nextY;
+			entity.onGround = false;
+		}
+	} else {
+		if (isSolidAt(level, entity.x, nextY)) {
+			const headY = Math.floor(nextY);
+			entity.y = headY + 1;
+			entity.vy = 0;
+		} else {
+			entity.y = nextY;
+		}
+	}
+}
+
+/** @param {number} ax @param {number} ay @param {number} aw @param {number} ah @param {number} bx @param {number} by @param {number} bw @param {number} bh @returns {boolean} */
+function overlaps(ax, ay, aw, ah, bx, by, bw, bh) {
+	return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
 }
 
 /** @param {string} tile @returns {string} */
@@ -242,6 +385,7 @@ function renderViewport(state, viewportWidth, viewportHeight) {
 		}
 		rows.push(row);
 	}
+	renderEnemies(rows, state.enemies, cameraX);
 	const px = Math.floor(state.player.x - cameraX);
 	const py = Math.floor(state.player.y);
 	if (py >= 0 && py < viewportHeight && px >= 0 && px < viewportWidth) {
@@ -262,6 +406,7 @@ function renderFrame(state) {
 		}
 		rows.push(row);
 	}
+	renderEnemies(rows, state.enemies, 0);
 	const px = Math.floor(state.player.x);
 	const py = Math.floor(state.player.y);
 	if (py >= 0 && py < level.height && px >= 0 && px < level.width) {
@@ -270,9 +415,23 @@ function renderFrame(state) {
 	return rows.map((row) => row.join("")).join("\n");
 }
 
+/** @param {string[][]} rows @param {EnemyState[]} enemies @param {number} offsetX */
+function renderEnemies(rows, enemies, offsetX) {
+	const height = rows.length;
+	const width = rows[0] ? rows[0].length : 0;
+	for (const enemy of enemies) {
+		if (!enemy.alive) continue;
+		const ex = Math.floor(enemy.x - offsetX);
+		const ey = Math.floor(enemy.y);
+		if (ey >= 0 && ey < height && ex >= 0 && ex < width) {
+			rows[ey][ex] = ENEMY_GLYPH;
+		}
+	}
+}
+
 /**
  * @param {GameState} state
- * @returns {{ tick: number, player: { x: number, y: number, vx: number, vy: number, onGround: boolean, facing: number } }}
+ * @returns {{ tick: number, player: { x: number, y: number, vx: number, vy: number, onGround: boolean, facing: number, dead: boolean }, enemies: { x: number, y: number, vx: number, vy: number, alive: boolean }[] }}
  */
 function snapshotState(state) {
 	return {
@@ -284,8 +443,29 @@ function snapshotState(state) {
 			vy: round(state.player.vy),
 			onGround: state.player.onGround,
 			facing: state.player.facing,
+			dead: state.player.dead,
 		},
+		enemies: state.enemies.map((enemy) => ({
+			x: round(enemy.x),
+			y: round(enemy.y),
+			vx: round(enemy.vx),
+			vy: round(enemy.vy),
+			alive: enemy.alive,
+		})),
 	};
+}
+
+/** @param {Level} level @param {number} x @param {number} y @returns {string} */
+function getTile(level, x, y) {
+	const tx = Math.floor(x);
+	const ty = Math.floor(y);
+	if (tx < 0 || tx >= level.width || ty < 0 || ty >= level.height) return " ";
+	return level.tiles[ty][tx];
+}
+
+/** @param {Level} level @param {number} x @param {number} y @returns {boolean} */
+function isHazardAt(level, x, y) {
+	return HAZARD_TILES.has(getTile(level, x, y));
 }
 
 /** @param {Level} level @param {number} x @param {number} y @returns {boolean} */

@@ -76,6 +76,69 @@ test("question blocks are solid", () => {
 	assert.equal(state.player.x, 1);
 });
 
+test("stomp defeats enemy", () => {
+	const level = makeLevel([
+		"    ",
+		"    ",
+		" E  ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 1,
+		startY: 1,
+		config: { dt: 1, gravity: 0, jumpVel: 10, enemySpeed: 0 },
+	});
+	state.player.vy = 1;
+	state.player.onGround = false;
+	stepGame(state, {});
+	assert.equal(state.enemies.length, 1);
+	assert.equal(state.enemies[0].alive, false);
+	assert.ok(state.player.vy < 0);
+});
+
+test("side collision kills player", () => {
+	const level = makeLevel([
+		"    ",
+		"    ",
+		" E  ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 0,
+		startY: 2,
+		config: {
+			dt: 1,
+			gravity: 0,
+			walkSpeed: 1,
+			runSpeed: 1,
+			groundAccel: 1,
+			enemySpeed: 0,
+		},
+	});
+	state.player.onGround = true;
+	stepGame(state, { right: true });
+	assert.equal(state.player.dead, true);
+});
+
+test("hazard tiles kill player", () => {
+	const level = makeLevel([
+		"    ",
+		"    ",
+		" ^  ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 1,
+		startY: 2,
+		config: { dt: 1, gravity: 0 },
+	});
+	stepGame(state, {});
+	assert.equal(state.player.dead, true);
+});
+
 test("camera clamps within bounds", () => {
 	const level = makeLevel([
 		"            ",

@@ -78,3 +78,24 @@ test("e2e: tile glyphs render consistently", () => {
 		.trimEnd();
 	assert.equal(frame, expected);
 });
+
+test("e2e: enemy renders with goomba glyph", () => {
+	const level = makeLevel([
+		"    ",
+		"    ",
+		" E  ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 3,
+		startY: 2,
+		config: { dt: 1, gravity: 0 },
+	});
+	state.player.onGround = true;
+	const frame = renderFrame(state);
+	const expected = fs
+		.readFileSync(path.join(__dirname, "fixtures", "story2-enemy.txt"), "utf8")
+		.trimEnd();
+	assert.equal(frame, expected);
+});
