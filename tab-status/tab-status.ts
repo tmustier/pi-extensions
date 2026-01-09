@@ -1,8 +1,21 @@
 /**
  * Update the terminal tab title with Pi run status (:new/:running/:✅/:🚧/:🛑).
  */
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+	SessionStartEvent,
+	SessionSwitchEvent,
+	BeforeAgentStartEvent,
+	AgentStartEvent,
+	AgentEndEvent,
+	TurnStartEvent,
+	ToolCallEvent,
+	ToolResultEvent,
+	SessionShutdownEvent,
+} from "@mariozechner/pi-coding-agent";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { AssistantMessage, StopReason } from "@mariozechner/pi-ai";
 import { basename } from "node:path";
 
 type StatusState = "new" | "running" | "doneCommitted" | "doneNoCommit" | "timeout";
@@ -35,21 +48,21 @@ export default function (pi: ExtensionAPI) {
 	let timeoutId: ReturnType<typeof setTimeout> | undefined;
 	const nativeClearTimeout = globalThis.clearTimeout;
 
-	const cwdBase = (ctx: ExtensionContext) => basename(ctx.cwd || "pi");
+	const cwdBase = (ctx: ExtensionContext): string => basename(ctx.cwd || "pi");
 
-	const setTitle = (ctx: ExtensionContext, next: StatusState) => {
+	const setTitle = (ctx: ExtensionContext, next: StatusState): void => {
 		status.state = next;
 		if (!ctx.hasUI) return;
 		ctx.ui.setTitle(`pi - ${cwdBase(ctx)}${STATUS_TEXT[next]}`);
 	};
 
-	const clearTabTimeout = () => {
+	const clearTabTimeout = (): void => {
 		if (timeoutId === undefined) return;
 		nativeClearTimeout(timeoutId);
 		timeoutId = undefined;
 	};
 
-	const resetTimeout = (ctx: ExtensionContext) => {
+	const resetTimeout = (ctx: ExtensionContext): void => {
 		clearTabTimeout();
 		timeoutId = setTimeout(() => {
 			if (status.running && status.state === "running") {
@@ -58,7 +71,7 @@ export default function (pi: ExtensionAPI) {
 		}, INACTIVE_TIMEOUT_MS);
 	};
 
-	const markActivity = (ctx: ExtensionContext) => {
+	const markActivity = (ctx: ExtensionContext): void => {
 		if (status.state === "timeout") {
 			setTitle(ctx, "running");
 		}
@@ -66,7 +79,7 @@ export default function (pi: ExtensionAPI) {
 		resetTimeout(ctx);
 	};
 
-	const resetState = (ctx: ExtensionContext, next: StatusState) => {
+	const resetState = (ctx: ExtensionContext, next: StatusState): void => {
 		status.running = false;
 		status.sawCommit = false;
 		status.sawError = false;
@@ -74,7 +87,7 @@ export default function (pi: ExtensionAPI) {
 		setTitle(ctx, next);
 	};
 
-	const beginRun = (ctx: ExtensionContext) => {
+	const beginRun = (ctx: ExtensionContext): void => {
 		status.running = true;
 		status.sawCommit = false;
 		status.sawError = false;
@@ -82,54 +95,57 @@ export default function (pi: ExtensionAPI) {
 		resetTimeout(ctx);
 	};
 
-	const getStopReason = (messages: AgentMessage[]) => {
+	const getStopReason = (messages: AgentMessage[]): StopReason | undefined => {
 		for (let i = messages.length - 1; i >= 0; i -= 1) {
 			const message = messages[i];
 			if (message.role === "assistant") {
-				return message.stopReason;
+				return (message as AssistantMessage).stopReason;
 			}
 		}
 		return undefined;
 	};
 
-	const shouldShowTimeout = (stopReason: AgentMessage["stopReason"]) => {
-		return stopReason === "error" || (status.sawError && stopReason !== "aborted");
+	const shouldShowTimeout = (stopReason: StopReason | undefined): boolean => {
+		// API errors (e.g., "terminated", rate limits, overloaded) show 🛑
+		if (stopReason === "error") return true;
+		// Tool errors during the run (sawError) also show 🛑 unless user aborted
+		return status.sawError && stopReason !== "aborted";
 	};
 
 	const handlers = [
 		[
 			"session_start",
-			async (_event: unknown, ctx: ExtensionContext) => {
+			async (_event: SessionStartEvent, ctx: ExtensionContext) => {
 				resetState(ctx, "new");
 			},
 		],
 		[
 			"session_switch",
-			async (event: { reason: "new" | "resume" }, ctx: ExtensionContext) => {
+			async (event: SessionSwitchEvent, ctx: ExtensionContext) => {
 				resetState(ctx, event.reason === "new" ? "new" : "doneCommitted");
 			},
 		],
 		[
 			"before_agent_start",
-			async (_event: unknown, ctx: ExtensionContext) => {
+			async (_event: BeforeAgentStartEvent, ctx: ExtensionContext) => {
 				markActivity(ctx);
 			},
 		],
 		[
 			"agent_start",
-			async (_event: unknown, ctx: ExtensionContext) => {
+			async (_event: AgentStartEvent, ctx: ExtensionContext) => {
 				beginRun(ctx);
 			},
 		],
 		[
 			"turn_start",
-			async (_event: unknown, ctx: ExtensionContext) => {
+			async (_event: TurnStartEvent, ctx: ExtensionContext) => {
 				markActivity(ctx);
 			},
 		],
 		[
 			"tool_call",
-			async (event: { toolName: string; input: Record<string, unknown> }, ctx: ExtensionContext) => {
+			async (event: ToolCallEvent, ctx: ExtensionContext) => {
 				if (event.toolName === "bash") {
 					const command = typeof event.input.command === "string" ? event.input.command : "";
 					if (command && GIT_COMMIT_RE.test(command)) {
@@ -141,7 +157,7 @@ export default function (pi: ExtensionAPI) {
 		],
 		[
 			"tool_result",
-			async (event: { isError: boolean }, ctx: ExtensionContext) => {
+			async (event: ToolResultEvent, ctx: ExtensionContext) => {
 				if (event.isError) {
 					status.sawError = true;
 				}
@@ -150,7 +166,7 @@ export default function (pi: ExtensionAPI) {
 		],
 		[
 			"agent_end",
-			async (event: { messages: AgentMessage[] }, ctx: ExtensionContext) => {
+			async (event: AgentEndEvent, ctx: ExtensionContext) => {
 				status.running = false;
 				clearTabTimeout();
 				const stopReason = getStopReason(event.messages);
@@ -163,7 +179,7 @@ export default function (pi: ExtensionAPI) {
 		],
 		[
 			"session_shutdown",
-			async (_event: unknown, ctx: ExtensionContext) => {
+			async (_event: SessionShutdownEvent, ctx: ExtensionContext) => {
 				clearTabTimeout();
 				if (!ctx.hasUI) return;
 				ctx.ui.setTitle(`pi - ${cwdBase(ctx)}`);
