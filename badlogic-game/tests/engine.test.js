@@ -30,6 +30,22 @@ test("makeLevel validates rows", () => {
 	assert.throws(() => makeLevel([" ", "  "]), /same width/);
 });
 
+test("createGame defaults level index", () => {
+	const level = makeLevel([
+		"    ",
+		"    ",
+		"    ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 1,
+		startY: 2,
+		config: { dt: 1, gravity: 0 },
+	});
+	assert.equal(state.levelIndex, 1);
+});
+
 test("save/load preserves player size", () => {
 	const level = makeLevel([
 		"    ",

@@ -272,7 +272,7 @@ class PicmanComponent {
 		if (this.cache.version === this.version && this.cache.width === width) return this.cache.lines;
 
 		const s = this.state, lines: string[] = [""];
-		const lives = Array(s.lives).fill(`${CYAN}Pi${RESET}`).join(" ");
+		const lives = Array(Math.max(0, s.lives)).fill(`${CYAN}Pi${RESET}`).join(" ");
 		lines.push(pad(`${CYAN}PICMAN${RESET}  Tokens: ${WHITE}${s.tokens}${RESET}  Hi: ${s.highScore}  Lv: ${s.level}  ${lives}`));
 		lines.push("");
 

@@ -16,27 +16,29 @@ Personal extensions for the [Pi coding agent](https://github.com/badlogic/pi-mon
 
 ## Quick Setup
 
+Add extensions to your `~/.pi/agent/settings.json`:
+
+```json
+{
+  "extensions": [
+    "~/pi-extensions/tab-status/tab-status.ts",
+    "~/pi-extensions/arcade/spice-invaders.ts",
+    "~/pi-extensions/arcade/ping.ts",
+    "~/pi-extensions/arcade/picman.ts",
+    "~/pi-extensions/arcade/tetris.ts",
+    "~/pi-extensions/arcade/badlogic-game.ts",
+    "~/pi-extensions/ralph-wiggum",
+    "~/pi-extensions/agent-guidance/agent-guidance.ts",
+    "~/pi-extensions/raw-paste",
+    "~/pi-extensions/code-actions",
+    "~/pi-extensions/relaunch"
+  ]
+}
+```
+
+For agent-guidance, also run the setup script:
 ```bash
-# Tab status
-ln -s ~/pi-extensions/tab-status/tab-status.ts ~/.pi/agent/extensions/
-
-# Arcade games
-ln -s ~/pi-extensions/arcade/*.ts ~/.pi/agent/extensions/
-
-# Ralph Wiggum (long-running loops)
-ln -s ~/pi-extensions/ralph-wiggum ~/.pi/agent/extensions/
-
-# Agent guidance (provider-specific rules)
-cd agent-guidance && ./setup.sh
-
-# Paste (/paste)
-ln -s ~/pi-extensions/raw-paste ~/.pi/agent/extensions/
-
-# Code actions (/code)
-ln -s ~/pi-extensions/code-actions ~/.pi/agent/extensions/
-
-# Relaunch (/relaunch)
-ln -s ~/pi-extensions/relaunch ~/.pi/agent/extensions/
+cd ~/pi-extensions/agent-guidance && ./setup.sh
 ```
 
 See each extension's README for details.

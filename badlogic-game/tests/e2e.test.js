@@ -369,6 +369,30 @@ test("e2e: hud pads score and coins", () => {
 	assert.equal(hud, expected);
 });
 
+test("e2e: cue overlays frame", () => {
+	const level = makeLevel([
+		"    ",
+		"    ",
+		"    ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 10,
+		startY: 10,
+		config: { dt: 1, gravity: 0 },
+	});
+	state.cue = { text: "READY", ttl: 1, persist: false };
+	const frame = renderFrame(state)
+		.split("\n")
+		.map((line) => line.trimEnd())
+		.join("\n");
+	const expected = fs
+		.readFileSync(path.join(__dirname, "fixtures", "story19-cue.txt"), "utf8")
+		.trimEnd();
+	assert.equal(frame, expected);
+});
+
 test("e2e: item renders with mushroom glyph", () => {
 	const level = makeLevel([
 		"    ",
