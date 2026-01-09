@@ -76,6 +76,47 @@ test("question blocks are solid", () => {
 	assert.equal(state.player.x, 1);
 });
 
+test("coin pickup updates score and clears tile", () => {
+	const level = makeLevel([
+		"    ",
+		"    ",
+		" o  ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 1,
+		startY: 2,
+		config: { dt: 1, gravity: 0 },
+	});
+	state.player.onGround = true;
+	stepGame(state, {});
+	assert.equal(state.coins, 1);
+	assert.equal(state.score, 100);
+	assert.equal(state.level.tiles[2][1], " ");
+});
+
+test("question block awards coin and becomes used", () => {
+	const level = makeLevel([
+		"    ",
+		" ?  ",
+		"    ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 1,
+		startY: 2,
+		config: { dt: 1, gravity: 0 },
+	});
+	state.player.vy = -1;
+	state.player.onGround = false;
+	stepGame(state, {});
+	assert.equal(state.coins, 1);
+	assert.equal(state.score, 100);
+	assert.equal(state.level.tiles[1][1], "U");
+});
+
 test("stomp defeats enemy", () => {
 	const level = makeLevel([
 		"    ",
@@ -95,6 +136,7 @@ test("stomp defeats enemy", () => {
 	assert.equal(state.enemies.length, 1);
 	assert.equal(state.enemies[0].alive, false);
 	assert.ok(state.player.vy < 0);
+	assert.equal(state.score, 50);
 });
 
 test("side collision kills player", () => {
