@@ -14,7 +14,7 @@ const {
 	loadState,
 	snapshotState,
 } = require("../engine.js");
-const { isHazardAt, isSolidAt } = require("../tiles.js");
+const { getTile, isHazardAt, isSolidAt } = require("../tiles.js");
 const { LEVEL_1_LINES, LEVEL_1_WIDTH, LEVEL_1_HEIGHT } = require("../levels.js");
 
 test("rng deterministic", () => {
@@ -394,6 +394,20 @@ test("solid check treats out-of-bounds as solid", () => {
 	assert.equal(isSolidAt(level, 0, -1), true);
 	assert.equal(isSolidAt(level, 0, 4), true);
 	assert.equal(isSolidAt(level, 1, 1), false);
+});
+
+test("getTile returns empty for out-of-bounds", () => {
+	const level = makeLevel([
+		"    ",
+		"    ",
+		"    ",
+		"####",
+	]);
+	assert.equal(getTile(level, -1, 0), " ");
+	assert.equal(getTile(level, 4, 0), " ");
+	assert.equal(getTile(level, 0, -1), " ");
+	assert.equal(getTile(level, 0, 4), " ");
+	assert.equal(getTile(level, 1, 1), " ");
 });
 
 test("camera clamps within bounds", () => {
