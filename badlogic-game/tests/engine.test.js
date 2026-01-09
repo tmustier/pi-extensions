@@ -14,7 +14,7 @@ const {
 	loadState,
 	snapshotState,
 } = require("../engine.js");
-const { getTile, isHazardAt, isSolidAt } = require("../tiles.js");
+const { getTile, isHazardAt, isSolidAt, tileGlyph } = require("../tiles.js");
 const { LEVEL_1_LINES, LEVEL_1_WIDTH, LEVEL_1_HEIGHT } = require("../levels.js");
 
 test("rng deterministic", () => {
@@ -408,6 +408,10 @@ test("getTile returns empty for out-of-bounds", () => {
 	assert.equal(getTile(level, 0, -1), " ");
 	assert.equal(getTile(level, 0, 4), " ");
 	assert.equal(getTile(level, 1, 1), " ");
+});
+
+test("tileGlyph defaults to blanks for unknown tiles", () => {
+	assert.equal(tileGlyph("!"), "  ");
 });
 
 test("camera clamps within bounds", () => {

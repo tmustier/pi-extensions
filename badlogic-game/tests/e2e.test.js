@@ -130,6 +130,29 @@ test("e2e: pipe glyphs render", () => {
 	assert.equal(frame, expected);
 });
 
+test("e2e: goal glyph renders", () => {
+	const level = makeLevel([
+		" G ",
+		"   ",
+		"   ",
+		"###",
+	]);
+	const state = createGame({
+		level,
+		startX: 10,
+		startY: 10,
+		config: { dt: 1, gravity: 0 },
+	});
+	const frame = renderFrame(state)
+		.split("\n")
+		.map((line) => line.trimEnd())
+		.join("\n");
+	const expected = fs
+		.readFileSync(path.join(__dirname, "fixtures", "story14-goal.txt"), "utf8")
+		.trimEnd();
+	assert.equal(frame, expected);
+});
+
 test("e2e: used block glyph renders", () => {
 	const level = makeLevel([
 		" U ",
