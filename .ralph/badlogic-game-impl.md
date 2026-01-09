@@ -54,12 +54,12 @@ Implement `/badlogic-game` per `badlogic-game/spec.md` with deterministic core l
 - Spec: `badlogic-game/spec.md`
 - Existing WIP: `arcade/wip/badlogic-game.ts`
 
-## Reflection (Iteration 24)
+## Reflection (Iteration 25)
 1. What has been accomplished so far?
-   - Added enemy extraction regression test and HUD negative-time E2E fixture.
-   - Verification: `node --test badlogic-game/tests/*.test.js` -> 56 pass; `npx tsc --noEmit -p badlogic-game/tsconfig.json` -> ok.
+   - Added player onGround regression test and big-viewport E2E fixture.
+   - Verification: `node --test badlogic-game/tests/*.test.js` -> 58 pass; `npx tsc --noEmit -p badlogic-game/tsconfig.json` -> ok.
 2. What's working well?
-   - Enemy extraction and HUD time clamp are covered deterministically.
+   - Ground detection on spawn and viewport big-player rendering are covered deterministically.
 3. What's not working or blocking progress?
    - Manual M4 run still pending (interactive UI required).
 4. Should the approach be adjusted?

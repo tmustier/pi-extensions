@@ -64,6 +64,22 @@ test("createGame extracts enemy tiles", () => {
 	assert.equal(state.enemies[0].onGround, true);
 });
 
+test("createGame sets player onGround", () => {
+	const level = makeLevel([
+		"    ",
+		"    ",
+		"    ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 1,
+		startY: 2,
+		config: { dt: 1, gravity: 0 },
+	});
+	assert.equal(state.player.onGround, true);
+});
+
 test("loadState sets item onGround", () => {
 	const level = makeLevel([
 		"    ",

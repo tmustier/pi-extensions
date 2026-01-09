@@ -490,6 +490,31 @@ test("e2e: big player renders tall", () => {
 	assert.equal(frame, expected);
 });
 
+test("e2e: big player renders in viewport", () => {
+	const level = makeLevel([
+		"    ",
+		"    ",
+		"    ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 1,
+		startY: 2,
+		config: { dt: 1, gravity: 0, viewportWidth: 4 },
+	});
+	state.player.size = "big";
+	state.player.onGround = true;
+	const frame = renderViewport(state, 4, 4)
+		.split("\n")
+		.map((line) => line.trimEnd())
+		.join("\n");
+	const expected = fs
+		.readFileSync(path.join(__dirname, "fixtures", "story22-big-viewport.txt"), "utf8")
+		.trimEnd();
+	assert.equal(frame, expected);
+});
+
 test("e2e: save + load preserves hud", () => {
 	const level = makeLevel([
 		"    ",
