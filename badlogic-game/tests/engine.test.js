@@ -46,6 +46,24 @@ test("createGame defaults level index", () => {
 	assert.equal(state.levelIndex, 1);
 });
 
+test("createGame extracts enemy tiles", () => {
+	const level = makeLevel([
+		"    ",
+		"    ",
+		" E  ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 1,
+		startY: 2,
+		config: { dt: 1, gravity: 0 },
+	});
+	assert.equal(state.enemies.length, 1);
+	assert.equal(state.level.tiles[2][1], " ");
+	assert.equal(state.enemies[0].onGround, true);
+});
+
 test("loadState sets item onGround", () => {
 	const level = makeLevel([
 		"    ",

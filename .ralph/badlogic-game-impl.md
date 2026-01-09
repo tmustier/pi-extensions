@@ -54,12 +54,12 @@ Implement `/badlogic-game` per `badlogic-game/spec.md` with deterministic core l
 - Spec: `badlogic-game/spec.md`
 - Existing WIP: `arcade/wip/badlogic-game.ts`
 
-## Reflection (Iteration 23)
+## Reflection (Iteration 24)
 1. What has been accomplished so far?
-   - Added item onGround load regression test and camera offset E2E fixture.
-   - Verification: `node --test badlogic-game/tests/*.test.js` -> 54 pass; `npx tsc --noEmit -p badlogic-game/tsconfig.json` -> ok.
+   - Added enemy extraction regression test and HUD negative-time E2E fixture.
+   - Verification: `node --test badlogic-game/tests/*.test.js` -> 56 pass; `npx tsc --noEmit -p badlogic-game/tsconfig.json` -> ok.
 2. What's working well?
-   - Save/load ground state and camera offset rendering are covered deterministically.
+   - Enemy extraction and HUD time clamp are covered deterministically.
 3. What's not working or blocking progress?
    - Manual M4 run still pending (interactive UI required).
 4. Should the approach be adjusted?
