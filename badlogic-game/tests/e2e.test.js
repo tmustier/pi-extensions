@@ -153,6 +153,30 @@ test("e2e: hud rounds time up", () => {
 	assert.equal(hud, expected);
 });
 
+test("e2e: hud shows level index", () => {
+	const level = makeLevel([
+		"    ",
+		"    ",
+		"    ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 1,
+		startY: 2,
+		config: { dt: 1, gravity: 0 },
+		levelIndex: 3,
+	});
+	const hud = renderHud(state, 30)
+		.split("\n")
+		.map((line) => line.trimEnd())
+		.join("\n");
+	const expected = fs
+		.readFileSync(path.join(__dirname, "fixtures", "story9-hud-level.txt"), "utf8")
+		.trimEnd();
+	assert.equal(hud, expected);
+});
+
 test("e2e: big player renders tall", () => {
 	const level = makeLevel([
 		"    ",

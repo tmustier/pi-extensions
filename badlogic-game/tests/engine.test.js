@@ -342,6 +342,13 @@ test("save and load restores progress", () => {
 	assert.equal(loaded.items.length, 2);
 });
 
+test("loadState rejects invalid data", () => {
+	const invalidVersion = loadState({ version: 2 }, { config: { dt: 1, gravity: 0 } });
+	assert.equal(invalidVersion, null);
+	const missingLevel = loadState({ version: 1, level: {} }, { config: { dt: 1, gravity: 0 } });
+	assert.equal(missingLevel, null);
+});
+
 test("camera clamps within bounds", () => {
 	const level = makeLevel([
 		"            ",
