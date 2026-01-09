@@ -157,7 +157,7 @@ export default function (api: ExtensionAPI) {
 			const entries = ctx.sessionManager.getEntries();
 			const saved = entries.reverse().find((e) => e.type === "custom" && e.customType === SAVE_TYPE)?.data as any | undefined;
 
-			await ctx.ui.custom((tui, _theme, done) =>
+			await ctx.ui.custom((tui, _theme, _kb, done) =>
 				new BadlogicGameComponent(tui, () => done(undefined), (state) => api.appendEntry(SAVE_TYPE, state), saved)
 			);
 		},
