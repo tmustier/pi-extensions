@@ -12,6 +12,17 @@ const DEFAULT_CONFIG = {
 	airAccel: 22,
 };
 
+const SOLID_TILES = new Set(["#", "B", "?", "U", "T", "P"]);
+const TILE_GLYPHS = {
+	"#": "##",
+	"B": "[]",
+	"?": "??",
+	"o": "o ",
+	"T": "||",
+	"P": "||",
+	"G": "|>",
+};
+
 function createRng(seed) {
 	let t = seed >>> 0;
 	return function next() {
@@ -132,6 +143,45 @@ function stepGame(state, input) {
 	return state;
 }
 
+function tileGlyph(tile) {
+	return TILE_GLYPHS[tile] || "  ";
+}
+
+function clamp(value, min, max) {
+	return Math.max(min, Math.min(max, value));
+}
+
+function getCameraX(state, viewportWidth) {
+	const levelWidth = state.level.width;
+	const maxX = Math.max(0, levelWidth - viewportWidth);
+	const target = state.player.x + 0.5 - viewportWidth / 2;
+	return clamp(target, 0, maxX);
+}
+
+function renderViewport(state, viewportWidth, viewportHeight) {
+	const level = state.level;
+	const cameraX = getCameraX(state, viewportWidth);
+	const rows = [];
+	for (let y = 0; y < viewportHeight; y += 1) {
+		const row = [];
+		for (let x = 0; x < viewportWidth; x += 1) {
+			const worldX = Math.floor(cameraX + x);
+			const tile =
+				worldX >= 0 && worldX < level.width && y >= 0 && y < level.height
+					? level.tiles[y][worldX]
+					: " ";
+			row.push(tileGlyph(tile));
+		}
+		rows.push(row);
+	}
+	const px = Math.floor(state.player.x - cameraX);
+	const py = Math.floor(state.player.y);
+	if (py >= 0 && py < viewportHeight && px >= 0 && px < viewportWidth) {
+		rows[py][px] = "<>";
+	}
+	return rows.map((row) => row.join("")).join("\n");
+}
+
 function renderFrame(state) {
 	const level = state.level;
 	const rows = [];
@@ -139,7 +189,7 @@ function renderFrame(state) {
 		const row = [];
 		for (let x = 0; x < level.width; x += 1) {
 			const tile = level.tiles[y][x];
-			row.push(tile === "#" ? "##" : "  ");
+			row.push(tileGlyph(tile));
 		}
 		rows.push(row);
 	}
@@ -169,7 +219,7 @@ function isSolidAt(level, x, y) {
 	const tx = Math.floor(x);
 	const ty = Math.floor(y);
 	if (tx < 0 || tx >= level.width || ty < 0 || ty >= level.height) return true;
-	return level.tiles[ty][tx] === "#";
+	return SOLID_TILES.has(level.tiles[ty][tx]);
 }
 
 function round(value) {
@@ -183,5 +233,7 @@ module.exports = {
 	createGame,
 	stepGame,
 	renderFrame,
+	renderViewport,
+	getCameraX,
 	snapshotState,
 };
