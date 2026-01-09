@@ -1,8 +1,8 @@
-# Code Actions Extension
+# Code Actins extension
 
-Pick code blocks (```) or `inline code` from recent assistant messages and then copy or insert them. Helpful for retrieving commands and filepaths mentioned by Pi.
+/code to pick code blocks (```) or `inline code` from recent assistant messages and then copy or insert them. Helpful for retrieving commands and filepaths mentioned by Pi.
 
-Just run /code and type to search. You can hit enter to copy the snippet, or `right arrow` to insert it in the command line.
+/code opens a menu you can type to search. You can hit enter to copy the snippet, or `right arrow` to insert it in the command line.
 
 <img width="751" height="416" alt="Screenshot 2026-01-09 at 17 09 17" src="https://github.com/user-attachments/assets/0dc10a64-d61f-4b56-9684-5e448c759385" />
 
