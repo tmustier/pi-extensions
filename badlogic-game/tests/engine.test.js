@@ -58,6 +58,24 @@ test("brick tiles block movement", () => {
 	assert.equal(state.player.x, 1);
 });
 
+test("question blocks are solid", () => {
+	const level = makeLevel([
+		"    ",
+		"    ",
+		"  ? ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 1,
+		startY: 2,
+		config: { dt: 1, gravity: 0, walkSpeed: 1, runSpeed: 1, groundAccel: 1 },
+	});
+	state.player.onGround = true;
+	stepGame(state, { right: true });
+	assert.equal(state.player.x, 1);
+});
+
 test("camera clamps within bounds", () => {
 	const level = makeLevel([
 		"            ",

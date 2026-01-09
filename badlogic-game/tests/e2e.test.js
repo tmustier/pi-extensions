@@ -57,3 +57,24 @@ test("e2e: camera clamps to right edge", () => {
 		.trimEnd();
 	assert.equal(frame, expected);
 });
+
+test("e2e: tile glyphs render consistently", () => {
+	const level = makeLevel([
+		" B?oG ",
+		"      ",
+		"      ",
+		"######",
+	]);
+	const state = createGame({
+		level,
+		startX: 1,
+		startY: 2,
+		config: { dt: 1, gravity: 0 },
+	});
+	state.player.onGround = true;
+	const frame = renderFrame(state);
+	const expected = fs
+		.readFileSync(path.join(__dirname, "fixtures", "story1-glyphs.txt"), "utf8")
+		.trimEnd();
+	assert.equal(frame, expected);
+});

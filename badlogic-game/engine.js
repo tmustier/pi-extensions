@@ -1,5 +1,63 @@
+// @ts-check
 "use strict";
 
+/**
+ * @typedef {Object} Config
+ * @property {number} dt
+ * @property {number} gravity
+ * @property {number} maxFall
+ * @property {number} jumpVel
+ * @property {number} walkSpeed
+ * @property {number} runSpeed
+ * @property {number} groundAccel
+ * @property {number} groundDecel
+ * @property {number} airAccel
+ */
+
+/**
+ * @typedef {Object} Level
+ * @property {number} width
+ * @property {number} height
+ * @property {string[]} tiles
+ */
+
+/**
+ * @typedef {Object} PlayerState
+ * @property {number} x
+ * @property {number} y
+ * @property {number} vx
+ * @property {number} vy
+ * @property {number} facing
+ * @property {boolean} onGround
+ */
+
+/**
+ * @typedef {Object} GameState
+ * @property {Level} level
+ * @property {() => number} rng
+ * @property {Config} config
+ * @property {number} tick
+ * @property {PlayerState} player
+ */
+
+/**
+ * @typedef {Object} InputState
+ * @property {boolean} [left]
+ * @property {boolean} [right]
+ * @property {boolean} [jump]
+ * @property {boolean} [run]
+ */
+
+/**
+ * @typedef {Object} GameOptions
+ * @property {Level} level
+ * @property {Partial<Config>} [config]
+ * @property {number} [seed]
+ * @property {number} [startX]
+ * @property {number} [startY]
+ */
+
+/** @type {Config} */
 const DEFAULT_CONFIG = {
 	dt: 1 / 60,
 	gravity: 22,
@@ -12,7 +70,9 @@ const DEFAULT_CONFIG = {
 	airAccel: 22,
 };
 
+/** @type {Set<string>} */
 const SOLID_TILES = new Set(["#", "B", "?", "U", "T", "P"]);
+/** @type {Record<string, string>} */
 const TILE_GLYPHS = {
 	"#": "##",
 	"B": "[]",
@@ -23,6 +83,7 @@ const TILE_GLYPHS = {
 	"G": "|>",
 };
 
+/** @param {number} seed @returns {() => number} */
 function createRng(seed) {
 	let t = seed >>> 0;
 	return function next() {
@@ -34,6 +95,7 @@ function createRng(seed) {
 	};
 }
 
+/** @param {string[]} lines @returns {Level} */
 function makeLevel(lines) {
 	if (!Array.isArray(lines) || lines.length === 0) {
 		throw new Error("Level must be a non-empty array of strings.");
@@ -51,6 +113,7 @@ function makeLevel(lines) {
 	};
 }
 
+/** @param {GameOptions} options @returns {GameState} */
 function createGame(options) {
 	const opts = options || {};
 	const level = opts.level;
@@ -77,6 +140,7 @@ function createGame(options) {
 	return state;
 }
 
+/** @param {GameState} state @param {InputState} [input] @returns {GameState} */
 function stepGame(state, input) {
 	const cfg = state.config;
 	const dt = cfg.dt;
@@ -143,14 +207,17 @@ function stepGame(state, input) {
 	return state;
 }
 
+/** @param {string} tile @returns {string} */
 function tileGlyph(tile) {
 	return TILE_GLYPHS[tile] || "  ";
 }
 
+/** @param {number} value @param {number} min @param {number} max @returns {number} */
 function clamp(value, min, max) {
 	return Math.max(min, Math.min(max, value));
 }
 
+/** @param {GameState} state @param {number} viewportWidth @returns {number} */
 function getCameraX(state, viewportWidth) {
 	const levelWidth = state.level.width;
 	const maxX = Math.max(0, levelWidth - viewportWidth);
@@ -158,6 +225,7 @@ function getCameraX(state, viewportWidth) {
 	return clamp(target, 0, maxX);
 }
 
+/** @param {GameState} state @param {number} viewportWidth @param {number} viewportHeight @returns {string} */
 function renderViewport(state, viewportWidth, viewportHeight) {
 	const level = state.level;
 	const cameraX = getCameraX(state, viewportWidth);
@@ -182,6 +250,7 @@ function renderViewport(state, viewportWidth, viewportHeight) {
 	return rows.map((row) => row.join("")).join("\n");
 }
 
+/** @param {GameState} state @returns {string} */
 function renderFrame(state) {
 	const level = state.level;
 	const rows = [];
@@ -201,6 +270,10 @@ function renderFrame(state) {
 	return rows.map((row) => row.join("")).join("\n");
 }
 
+/**
+ * @param {GameState} state
+ * @returns {{ tick: number, player: { x: number, y: number, vx: number, vy: number, onGround: boolean, facing: number } }}
+ */
 function snapshotState(state) {
 	return {
 		tick: state.tick,
@@ -215,6 +288,7 @@ function snapshotState(state) {
 	};
 }
 
+/** @param {Level} level @param {number} x @param {number} y @returns {boolean} */
 function isSolidAt(level, x, y) {
 	const tx = Math.floor(x);
 	const ty = Math.floor(y);
@@ -222,6 +296,7 @@ function isSolidAt(level, x, y) {
 	return SOLID_TILES.has(level.tiles[ty][tx]);
 }
 
+/** @param {number} value @returns {number} */
 function round(value) {
 	return Math.round(value * 1000) / 1000;
 }

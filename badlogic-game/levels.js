@@ -1,24 +1,29 @@
+// @ts-check
 "use strict";
 
 const LEVEL_1_WIDTH = 160;
 const LEVEL_1_HEIGHT = 15;
 
+/** @param {number} width @param {number} height @param {string} fill @returns {string[][]} */
 function makeGrid(width, height, fill) {
 	return Array.from({ length: height }, () => Array(width).fill(fill));
 }
 
+/** @param {string[][]} grid @param {number} x @param {number} y @param {string} tile */
 function setTile(grid, x, y, tile) {
 	if (y < 0 || y >= grid.length) return;
 	if (x < 0 || x >= grid[0].length) return;
 	grid[y][x] = tile;
 }
 
+/** @param {string[][]} grid @param {number} y @param {number} x0 @param {number} x1 @param {string} tile */
 function fillRow(grid, y, x0, x1, tile) {
 	for (let x = x0; x <= x1; x += 1) {
 		setTile(grid, x, y, tile);
 	}
 }
 
+/** @returns {string[]} */
 function buildLevel1() {
 	const grid = makeGrid(LEVEL_1_WIDTH, LEVEL_1_HEIGHT, " ");
 
