@@ -21,6 +21,9 @@ const SCORE_VALUES = {
 	coin: 100,
 	stomp: 50,
 	mushroom: 1000,
+	flagMin: 100,
+	flagMax: 5000,
+	timeBonus: 10,  // per second remaining
 };
 
 const PLAYER_W = 1;

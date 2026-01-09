@@ -432,7 +432,7 @@ test("question block spawns mushroom and becomes used", () => {
 	assert.equal(state.level.tiles[1][1], "U");
 });
 
-test("second question block awards coin", () => {
+test("second question block spawns mushroom", () => {
 	const level = makeLevel([
 		"    ",
 		" ? ?",
@@ -448,11 +448,12 @@ test("second question block awards coin", () => {
 	state.player.vy = -1;
 	state.player.onGround = false;
 	stepGame(state, {});
+	assert.equal(state.items.length, 1);
 	state.player.x = 3;
 	state.player.vy = -1;
 	state.player.onGround = false;
 	stepGame(state, {});
-	assert.equal(state.coins, 1);
+	assert.equal(state.items.length, 2);
 	assert.equal(state.level.tiles[1][1], "U");
 	assert.equal(state.level.tiles[1][3], "U");
 });
@@ -653,7 +654,7 @@ test("enemy falls into pit and despawns", () => {
 	assert.equal(enemy.alive, false);
 });
 
-test("goal tile pauses the game", () => {
+test("goal tile clears level with score bonus", () => {
 	const level = makeLevel([
 		"    ",
 		"    ",
@@ -667,9 +668,11 @@ test("goal tile pauses the game", () => {
 		config: { dt: 1, gravity: 0, walkSpeed: 1, runSpeed: 1, groundAccel: 1 },
 	});
 	state.player.onGround = true;
+	const scoreBefore = state.score;
 	stepGame(state, { right: true });
 	assert.equal(state.mode, GAME_MODES.levelClear);
-	assert.equal(state.cue?.text, "LEVEL CLEAR");
+	assert.ok(state.cue?.text.startsWith("+"), "cue should show score bonus");
+	assert.ok(state.score > scoreBefore, "score should increase");
 });
 
 test("save and load restores progress", () => {

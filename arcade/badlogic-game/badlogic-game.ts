@@ -15,7 +15,7 @@ const {
 	setPaused,
 	makeLevel,
 } = require("./engine.js") as typeof import("./engine.js");
-const { LEVEL_1_LINES } = require("./levels.js") as typeof import("./levels.js");
+const { ALL_LEVELS } = require("./levels.js") as typeof import("./levels.js");
 
 const TICK_MS = 25;
 const VIEWPORT_W = 40;
@@ -35,13 +35,15 @@ class BadlogicGameComponent {
 	private runHeld = true;
 	private jumpQueued = false;
 	private autosaveTimer = 0;
+	private levelClearTimer = 0;
+	private readonly config: any;
 
 	constructor(tui: any, onClose: () => void, onSave: (state: any) => void, saved?: any) {
 		this.tui = tui;
 		this.onClose = onClose;
 		this.onSave = onSave;
 
-		const config = {
+		this.config = {
 			dt: TICK_MS / 1000,
 			viewportWidth: VIEWPORT_W,
 			walkSpeed: 5.2,
@@ -53,8 +55,8 @@ class BadlogicGameComponent {
 			maxFall: 15,
 			jumpVel: 15,
 		};
-		const restored = saved ? loadState(saved, { config }) : null;
-		this.state = restored || createGame({ level: makeLevel(LEVEL_1_LINES), startX: 1, startY: 13, config, levelIndex: 1 });
+		const restored = saved ? loadState(saved, { config: this.config }) : null;
+		this.state = restored || createGame({ level: makeLevel(ALL_LEVELS[0]), startX: 1, startY: 13, config: this.config, levelIndex: 1 });
 
 		this.interval = setInterval(() => this.tick(), TICK_MS);
 	}
@@ -77,14 +79,62 @@ class BadlogicGameComponent {
 			}
 		}
 
+		// Handle level transition
+		if (this.state.mode === "level_clear") {
+			this.levelClearTimer += TICK_MS / 1000;
+			if (this.levelClearTimer >= 2) {
+				const nextLevel = this.state.levelIndex + 1;
+				if (nextLevel <= ALL_LEVELS.length) {
+					this.goToLevel(nextLevel, true);
+				} else {
+					this.state.mode = "victory";
+				}
+			}
+		}
+
 		this.version += 1;
 		this.tui.requestRender();
+	}
+
+	private goToLevel(levelNum: number, keepProgress = false): void {
+		if (levelNum < 1 || levelNum > ALL_LEVELS.length) return;
+		const prev = this.state;
+		this.state = createGame({
+			level: makeLevel(ALL_LEVELS[levelNum - 1]),
+			startX: 1,
+			startY: 13,
+			config: this.config,
+			levelIndex: levelNum,
+		});
+		if (keepProgress) {
+			this.state.score = prev.score;
+			this.state.coins = prev.coins;
+			this.state.lives = prev.lives;
+			this.state.player.size = prev.player.size;
+		}
+		this.levelClearTimer = 0;
+		this.version += 1;
+		this.tui.requestRender();
+	}
+
+	private restart(): void {
+		this.goToLevel(this.state.levelIndex);
 	}
 
 	handleInput(key: string): boolean {
 		if (matchesKey(key, "escape") || key === "q" || key === "Q") {
 			this.onSave(saveState(this.state));
 			this.onClose();
+			return true;
+		}
+		// Number keys 1-9 for level select
+		const num = parseInt(key, 10);
+		if (num >= 1 && num <= 9) {
+			this.goToLevel(num);
+			return true;
+		}
+		if (key === "r" || key === "R") {
+			this.restart();
 			return true;
 		}
 		if (key === "p" || key === "P") {
@@ -145,8 +195,9 @@ class BadlogicGameComponent {
 		lines.push(...renderHud(this.state, minWidth).split("\n").map(pad));
 		lines.push(...renderViewport(this.state, VIEWPORT_W, VIEWPORT_H).split("\n").map(pad));
 		lines.push("");
-		lines.push(pad("[Left/Right/AD/L] Move  [Up/Space/H] Jump  [X] Walk  [P] Pause  [S] Stop  [Q] Quit"));
+		lines.push(pad("[Arrows/AD] Move  [Space/H] Jump  [P] Pause  [R] Restart  [1-3] Level  [Q] Quit"));
 		if (this.state.mode === "game_over") lines.push(pad("GAME OVER - [Q] Quit"));
+		if (this.state.mode === "victory") lines.push(pad("YOU WIN! Final Score: " + this.state.score + " - [Q] Quit"));
 
 		this.cache = { lines, width, version: this.version };
 		return lines;

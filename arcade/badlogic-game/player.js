@@ -121,12 +121,7 @@ function handleHeadBump(state, tileX, tileY) {
 	const tile = getTile(state.level, tileX, tileY);
 	if (tile === "?") {
 		setTile(state.level, tileX, tileY, "U");
-		if (!state.mushroomSpawned) {
-			spawnMushroom(state, tileX, tileY);
-			state.mushroomSpawned = true;
-		} else {
-			awardCoin(state);
-		}
+		spawnMushroom(state, tileX, tileY);
 	}
 }
 
@@ -173,18 +168,41 @@ function checkGoal(state, height) {
 	const leftX = player.x + 0.001;
 	const rightX = player.x + PLAYER_W - 0.001;
 	const topY = player.y - (height - 1);
-	const goal = "G";
-	if (
-		getTile(state.level, leftX, player.y) === goal ||
-		getTile(state.level, rightX, player.y) === goal ||
-		getTile(state.level, leftX, topY) === goal ||
-		getTile(state.level, rightX, topY) === goal
-	) {
-		player.vx = 0;
-		player.vy = 0;
-		setCue(state, "LEVEL CLEAR", 0, true);
-		state.mode = GAME_MODES.levelClear;
-	}
+	/** @param {string} tile */
+	const isGoal = (tile) => tile === "G" || tile === "F";
+
+	// Find which position touched the goal
+	let touchX = -1;
+	let touchY = -1;
+	if (isGoal(getTile(state.level, leftX, player.y))) { touchX = Math.floor(leftX); touchY = Math.floor(player.y); }
+	else if (isGoal(getTile(state.level, rightX, player.y))) { touchX = Math.floor(rightX); touchY = Math.floor(player.y); }
+	else if (isGoal(getTile(state.level, leftX, topY))) { touchX = Math.floor(leftX); touchY = Math.floor(topY); }
+	else if (isGoal(getTile(state.level, rightX, topY))) { touchX = Math.floor(rightX); touchY = Math.floor(topY); }
+
+	if (touchX < 0) return;
+
+	// Find top and bottom of flagpole
+	let poleTop = touchY;
+	let poleBottom = touchY;
+	while (poleTop > 0 && isGoal(getTile(state.level, touchX, poleTop - 1))) poleTop--;
+	while (poleBottom < state.level.height - 1 && isGoal(getTile(state.level, touchX, poleBottom + 1))) poleBottom++;
+
+	// Calculate flagpole score: higher = more points (100-5000)
+	const poleHeight = poleBottom - poleTop + 1;
+	const touchHeight = poleBottom - touchY; // 0 at bottom, poleHeight-1 at top
+	const heightRatio = poleHeight > 1 ? touchHeight / (poleHeight - 1) : 1;
+	const flagScore = Math.floor(100 + heightRatio * 4900);
+
+	// Time bonus: 10 points per second remaining
+	const timeBonus = Math.floor(state.time) * 10;
+
+	const totalBonus = flagScore + timeBonus;
+	state.score += totalBonus;
+
+	player.vx = 0;
+	player.vy = 0;
+	setCue(state, `+${totalBonus}`, 0, true);
+	state.mode = GAME_MODES.levelClear;
 }
 
 /** @param {GameState} state @returns {boolean} */
