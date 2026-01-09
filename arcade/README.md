@@ -6,7 +6,7 @@
 - **picman** (`/picman`)
 - **ping** (`/ping`) - in a similar vein to [patriceckhart's](https://github.com/patriceckhart/pi-ng-pong)
 - **tetris** (`/tetris`)
-- **badlogic-game** (`/badlogic-game`) - Mario-style platformer
+- **badlogic-game** (`/badlogic-game`) - Mario-style platformer (experimental)
 
 <table>
   <tr>
@@ -24,13 +24,14 @@
 ```bash
 # All games
 ln -s ~/pi-extensions/arcade/*.ts ~/.pi/agent/extensions/
+ln -s ~/pi-extensions/arcade/badlogic-game/badlogic-game.ts ~/.pi/agent/extensions/
 
 # Or individual games
 ln -s ~/pi-extensions/arcade/spice-invaders.ts ~/.pi/agent/extensions/
 ln -s ~/pi-extensions/arcade/picman.ts ~/.pi/agent/extensions/
 ln -s ~/pi-extensions/arcade/ping.ts ~/.pi/agent/extensions/
 ln -s ~/pi-extensions/arcade/tetris.ts ~/.pi/agent/extensions/
-ln -s ~/pi-extensions/arcade/badlogic-game.ts ~/.pi/agent/extensions/
+ln -s ~/pi-extensions/arcade/badlogic-game/badlogic-game.ts ~/.pi/agent/extensions/
 ```
 
 Or add to `~/.pi/agent/settings.json`:
@@ -42,11 +43,8 @@ Or add to `~/.pi/agent/settings.json`:
     "~/pi-extensions/arcade/picman.ts",
     "~/pi-extensions/arcade/ping.ts",
     "~/pi-extensions/arcade/tetris.ts",
-    "~/pi-extensions/arcade/badlogic-game.ts"
+    "~/pi-extensions/arcade/badlogic-game/badlogic-game.ts"
   ]
 }
 ```
 
-## WIP / Coming Soon
-
-- ASCII doom (`wip/doom-ascii.ts`)

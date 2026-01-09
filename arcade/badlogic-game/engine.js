@@ -2,7 +2,7 @@
 "use strict";
 
 const { createRng, makeLevel } = require("./core.js");
-const { DEFAULT_CONFIG, START_LIVES, START_TIME } = require("./constants.js");
+const { DEFAULT_CONFIG, START_LIVES, START_TIME, GAME_MODES } = require("./constants.js");
 const { renderFrame, renderViewport, renderHud } = require("./render.js");
 const { getCameraX, updateCamera } = require("./camera.js");
 const { stepGame, setPaused } = require("./logic.js");
@@ -70,10 +70,14 @@ function createGame(options) {
 		time: START_TIME,
 		levelIndex: typeof opts.levelIndex === "number" ? opts.levelIndex : 1,
 		mushroomSpawned: false,
-		paused: false,
+		mode: GAME_MODES.playing,
 		cameraX: 0,
 		particles: [],
 		cue: null,
+		spawnX: startX,
+		spawnY: startY,
+		deathTimer: 0,
+		deathJumped: false,
 		player: {
 			x: startX,
 			y: startY,
@@ -81,7 +85,6 @@ function createGame(options) {
 			vy: 0,
 			facing: 1,
 			onGround: false,
-			dead: false,
 			size: /** @type {"small" | "big"} */ ("small"),
 			invuln: 0,
 		},

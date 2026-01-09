@@ -38,8 +38,11 @@ function buildLevel1() {
 	setTile(grid, 21, 13, "B");
 	setTile(grid, 22, 12, "B");
 
-	// Segment 2: 1-tile gap, single goomba, question block.
+	// Segment 2: 4-tile gap, single goomba, question block.
 	setTile(grid, 50, 14, " ");
+	setTile(grid, 51, 14, " ");
+	setTile(grid, 52, 14, " ");
+	setTile(grid, 53, 14, " ");
 	setTile(grid, 60, 13, "E");
 	setTile(grid, 70, 11, "?");
 

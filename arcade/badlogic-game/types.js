@@ -32,7 +32,6 @@
  * @property {number} vy
  * @property {number} facing
  * @property {boolean} onGround
- * @property {boolean} dead
  * @property {"small" | "big"} size
  * @property {number} invuln
  */
@@ -91,7 +90,11 @@
  * @property {number} time
  * @property {number} levelIndex
  * @property {boolean} mushroomSpawned
- * @property {boolean} paused
+ * @property {"playing" | "paused" | "dead" | "level_clear" | "game_over"} mode
+ * @property {number} spawnX
+ * @property {number} spawnY
+ * @property {number} deathTimer
+ * @property {boolean} deathJumped
  */
 
 /**
@@ -116,7 +119,7 @@
  * @typedef {Object} SaveState
  * @property {number} version
  * @property {{ lines: string[] }} level
- * @property {{ x: number, y: number, vx: number, vy: number, facing: number, size: "small" | "big", invuln: number, dead: boolean }} player
+ * @property {{ x: number, y: number, vx: number, vy: number, facing: number, size: "small" | "big", invuln: number, dead?: boolean }} player
  * @property {{ x: number, y: number, vx: number, vy: number, alive: boolean }[]} enemies
  * @property {{ x: number, y: number, vx: number, vy: number, alive: boolean }[]} items
  * @property {number} score
@@ -125,6 +128,11 @@
  * @property {number} time
  * @property {number} levelIndex
  * @property {boolean} mushroomSpawned
+ * @property {number} [spawnX]
+ * @property {number} [spawnY]
+ * @property {"playing" | "paused" | "dead" | "level_clear" | "game_over"} [mode]
+ * @property {boolean} [paused]
+ * @property {boolean} [gameOver]
  */
 
 module.exports = {};

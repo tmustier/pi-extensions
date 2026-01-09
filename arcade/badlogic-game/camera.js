@@ -41,12 +41,13 @@ function updateCamera(state) {
 	const width = state.config.viewportWidth;
 	const maxX = Math.max(0, state.level.width - width);
 	let cameraX = state.cameraX || 0;
-	const minX = cameraX + width * 0.3;
-	const maxXZone = cameraX + width * 0.7;
+	const lead = Math.floor(width * 0.25);
+	const minX = cameraX + lead;
+	const maxXZone = cameraX + lead;
 	if (state.player.x < minX) {
-		cameraX = clamp(state.player.x - width * 0.3, 0, maxX);
+		cameraX = clamp(state.player.x - lead, 0, maxX);
 	} else if (state.player.x > maxXZone) {
-		cameraX = clamp(state.player.x - width * 0.7, 0, maxX);
+		cameraX = clamp(state.player.x - lead, 0, maxX);
 	}
 	state.cameraX = cameraX;
 	return cameraX;

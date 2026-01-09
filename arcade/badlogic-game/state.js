@@ -2,7 +2,7 @@
 "use strict";
 
 const { createRng, makeLevel } = require("./core.js");
-const { DEFAULT_CONFIG, START_LIVES, START_TIME } = require("./constants.js");
+const { DEFAULT_CONFIG, START_LIVES, START_TIME, GAME_MODES } = require("./constants.js");
 const { isSolidAt } = require("./tiles.js");
 
 /** @typedef {import("./types").GameState} GameState */
@@ -23,7 +23,6 @@ function saveState(state) {
 			facing: state.player.facing,
 			size: state.player.size,
 			invuln: round(state.player.invuln),
-			dead: state.player.dead,
 		},
 		enemies: state.enemies.map((enemy) => ({
 			x: round(enemy.x),
@@ -45,6 +44,9 @@ function saveState(state) {
 		time: round(state.time),
 		levelIndex: state.levelIndex,
 		mushroomSpawned: state.mushroomSpawned,
+		spawnX: round(state.spawnX),
+		spawnY: round(state.spawnY),
+		mode: state.mode,
 	};
 }
 
@@ -59,6 +61,9 @@ function loadState(save, options) {
 	}
 	const config = { ...DEFAULT_CONFIG, ...(options && options.config ? options.config : {}) };
 	const level = makeLevel(save.level.lines);
+	const spawnX = typeof save.spawnX === "number" ? save.spawnX : save.player.x;
+	const spawnY = typeof save.spawnY === "number" ? save.spawnY : save.player.y;
+	const mode = normalizeMode(save);
 	/** @type {GameState} */
 	const state = {
 		level,
@@ -71,10 +76,14 @@ function loadState(save, options) {
 		time: typeof save.time === "number" ? save.time : START_TIME,
 		levelIndex: save.levelIndex || 1,
 		mushroomSpawned: !!save.mushroomSpawned,
-		paused: false,
+		mode,
 		cameraX: 0,
 		particles: [],
 		cue: null,
+		spawnX,
+		spawnY,
+		deathTimer: 0,
+		deathJumped: false,
 		player: {
 			x: save.player.x,
 			y: save.player.y,
@@ -82,7 +91,6 @@ function loadState(save, options) {
 			vy: save.player.vy,
 			facing: save.player.facing,
 			onGround: false,
-			dead: save.player.dead,
 			size: save.player.size,
 			invuln: save.player.invuln,
 		},
@@ -104,6 +112,13 @@ function loadState(save, options) {
 		})),
 	};
 	state.player.onGround = isSolidAt(level, state.player.x, state.player.y + 1);
+	if (state.mode === GAME_MODES.gameOver) {
+		state.cue = { text: "GAME OVER", ttl: 0, persist: true };
+	} else if (state.mode === GAME_MODES.paused) {
+		state.cue = { text: "PAUSED", ttl: 0, persist: true };
+	} else if (state.mode === GAME_MODES.levelClear) {
+		state.cue = { text: "LEVEL CLEAR", ttl: 0, persist: true };
+	}
 	for (const enemy of state.enemies) {
 		enemy.onGround = isSolidAt(level, enemy.x, enemy.y + 1);
 	}
@@ -115,7 +130,7 @@ function loadState(save, options) {
 
 /**
  * @param {GameState} state
- * @returns {{ tick: number, score: number, coins: number, lives: number, time: number, levelIndex: number, mushroomSpawned: boolean, paused: boolean, player: { x: number, y: number, vx: number, vy: number, onGround: boolean, facing: number, dead: boolean, size: "small" | "big", invuln: number }, enemies: { x: number, y: number, vx: number, vy: number, alive: boolean }[], items: { x: number, y: number, vx: number, vy: number, alive: boolean, onGround: boolean }[] }}
+ * @returns {{ tick: number, score: number, coins: number, lives: number, time: number, levelIndex: number, mushroomSpawned: boolean, mode: "playing" | "paused" | "dead" | "level_clear" | "game_over", player: { x: number, y: number, vx: number, vy: number, onGround: boolean, facing: number, size: "small" | "big", invuln: number }, enemies: { x: number, y: number, vx: number, vy: number, alive: boolean }[], items: { x: number, y: number, vx: number, vy: number, alive: boolean, onGround: boolean }[] }}
  */
 function snapshotState(state) {
 	return {
@@ -126,7 +141,7 @@ function snapshotState(state) {
 		time: round(state.time),
 		levelIndex: state.levelIndex,
 		mushroomSpawned: state.mushroomSpawned,
-		paused: state.paused,
+		mode: state.mode,
 		player: {
 			x: round(state.player.x),
 			y: round(state.player.y),
@@ -134,7 +149,6 @@ function snapshotState(state) {
 			vy: round(state.player.vy),
 			onGround: state.player.onGround,
 			facing: state.player.facing,
-			dead: state.player.dead,
 			size: state.player.size,
 			invuln: round(state.player.invuln),
 		},
@@ -154,6 +168,18 @@ function snapshotState(state) {
 			onGround: item.onGround,
 		})),
 	};
+}
+
+/** @param {SaveState} save @returns {"playing" | "paused" | "dead" | "level_clear" | "game_over"} */
+function normalizeMode(save) {
+	const mode = save.mode;
+	if (mode === GAME_MODES.playing || mode === GAME_MODES.paused || mode === GAME_MODES.dead || mode === GAME_MODES.levelClear || mode === GAME_MODES.gameOver) {
+		return mode;
+	}
+	if (save.gameOver) return GAME_MODES.gameOver;
+	if (save.paused) return GAME_MODES.paused;
+	if (save.player && save.player.dead) return GAME_MODES.dead;
+	return GAME_MODES.playing;
 }
 
 /** @param {number} value @returns {number} */

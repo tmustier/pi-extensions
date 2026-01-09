@@ -15,7 +15,11 @@ const { getCameraX } = require("./camera.js");
  * @typedef {Object} PlayerState
  * @property {number} x
  * @property {number} y
+ * @property {number} vx
+ * @property {number} facing
+ * @property {boolean} onGround
  * @property {"small" | "big"} [size]
+ * @property {number} [invuln]
  */
 
 /**
@@ -35,6 +39,7 @@ const { getCameraX } = require("./camera.js");
  * @property {{ text: string, ttl: number, persist: boolean } | null} cue
  * @property {{ viewportWidth: number }} config
  * @property {number} cameraX
+ * @property {number} tick
  * @property {number} score
  * @property {number} coins
  * @property {number} lives
@@ -50,9 +55,70 @@ const { getCameraX } = require("./camera.js");
  * @property {boolean} alive
  */
 
-const ENEMY_GLYPH = "GG";
-const ITEM_GLYPH = "MM";
-const PARTICLE_GLYPH = "..";
+// Animation frames for entities
+const PLAYER_FRAMES_SMALL = ["<>", "><"];
+const PLAYER_FRAMES_BIG_HEAD = ["<>", "><"];
+const PLAYER_FRAMES_BIG_BODY = ["[]"];
+const PLAYER_IDLE_SMALL = "<>";
+const PLAYER_IDLE_BIG_HEAD = "<>";
+const PLAYER_IDLE_BIG_BODY = "[]";
+const PLAYER_JUMP_SMALL = "^^";
+const PLAYER_JUMP_BIG_HEAD = "^^";
+const PLAYER_JUMP_BIG_BODY = "[]";
+
+const ENEMY_FRAMES = ["@@", "oo", "@@", "OO"];  // wiggling eyes
+const ITEM_GLYPH = "%}";  // mushroom: stem + cap
+const PARTICLE_GLYPH = "**";
+
+/** @param {GameState} state @returns {string} */
+function getPlayerGlyph(state) {
+	const player = state.player;
+	const tick = state.tick || 0;
+	const isMoving = Math.abs(player.vx) > 0.1;
+	const inAir = !player.onGround;
+	
+	// Blink when invulnerable
+	if (player.invuln && player.invuln > 0 && Math.floor(tick / 4) % 2 === 0) {
+		return "  ";  // invisible during blink
+	}
+	
+	if (player.size === "big") {
+		if (inAir) return PLAYER_JUMP_BIG_BODY;
+		if (!isMoving) return PLAYER_IDLE_BIG_BODY;
+		const frame = Math.floor(tick / 6) % PLAYER_FRAMES_BIG_BODY.length;
+		return PLAYER_FRAMES_BIG_BODY[frame];
+	} else {
+		if (inAir) return PLAYER_JUMP_SMALL;
+		if (!isMoving) return PLAYER_IDLE_SMALL;
+		const frame = Math.floor(tick / 6) % PLAYER_FRAMES_SMALL.length;
+		return PLAYER_FRAMES_SMALL[frame];
+	}
+}
+
+/** @param {GameState} state @returns {string} */
+function getPlayerHeadGlyph(state) {
+	const player = state.player;
+	const tick = state.tick || 0;
+	const isMoving = Math.abs(player.vx) > 0.1;
+	const inAir = !player.onGround;
+	
+	// Blink when invulnerable
+	if (player.invuln && player.invuln > 0 && Math.floor(tick / 4) % 2 === 0) {
+		return "  ";
+	}
+	
+	if (inAir) return PLAYER_JUMP_BIG_HEAD;
+	if (!isMoving) return PLAYER_IDLE_BIG_HEAD;
+	const frame = Math.floor(tick / 6) % PLAYER_FRAMES_BIG_HEAD.length;
+	return PLAYER_FRAMES_BIG_HEAD[frame];
+}
+
+/** @param {EnemyState} enemy @param {number} tick @returns {string} */
+function getEnemyGlyph(enemy, tick) {
+	// Animate based on position + tick for variety
+	const phase = Math.floor(enemy.x * 3 + tick / 8) % ENEMY_FRAMES.length;
+	return ENEMY_FRAMES[phase];
+}
 
 /** @param {GameState} state @param {number} viewportWidth @param {number} viewportHeight @returns {string} */
 function renderViewport(state, viewportWidth, viewportHeight) {
@@ -71,16 +137,16 @@ function renderViewport(state, viewportWidth, viewportHeight) {
 		}
 		rows.push(row);
 	}
-	renderEnemies(rows, state.enemies, cameraX);
+	renderEnemies(rows, state.enemies, cameraX, state.tick);
 	renderItems(rows, state.items, cameraX);
 	renderParticles(rows, state.particles, cameraX);
 	const px = Math.floor(state.player.x - cameraX);
 	const py = Math.floor(state.player.y);
-	const playerGlyph = state.player.size === "big" ? "[]" : "<>";
+	const playerGlyph = getPlayerGlyph(state);
 	if (py >= 0 && py < viewportHeight && px >= 0 && px < viewportWidth) {
 		rows[py][px] = playerGlyph;
 		if (state.player.size === "big" && py - 1 >= 0) {
-			rows[py - 1][px] = "<>";
+			rows[py - 1][px] = getPlayerHeadGlyph(state);
 		}
 	}
 	const rowStrings = rows.map((row) => row.join(""));
@@ -99,16 +165,16 @@ function renderFrame(state) {
 		}
 		rows.push(row);
 	}
-	renderEnemies(rows, state.enemies, 0);
+	renderEnemies(rows, state.enemies, 0, state.tick);
 	renderItems(rows, state.items, 0);
 	renderParticles(rows, state.particles, 0);
 	const px = Math.floor(state.player.x);
 	const py = Math.floor(state.player.y);
-	const playerGlyph = state.player.size === "big" ? "[]" : "<>";
+	const playerGlyph = getPlayerGlyph(state);
 	if (py >= 0 && py < level.height && px >= 0 && px < level.width) {
 		rows[py][px] = playerGlyph;
 		if (state.player.size === "big" && py - 1 >= 0) {
-			rows[py - 1][px] = "<>";
+			rows[py - 1][px] = getPlayerHeadGlyph(state);
 		}
 	}
 	const rowStrings = rows.map((row) => row.join(""));
@@ -127,16 +193,17 @@ function renderHud(state, width) {
 	return `${line1}\n${line2}`;
 }
 
-/** @param {string[][]} rows @param {EnemyState[]} enemies @param {number} offsetX */
-function renderEnemies(rows, enemies, offsetX) {
+/** @param {string[][]} rows @param {EnemyState[]} enemies @param {number} offsetX @param {number} [tick] */
+function renderEnemies(rows, enemies, offsetX, tick) {
 	const height = rows.length;
 	const width = rows[0] ? rows[0].length : 0;
+	const t = tick || 0;
 	for (const enemy of enemies) {
 		if (!enemy.alive) continue;
 		const ex = Math.floor(enemy.x - offsetX);
 		const ey = Math.floor(enemy.y);
 		if (ey >= 0 && ey < height && ex >= 0 && ex < width) {
-			rows[ey][ex] = ENEMY_GLYPH;
+			rows[ey][ex] = getEnemyGlyph(enemy, t);
 		}
 	}
 }
@@ -192,9 +259,12 @@ function padNum(value, length) {
 }
 
 module.exports = {
-	ENEMY_GLYPH,
+	ENEMY_FRAMES,
 	ITEM_GLYPH,
 	PARTICLE_GLYPH,
+	getEnemyGlyph,
+	getPlayerGlyph,
+	getPlayerHeadGlyph,
 	getCameraX,
 	renderFrame,
 	renderViewport,

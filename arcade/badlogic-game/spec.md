@@ -188,7 +188,7 @@
       - Implementation details:
         - Length target: 3–4 screen widths.
         - Segment 1 (0–1 screen): flat ground, 3-coin line, low brick step.
-        - Segment 2 (1–2 screens): 1-tile gap, single goomba, question block with coin.
+        - Segment 2 (1–2 screens): 4-tile gap, single goomba, question block with coin.
         - Segment 3 (2–3 screens): pipe (2 tiles wide), 2 goombas spaced, brick stack.
         - Segment 4 (3–4 screens): 2-tile gap (requires run), staircase to flag.
         - Midpoint checkpoint: after pipe in Segment 3.
@@ -320,7 +320,7 @@
         - Keep the player visible with minimal camera jitter.
         - Allow small backtracking but prevent large reverse scrolling.
       - Implementation details:
-        - Camera follows player with soft dead-zone: keep player between 30–70% of viewport width.
+        - Camera follows player earlier: keep player near 25% of viewport width.
         - Only scroll forward by default; allow 10–15% backtracking within current screen.
         - Vertical camera locked (no vertical scrolling) to simplify rendering.
         - Camera clamps to level bounds; never shows beyond level edges.

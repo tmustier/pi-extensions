@@ -14,10 +14,10 @@ const {
 	loadState,
 	setPaused,
 	makeLevel,
-} = require("../badlogic-game/engine.js") as typeof import("../badlogic-game/engine.js");
-const { LEVEL_1_LINES } = require("../badlogic-game/levels.js") as typeof import("../badlogic-game/levels.js");
+} = require("./engine.js") as typeof import("./engine.js");
+const { LEVEL_1_LINES } = require("./levels.js") as typeof import("./levels.js");
 
-const TICK_MS = 50;
+const TICK_MS = 25;
 const VIEWPORT_W = 40;
 const VIEWPORT_H = 15;
 const HUD_LINES = 2;
@@ -32,7 +32,7 @@ class BadlogicGameComponent {
 	private version = 0;
 	private cache = { lines: [] as string[], width: 0, version: -1 };
 	private moveDir = 0;
-	private runHeld = false;
+	private runHeld = true;
 	private jumpQueued = false;
 	private autosaveTimer = 0;
 
@@ -41,7 +41,18 @@ class BadlogicGameComponent {
 		this.onClose = onClose;
 		this.onSave = onSave;
 
-		const config = { dt: TICK_MS / 1000, viewportWidth: VIEWPORT_W };
+		const config = {
+			dt: TICK_MS / 1000,
+			viewportWidth: VIEWPORT_W,
+			walkSpeed: 5.2,
+			runSpeed: 9.0,
+			groundAccel: 70,
+			groundDecel: 56,
+			airAccel: 48,
+			gravity: 35,
+			maxFall: 15,
+			jumpVel: 15,
+		};
 		const restored = saved ? loadState(saved, { config }) : null;
 		this.state = restored || createGame({ level: makeLevel(LEVEL_1_LINES), startX: 1, startY: 13, config, levelIndex: 1 });
 
@@ -58,7 +69,7 @@ class BadlogicGameComponent {
 
 		stepGame(this.state, input);
 
-		if (!this.state.player.dead && !this.state.paused) {
+		if (this.state.mode === "playing") {
 			this.autosaveTimer += TICK_MS / 1000;
 			if (this.autosaveTimer >= 5) {
 				this.onSave(saveState(this.state));
@@ -77,8 +88,9 @@ class BadlogicGameComponent {
 			return true;
 		}
 		if (key === "p" || key === "P") {
-			setPaused(this.state, !this.state.paused);
-			if (this.state.paused) this.onSave(saveState(this.state));
+			const paused = this.state.mode === "paused";
+			setPaused(this.state, !paused);
+			if (this.state.mode === "paused") this.onSave(saveState(this.state));
 			this.version += 1;
 			this.tui.requestRender();
 			return true;
@@ -87,11 +99,11 @@ class BadlogicGameComponent {
 			this.runHeld = !this.runHeld;
 			return true;
 		}
-		if (key === " " || key === "z" || key === "Z") {
+		if (matchesKey(key, "up") || key === " " || key === "z" || key === "Z" || key === "h" || key === "H") {
 			this.jumpQueued = true;
 			return true;
 		}
-		if (matchesKey(key, "left") || key === "a" || key === "h" || key === "A" || key === "H") {
+		if (matchesKey(key, "left") || key === "a" || key === "A") {
 			this.moveDir = -1;
 			return true;
 		}
@@ -133,8 +145,8 @@ class BadlogicGameComponent {
 		lines.push(...renderHud(this.state, minWidth).split("\n").map(pad));
 		lines.push(...renderViewport(this.state, VIEWPORT_W, VIEWPORT_H).split("\n").map(pad));
 		lines.push("");
-		lines.push(pad("[Arrows/HJKL] Move  [Space] Jump  [X] Run  [P] Pause  [S] Stop  [Q] Quit"));
-		if (this.state.player.dead) lines.push(pad("GAME OVER - [Q] Quit"));
+		lines.push(pad("[Left/Right/AD/L] Move  [Up/Space/H] Jump  [X] Walk  [P] Pause  [S] Stop  [Q] Quit"));
+		if (this.state.mode === "game_over") lines.push(pad("GAME OVER - [Q] Quit"));
 
 		this.cache = { lines, width, version: this.version };
 		return lines;

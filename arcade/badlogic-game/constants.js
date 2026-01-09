@@ -34,6 +34,17 @@ const ITEM_SPEED = 1.2;
 const INVULN_TIME = 1.2;
 const START_LIVES = 3;
 const START_TIME = 300;
+const DEATH_WAIT = 1.2;
+const DEATH_JUMP_VEL = 8;
+
+/** @type {{ playing: "playing", paused: "paused", dead: "dead", levelClear: "level_clear", gameOver: "game_over" }} */
+const GAME_MODES = {
+	playing: "playing",
+	paused: "paused",
+	dead: "dead",
+	levelClear: "level_clear",
+	gameOver: "game_over",
+};
 
 module.exports = {
 	DEFAULT_CONFIG,
@@ -49,4 +60,7 @@ module.exports = {
 	INVULN_TIME,
 	START_LIVES,
 	START_TIME,
+	DEATH_WAIT,
+	DEATH_JUMP_VEL,
+	GAME_MODES,
 };

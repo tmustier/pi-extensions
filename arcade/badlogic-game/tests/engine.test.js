@@ -16,6 +16,7 @@ const {
 } = require("../engine.js");
 const { getTile, isHazardAt, isSolidAt, tileGlyph } = require("../tiles.js");
 const { LEVEL_1_LINES, LEVEL_1_WIDTH, LEVEL_1_HEIGHT } = require("../levels.js");
+const { GAME_MODES } = require("../constants.js");
 
 test("rng deterministic", () => {
 	const rngA = createRng(123);
@@ -312,6 +313,7 @@ test("pause freezes time and position", () => {
 	stepGame(state, { right: true });
 	assert.equal(state.player.x, 1);
 	assert.equal(state.time, 300);
+	assert.equal(state.mode, GAME_MODES.paused);
 	assert.equal(state.cue?.text, "PAUSED");
 });
 
@@ -347,6 +349,25 @@ test("brick tiles block movement", () => {
 		startY: 2,
 		config: { dt: 1, gravity: 0, walkSpeed: 1, runSpeed: 1, groundAccel: 1 },
 	});
+	state.player.onGround = true;
+	stepGame(state, { right: true });
+	assert.equal(state.player.x, 1);
+});
+
+test("big player blocks at head height", () => {
+	const level = makeLevel([
+		"    ",
+		"  B ",
+		"    ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 1,
+		startY: 2,
+		config: { dt: 1, gravity: 0, walkSpeed: 1, runSpeed: 1, groundAccel: 1 },
+	});
+	state.player.size = "big";
 	state.player.onGround = true;
 	stepGame(state, { right: true });
 	assert.equal(state.player.x, 1);
@@ -520,7 +541,7 @@ test("side collision kills player", () => {
 	});
 	state.player.onGround = true;
 	stepGame(state, { right: true });
-	assert.equal(state.player.dead, true);
+	assert.equal(state.mode, GAME_MODES.dead);
 });
 
 test("big player shrinks on enemy hit", () => {
@@ -541,7 +562,7 @@ test("big player shrinks on enemy hit", () => {
 	state.player.invuln = 0;
 	stepGame(state, {});
 	assert.equal(state.player.size, "small");
-	assert.equal(state.player.dead, false);
+	assert.equal(state.mode, GAME_MODES.playing);
 });
 
 test("hazard tiles kill player", () => {
@@ -558,7 +579,97 @@ test("hazard tiles kill player", () => {
 		config: { dt: 1, gravity: 0 },
 	});
 	stepGame(state, {});
-	assert.equal(state.player.dead, true);
+	assert.equal(state.mode, GAME_MODES.dead);
+});
+
+test("falling into pit kills player", () => {
+	const level = makeLevel([
+		"     ",
+		"     ",
+		"     ",
+		"#   #",
+	]);
+	const state = createGame({
+		level,
+		startX: 2,
+		startY: 2,
+		config: { dt: 0.1, gravity: 20, maxFall: 20 },
+	});
+	const startLives = state.lives;
+	for (let i = 0; i < 40; i += 1) {
+		stepGame(state, {});
+		if (state.mode === GAME_MODES.dead) break;
+	}
+	assert.equal(state.mode, GAME_MODES.dead);
+	assert.equal(state.lives, startLives - 1);
+});
+
+test("death respawns at spawn with life loss", () => {
+	const level = makeLevel([
+		"    ",
+		"    ",
+		" ^  ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 1,
+		startY: 2,
+		config: { dt: 0.1, gravity: 20, maxFall: 20 },
+	});
+	state.player.onGround = true;
+	const startLives = state.lives;
+	stepGame(state, {});
+	assert.equal(state.mode, GAME_MODES.dead);
+	assert.equal(state.lives, startLives - 1);
+	for (let i = 0; i < 40; i += 1) {
+		stepGame(state, {});
+		if (state.mode !== GAME_MODES.dead) break;
+	}
+	assert.equal(state.mode, GAME_MODES.playing);
+	assert.equal(state.player.x, state.spawnX);
+	assert.equal(state.player.y, state.spawnY);
+});
+
+test("enemy falls into pit and despawns", () => {
+	const level = makeLevel([
+		"     ",
+		"     ",
+		"  E  ",
+		"#   #",
+	]);
+	const state = createGame({
+		level,
+		startX: 1,
+		startY: 2,
+		config: { dt: 0.1, gravity: 20, maxFall: 20, enemySpeed: 0 },
+	});
+	const enemy = state.enemies[0];
+	assert.equal(enemy.alive, true);
+	for (let i = 0; i < 60; i += 1) {
+		stepGame(state, {});
+		if (!enemy.alive) break;
+	}
+	assert.equal(enemy.alive, false);
+});
+
+test("goal tile pauses the game", () => {
+	const level = makeLevel([
+		"    ",
+		"    ",
+		"  G ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 1,
+		startY: 2,
+		config: { dt: 1, gravity: 0, walkSpeed: 1, runSpeed: 1, groundAccel: 1 },
+	});
+	state.player.onGround = true;
+	stepGame(state, { right: true });
+	assert.equal(state.mode, GAME_MODES.levelClear);
+	assert.equal(state.cue?.text, "LEVEL CLEAR");
 });
 
 test("save and load restores progress", () => {
@@ -762,10 +873,10 @@ test("camera dead-zone holds until edge", () => {
 	});
 	state.player.x = 5;
 	updateCamera(state);
-	assert.equal(state.cameraX, 0);
+	assert.equal(state.cameraX, 3);
 	state.player.x = 8;
 	updateCamera(state);
-	assert.equal(state.cameraX, 1);
+	assert.equal(state.cameraX, 6);
 });
 
 test("level1 dimensions match spec", () => {
