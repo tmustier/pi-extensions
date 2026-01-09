@@ -205,3 +205,27 @@ test("e2e: paused cue renders centered", () => {
 		.trimEnd();
 	assert.equal(frame, expected);
 });
+
+test("e2e: particle renders", () => {
+	const level = makeLevel([
+		"    ",
+		"    ",
+		"    ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 3,
+		startY: 2,
+		config: { dt: 1, gravity: 0 },
+	});
+	state.particles.push({ x: 1, y: 1, vx: 0, vy: 0, life: 1 });
+	const frame = renderFrame(state)
+		.split("\n")
+		.map((line) => line.trimEnd())
+		.join("\n");
+	const expected = fs
+		.readFileSync(path.join(__dirname, "fixtures", "story6-particles.txt"), "utf8")
+		.trimEnd();
+	assert.equal(frame, expected);
+});

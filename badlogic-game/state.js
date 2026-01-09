@@ -1,0 +1,168 @@
+// @ts-check
+"use strict";
+
+const { createRng, makeLevel } = require("./core.js");
+const { DEFAULT_CONFIG, START_LIVES, START_TIME } = require("./constants.js");
+const { isSolidAt } = require("./tiles.js");
+
+/** @typedef {import("./types").GameState} GameState */
+/** @typedef {import("./types").SaveState} SaveState */
+
+/** @param {GameState} state @returns {SaveState} */
+function saveState(state) {
+	return {
+		version: 1,
+		level: {
+			lines: state.level.tiles.map((row) => row.join("")),
+		},
+		player: {
+			x: round(state.player.x),
+			y: round(state.player.y),
+			vx: round(state.player.vx),
+			vy: round(state.player.vy),
+			facing: state.player.facing,
+			size: state.player.size,
+			invuln: round(state.player.invuln),
+			dead: state.player.dead,
+		},
+		enemies: state.enemies.map((enemy) => ({
+			x: round(enemy.x),
+			y: round(enemy.y),
+			vx: round(enemy.vx),
+			vy: round(enemy.vy),
+			alive: enemy.alive,
+		})),
+		items: state.items.map((item) => ({
+			x: round(item.x),
+			y: round(item.y),
+			vx: round(item.vx),
+			vy: round(item.vy),
+			alive: item.alive,
+		})),
+		score: state.score,
+		coins: state.coins,
+		lives: state.lives,
+		time: round(state.time),
+		levelIndex: state.levelIndex,
+		mushroomSpawned: state.mushroomSpawned,
+	};
+}
+
+/**
+ * @param {SaveState} save
+ * @param {{ config?: Partial<import("./types").Config> }} [options]
+ * @returns {GameState | null}
+ */
+function loadState(save, options) {
+	if (!save || save.version !== 1 || !save.level || !Array.isArray(save.level.lines)) {
+		return null;
+	}
+	const config = { ...DEFAULT_CONFIG, ...(options && options.config ? options.config : {}) };
+	const level = makeLevel(save.level.lines);
+	/** @type {GameState} */
+	const state = {
+		level,
+		rng: createRng(1),
+		config,
+		tick: 0,
+		score: save.score || 0,
+		coins: save.coins || 0,
+		lives: save.lives || START_LIVES,
+		time: typeof save.time === "number" ? save.time : START_TIME,
+		levelIndex: save.levelIndex || 1,
+		mushroomSpawned: !!save.mushroomSpawned,
+		paused: false,
+		cameraX: 0,
+		particles: [],
+		cue: null,
+		player: {
+			x: save.player.x,
+			y: save.player.y,
+			vx: save.player.vx,
+			vy: save.player.vy,
+			facing: save.player.facing,
+			onGround: false,
+			dead: save.player.dead,
+			size: save.player.size,
+			invuln: save.player.invuln,
+		},
+		enemies: save.enemies.map((enemy) => ({
+			x: enemy.x,
+			y: enemy.y,
+			vx: enemy.vx,
+			vy: enemy.vy,
+			alive: enemy.alive,
+			onGround: false,
+		})),
+		items: save.items.map((item) => ({
+			x: item.x,
+			y: item.y,
+			vx: item.vx,
+			vy: item.vy,
+			alive: item.alive,
+			onGround: false,
+		})),
+	};
+	state.player.onGround = isSolidAt(level, state.player.x, state.player.y + 1);
+	for (const enemy of state.enemies) {
+		enemy.onGround = isSolidAt(level, enemy.x, enemy.y + 1);
+	}
+	for (const item of state.items) {
+		item.onGround = isSolidAt(level, item.x, item.y + 1);
+	}
+	return state;
+}
+
+/**
+ * @param {GameState} state
+ * @returns {{ tick: number, score: number, coins: number, lives: number, time: number, levelIndex: number, mushroomSpawned: boolean, paused: boolean, player: { x: number, y: number, vx: number, vy: number, onGround: boolean, facing: number, dead: boolean, size: "small" | "big", invuln: number }, enemies: { x: number, y: number, vx: number, vy: number, alive: boolean }[], items: { x: number, y: number, vx: number, vy: number, alive: boolean, onGround: boolean }[] }}
+ */
+function snapshotState(state) {
+	return {
+		tick: state.tick,
+		score: state.score,
+		coins: state.coins,
+		lives: state.lives,
+		time: round(state.time),
+		levelIndex: state.levelIndex,
+		mushroomSpawned: state.mushroomSpawned,
+		paused: state.paused,
+		player: {
+			x: round(state.player.x),
+			y: round(state.player.y),
+			vx: round(state.player.vx),
+			vy: round(state.player.vy),
+			onGround: state.player.onGround,
+			facing: state.player.facing,
+			dead: state.player.dead,
+			size: state.player.size,
+			invuln: round(state.player.invuln),
+		},
+		enemies: state.enemies.map((enemy) => ({
+			x: round(enemy.x),
+			y: round(enemy.y),
+			vx: round(enemy.vx),
+			vy: round(enemy.vy),
+			alive: enemy.alive,
+		})),
+		items: state.items.map((item) => ({
+			x: round(item.x),
+			y: round(item.y),
+			vx: round(item.vx),
+			vy: round(item.vy),
+			alive: item.alive,
+			onGround: item.onGround,
+		})),
+	};
+}
+
+/** @param {number} value @returns {number} */
+function round(value) {
+	return Math.round(value * 1000) / 1000;
+}
+
+module.exports = {
+	saveState,
+	loadState,
+	snapshotState,
+};

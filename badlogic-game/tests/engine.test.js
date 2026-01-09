@@ -111,13 +111,14 @@ test("coin pickup updates score and clears tile", () => {
 		level,
 		startX: 1,
 		startY: 2,
-		config: { dt: 1, gravity: 0 },
+		config: { dt: 0.1, gravity: 0 },
 	});
 	state.player.onGround = true;
 	stepGame(state, {});
 	assert.equal(state.coins, 1);
 	assert.equal(state.score, 100);
 	assert.equal(state.level.tiles[2][1], " ");
+	assert.ok(state.particles.length > 0);
 });
 
 test("question block spawns mushroom and becomes used", () => {
