@@ -86,6 +86,30 @@ test("e2e: camera uses state offset", () => {
 	assert.equal(frame, expected);
 });
 
+test("e2e: camera clamps negative offset", () => {
+	const level = makeLevel([
+		"B?oG",
+		"    ",
+		"    ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 10,
+		startY: 10,
+		config: { dt: 1, gravity: 0, viewportWidth: 4 },
+	});
+	state.cameraX = -3;
+	const frame = renderViewport(state, 4, 4)
+		.split("\n")
+		.map((line) => line.trimEnd())
+		.join("\n");
+	const expected = fs
+		.readFileSync(path.join(__dirname, "fixtures", "story23-camera-negative.txt"), "utf8")
+		.trimEnd();
+	assert.equal(frame, expected);
+});
+
 test("e2e: tile glyphs render consistently", () => {
 	const level = makeLevel([
 		" B?oG ",

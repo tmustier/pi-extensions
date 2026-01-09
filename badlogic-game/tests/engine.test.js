@@ -64,6 +64,23 @@ test("createGame extracts enemy tiles", () => {
 	assert.equal(state.enemies[0].onGround, true);
 });
 
+test("createGame uses provided start coords", () => {
+	const level = makeLevel([
+		"    ",
+		"    ",
+		"    ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 2,
+		startY: 1,
+		config: { dt: 1, gravity: 0 },
+	});
+	assert.equal(state.player.x, 2);
+	assert.equal(state.player.y, 1);
+});
+
 test("createGame sets player onGround", () => {
 	const level = makeLevel([
 		"    ",
