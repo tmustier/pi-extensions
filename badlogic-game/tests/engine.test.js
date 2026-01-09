@@ -14,6 +14,7 @@ const {
 	loadState,
 	snapshotState,
 } = require("../engine.js");
+const { isHazardAt } = require("../tiles.js");
 const { LEVEL_1_LINES, LEVEL_1_WIDTH, LEVEL_1_HEIGHT } = require("../levels.js");
 
 test("rng deterministic", () => {
@@ -367,6 +368,18 @@ test("save/load preserves mushroom spawn flag", () => {
 	const loaded = loadState(saved, { config: { dt: 1, gravity: 0 } });
 	assert.ok(loaded);
 	assert.equal(loaded.mushroomSpawned, true);
+});
+
+test("hazard tiles include spikes and water", () => {
+	const level = makeLevel([
+		" ^~ ",
+		"    ",
+		"    ",
+		"####",
+	]);
+	assert.equal(isHazardAt(level, 1, 0), true);
+	assert.equal(isHazardAt(level, 2, 0), true);
+	assert.equal(isHazardAt(level, 0, 0), false);
 });
 
 test("camera clamps within bounds", () => {
