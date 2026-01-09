@@ -54,12 +54,12 @@ Implement `/badlogic-game` per `badlogic-game/spec.md` with deterministic core l
 - Spec: `badlogic-game/spec.md`
 - Existing WIP: `arcade/wip/badlogic-game.ts`
 
-## Reflection (Iteration 31)
+## Reflection (Iteration 32)
 1. What has been accomplished so far?
-   - Added levelIndex save regression test and item-in-viewport E2E fixture.
-   - Verification: `node --test badlogic-game/tests/*.test.js` -> 70 pass; `npx tsc --noEmit -p badlogic-game/tsconfig.json` -> ok.
+   - Added enemy onGround load regression test and enemy-in-viewport E2E fixture.
+   - Verification: `node --test badlogic-game/tests/*.test.js` -> 72 pass; `npx tsc --noEmit -p badlogic-game/tsconfig.json` -> ok.
 2. What's working well?
-   - Level index persistence and viewport item rendering are covered deterministically.
+   - Enemy ground state and viewport rendering are covered deterministically.
 3. What's not working or blocking progress?
    - Manual M4 run still pending (interactive UI required).
 4. Should the approach be adjusted?
