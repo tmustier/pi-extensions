@@ -457,6 +457,34 @@ test("saveState includes version", () => {
 	assert.equal(saved.level.lines.length, 4);
 });
 
+test("snapshotState rounds numeric fields", () => {
+	const level = makeLevel([
+		"    ",
+		"    ",
+		"    ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 1,
+		startY: 2,
+		config: { dt: 1, gravity: 0 },
+	});
+	state.player.x = 1.23456;
+	state.player.y = 2.34567;
+	state.player.vx = 0.123456;
+	state.player.vy = -0.987654;
+	state.player.invuln = 1.23456;
+	state.time = 12.34567;
+	const snap = snapshotState(state);
+	assert.equal(snap.player.x, 1.235);
+	assert.equal(snap.player.y, 2.346);
+	assert.equal(snap.player.vx, 0.123);
+	assert.equal(snap.player.vy, -0.988);
+	assert.equal(snap.player.invuln, 1.235);
+	assert.equal(snap.time, 12.346);
+});
+
 test("camera clamps within bounds", () => {
 	const level = makeLevel([
 		"            ",

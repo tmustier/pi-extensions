@@ -341,6 +341,34 @@ test("e2e: hud shows level index", () => {
 	assert.equal(hud, expected);
 });
 
+test("e2e: hud pads score and coins", () => {
+	const level = makeLevel([
+		"    ",
+		"    ",
+		"    ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 1,
+		startY: 2,
+		config: { dt: 1, gravity: 0 },
+		levelIndex: 2,
+	});
+	state.score = 42;
+	state.coins = 3;
+	state.lives = 5;
+	state.time = 123;
+	const hud = renderHud(state, 30)
+		.split("\n")
+		.map((line) => line.trimEnd())
+		.join("\n");
+	const expected = fs
+		.readFileSync(path.join(__dirname, "fixtures", "story18-hud-score.txt"), "utf8")
+		.trimEnd();
+	assert.equal(hud, expected);
+});
+
 test("e2e: item renders with mushroom glyph", () => {
 	const level = makeLevel([
 		"    ",
