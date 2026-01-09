@@ -206,6 +206,27 @@ test("e2e: paused cue renders centered", () => {
 	assert.equal(frame, expected);
 });
 
+test("e2e: power up cue overlays", () => {
+	const level = makeLevel([
+		"        ",
+		"        ",
+		"        ",
+		"########",
+	]);
+	const state = createGame({
+		level,
+		startX: 1,
+		startY: 2,
+		config: { dt: 1, gravity: 0, viewportWidth: 8 },
+	});
+	state.cue = { text: "POWER UP", ttl: 1, persist: false };
+	const frame = renderViewport(state, 8, 4);
+	const expected = fs
+		.readFileSync(path.join(__dirname, "fixtures", "story7-powerup.txt"), "utf8")
+		.trimEnd();
+	assert.equal(frame, expected);
+});
+
 test("e2e: particle renders", () => {
 	const level = makeLevel([
 		"    ",

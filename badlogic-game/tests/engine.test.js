@@ -62,6 +62,7 @@ test("pause freezes time and position", () => {
 	stepGame(state, { right: true });
 	assert.equal(state.player.x, 1);
 	assert.equal(state.time, 300);
+	assert.equal(state.cue?.text, "PAUSED");
 });
 
 test("brick tiles block movement", () => {
