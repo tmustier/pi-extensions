@@ -65,6 +65,25 @@ test("pause freezes time and position", () => {
 	assert.equal(state.cue?.text, "PAUSED");
 });
 
+test("unpausing clears pause cue", () => {
+	const level = makeLevel([
+		"        ",
+		"        ",
+		"        ",
+		"########",
+	]);
+	const state = createGame({
+		level,
+		startX: 1,
+		startY: 2,
+		config: { dt: 1, gravity: 0 },
+	});
+	setPaused(state, true);
+	assert.equal(state.cue?.text, "PAUSED");
+	setPaused(state, false);
+	assert.equal(state.cue, null);
+});
+
 test("brick tiles block movement", () => {
 	const level = makeLevel([
 		"    ",

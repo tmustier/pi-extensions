@@ -129,6 +129,30 @@ test("e2e: hud shows score and coins", () => {
 	assert.equal(hud, expected);
 });
 
+test("e2e: hud rounds time up", () => {
+	const level = makeLevel([
+		"    ",
+		"    ",
+		"    ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 1,
+		startY: 2,
+		config: { dt: 1, gravity: 0 },
+	});
+	state.time = 12.1;
+	const hud = renderHud(state, 30)
+		.split("\n")
+		.map((line) => line.trimEnd())
+		.join("\n");
+	const expected = fs
+		.readFileSync(path.join(__dirname, "fixtures", "story8-hud-time.txt"), "utf8")
+		.trimEnd();
+	assert.equal(hud, expected);
+});
+
 test("e2e: big player renders tall", () => {
 	const level = makeLevel([
 		"    ",
