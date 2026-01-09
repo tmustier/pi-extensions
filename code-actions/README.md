@@ -1,4 +1,4 @@
-# Code Actins extension
+# Code Actions extension
 
 /code to pick code blocks (```) or `inline code` from recent assistant messages and then copy or insert them. Helpful for retrieving commands and filepaths mentioned by Pi.
 
