@@ -54,12 +54,12 @@ Implement `/badlogic-game` per `badlogic-game/spec.md` with deterministic core l
 - Spec: `badlogic-game/spec.md`
 - Existing WIP: `arcade/wip/badlogic-game.ts`
 
-## Reflection (Iteration 28)
+## Reflection (Iteration 29)
 1. What has been accomplished so far?
-   - Added time clamp regression test and positive camera clamp E2E fixture.
-   - Verification: `node --test badlogic-game/tests/*.test.js` -> 64 pass; `npx tsc --noEmit -p badlogic-game/tsconfig.json` -> ok.
+   - Added time decrement regression test and lives HUD E2E fixture.
+   - Verification: `node --test badlogic-game/tests/*.test.js` -> 66 pass; `npx tsc --noEmit -p badlogic-game/tsconfig.json` -> ok.
 2. What's working well?
-   - Time clamp and camera bounds are covered deterministically.
+   - Time progression and HUD lives display are covered deterministically.
 3. What's not working or blocking progress?
    - Manual M4 run still pending (interactive UI required).
 4. Should the approach be adjusted?

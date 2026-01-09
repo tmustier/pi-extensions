@@ -100,6 +100,25 @@ test("stepGame clamps time at zero", () => {
 	assert.equal(state.time, 0);
 });
 
+test("stepGame reduces time by dt", () => {
+	const level = makeLevel([
+		"    ",
+		"    ",
+		"    ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 1,
+		startY: 2,
+		config: { dt: 1, gravity: 0 },
+	});
+	state.player.onGround = true;
+	state.time = 10;
+	stepGame(state, {});
+	assert.equal(state.time, 9);
+});
+
 test("createGame sets player onGround", () => {
 	const level = makeLevel([
 		"    ",
