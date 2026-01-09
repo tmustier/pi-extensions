@@ -593,6 +593,23 @@ test("camera clamps within bounds", () => {
 	assert.equal(getCameraX(state, 8), 4);
 });
 
+test("getCameraX honors override width", () => {
+	const level = makeLevel([
+		"        ",
+		"        ",
+		"        ",
+		"########",
+	]);
+	const state = createGame({
+		level,
+		startX: 1,
+		startY: 2,
+		config: { dt: 1, gravity: 0, viewportWidth: 6 },
+	});
+	state.cameraX = 3;
+	assert.equal(getCameraX(state, 4), 3);
+});
+
 test("camera dead-zone holds until edge", () => {
 	const level = makeLevel([
 		"                    ",

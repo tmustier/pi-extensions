@@ -54,12 +54,12 @@ Implement `/badlogic-game` per `badlogic-game/spec.md` with deterministic core l
 - Spec: `badlogic-game/spec.md`
 - Existing WIP: `arcade/wip/badlogic-game.ts`
 
-## Reflection (Iteration 26)
+## Reflection (Iteration 27)
 1. What has been accomplished so far?
-   - Added start-coordinates regression test and negative camera offset E2E fixture.
-   - Verification: `node --test badlogic-game/tests/*.test.js` -> 60 pass; `npx tsc --noEmit -p badlogic-game/tsconfig.json` -> ok.
+   - Added viewport-width override regression test and camera width E2E fixture.
+   - Verification: `node --test badlogic-game/tests/*.test.js` -> 62 pass; `npx tsc --noEmit -p badlogic-game/tsconfig.json` -> ok.
 2. What's working well?
-   - Spawn coordinates and camera clamp behavior are covered deterministically.
+   - Camera width override and offset behavior are covered deterministically.
 3. What's not working or blocking progress?
    - Manual M4 run still pending (interactive UI required).
 4. Should the approach be adjusted?
