@@ -11,6 +11,8 @@ const {
 	renderFrame,
 	renderViewport,
 	renderHud,
+	saveState,
+	loadState,
 } = require("../engine.js");
 
 test("e2e: one step right renders expected frame", () => {
@@ -149,4 +151,35 @@ test("e2e: big player renders tall", () => {
 		.readFileSync(path.join(__dirname, "fixtures", "story4-big.txt"), "utf8")
 		.trimEnd();
 	assert.equal(frame, expected);
+});
+
+test("e2e: save + load preserves hud", () => {
+	const level = makeLevel([
+		"    ",
+		" ?  ",
+		" o  ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 1,
+		startY: 2,
+		config: { dt: 1, gravity: 0 },
+	});
+	state.player.onGround = true;
+	stepGame(state, {});
+	state.player.vy = -1;
+	state.player.onGround = false;
+	stepGame(state, {});
+	const saved = saveState(state);
+	const loaded = loadState(saved, { config: { dt: 1, gravity: 0 } });
+	assert.ok(loaded);
+	const hud = renderHud(loaded, 30)
+		.split("\n")
+		.map((line) => line.trimEnd())
+		.join("\n");
+	const expected = fs
+		.readFileSync(path.join(__dirname, "fixtures", "story5-resume-hud.txt"), "utf8")
+		.trimEnd();
+	assert.equal(hud, expected);
 });

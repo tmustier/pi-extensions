@@ -8,6 +8,9 @@ const {
 	createGame,
 	stepGame,
 	getCameraX,
+	setPaused,
+	saveState,
+	loadState,
 	snapshotState,
 } = require("../engine.js");
 const { LEVEL_1_LINES, LEVEL_1_WIDTH, LEVEL_1_HEIGHT } = require("../levels.js");
@@ -38,6 +41,26 @@ test("stepGame moves right", () => {
 	assert.ok(state.player.x > 1);
 	const snap = snapshotState(state);
 	assert.equal(snap.player.onGround, true);
+});
+
+test("pause freezes time and position", () => {
+	const level = makeLevel([
+		"        ",
+		"        ",
+		"        ",
+		"########",
+	]);
+	const state = createGame({
+		level,
+		startX: 1,
+		startY: 2,
+		config: { dt: 1, gravity: 0 },
+	});
+	state.player.onGround = true;
+	setPaused(state, true);
+	stepGame(state, { right: true });
+	assert.equal(state.player.x, 1);
+	assert.equal(state.time, 300);
 });
 
 test("brick tiles block movement", () => {
@@ -154,7 +177,7 @@ test("mushroom pickup grows player", () => {
 		startY: 2,
 		config: { dt: 1, gravity: 0 },
 	});
-	state.items.push({ x: 1, y: 2, vx: 0, vy: 0, alive: true });
+	state.items.push({ x: 1, y: 2, vx: 0, vy: 0, alive: true, onGround: false });
 	state.player.onGround = true;
 	stepGame(state, {});
 	assert.equal(state.player.size, "big");
@@ -175,7 +198,7 @@ test("mushroom pickup grants score if already big", () => {
 		config: { dt: 1, gravity: 0 },
 	});
 	state.player.size = "big";
-	state.items.push({ x: 1, y: 2, vx: 0, vy: 0, alive: true });
+	state.items.push({ x: 1, y: 2, vx: 0, vy: 0, alive: true, onGround: false });
 	state.player.onGround = true;
 	stepGame(state, {});
 	assert.equal(state.score, 1000);
@@ -264,6 +287,37 @@ test("hazard tiles kill player", () => {
 	});
 	stepGame(state, {});
 	assert.equal(state.player.dead, true);
+});
+
+test("save and load restores progress", () => {
+	const level = makeLevel([
+		"    ",
+		" ?  ",
+		" o  ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 1,
+		startY: 2,
+		config: { dt: 1, gravity: 0 },
+	});
+	state.player.onGround = true;
+	stepGame(state, {});
+	state.player.vy = -1;
+	state.player.onGround = false;
+	stepGame(state, {});
+	state.enemies.push({ x: 3, y: 2, vx: 0, vy: 0, alive: false, onGround: true });
+	state.items.push({ x: 2, y: 2, vx: 0, vy: 0, alive: true, onGround: true });
+	const saved = saveState(state);
+	const loaded = loadState(saved, { config: { dt: 1, gravity: 0 } });
+	assert.ok(loaded);
+	assert.equal(loaded.score, state.score);
+	assert.equal(loaded.coins, state.coins);
+	assert.equal(loaded.level.tiles[2][1], " ");
+	assert.equal(loaded.level.tiles[1][1], "U");
+	assert.equal(loaded.enemies[0].alive, false);
+	assert.equal(loaded.items.length, 2);
 });
 
 test("camera clamps within bounds", () => {
