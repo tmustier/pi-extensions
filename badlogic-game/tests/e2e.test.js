@@ -562,6 +562,30 @@ test("e2e: hud shows lives", () => {
 	assert.equal(hud, expected);
 });
 
+test("e2e: hud shows score", () => {
+	const level = makeLevel([
+		"    ",
+		"    ",
+		"    ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 1,
+		startY: 2,
+		config: { dt: 1, gravity: 0 },
+	});
+	state.score = 7;
+	const hud = renderHud(state, 30)
+		.split("\n")
+		.map((line) => line.trimEnd())
+		.join("\n");
+	const expected = fs
+		.readFileSync(path.join(__dirname, "fixtures", "story30-hud-score.txt"), "utf8")
+		.trimEnd();
+	assert.equal(hud, expected);
+});
+
 test("e2e: hud shows coins", () => {
 	const level = makeLevel([
 		"    ",
