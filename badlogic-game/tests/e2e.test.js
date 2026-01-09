@@ -110,6 +110,30 @@ test("e2e: camera clamps negative offset", () => {
 	assert.equal(frame, expected);
 });
 
+test("e2e: camera clamps positive offset", () => {
+	const level = makeLevel([
+		"B?oGTP^~",
+		"        ",
+		"        ",
+		"########",
+	]);
+	const state = createGame({
+		level,
+		startX: 10,
+		startY: 10,
+		config: { dt: 1, gravity: 0, viewportWidth: 4 },
+	});
+	state.cameraX = 20;
+	const frame = renderViewport(state, 4, 4)
+		.split("\n")
+		.map((line) => line.trimEnd())
+		.join("\n");
+	const expected = fs
+		.readFileSync(path.join(__dirname, "fixtures", "story25-camera-positive.txt"), "utf8")
+		.trimEnd();
+	assert.equal(frame, expected);
+});
+
 test("e2e: camera uses viewport width param", () => {
 	const level = makeLevel([
 		"B?oGTP^~",

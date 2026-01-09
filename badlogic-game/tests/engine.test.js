@@ -81,6 +81,25 @@ test("createGame uses provided start coords", () => {
 	assert.equal(state.player.y, 1);
 });
 
+test("stepGame clamps time at zero", () => {
+	const level = makeLevel([
+		"    ",
+		"    ",
+		"    ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 1,
+		startY: 2,
+		config: { dt: 1, gravity: 0 },
+	});
+	state.player.onGround = true;
+	state.time = 0.5;
+	stepGame(state, {});
+	assert.equal(state.time, 0);
+});
+
 test("createGame sets player onGround", () => {
 	const level = makeLevel([
 		"    ",
