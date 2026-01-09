@@ -46,6 +46,26 @@ test("createGame defaults level index", () => {
 	assert.equal(state.levelIndex, 1);
 });
 
+test("loadState sets item onGround", () => {
+	const level = makeLevel([
+		"    ",
+		"    ",
+		"    ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 1,
+		startY: 2,
+		config: { dt: 1, gravity: 0 },
+	});
+	state.items.push({ x: 1, y: 2, vx: 0, vy: 0, alive: true, onGround: false });
+	const saved = saveState(state);
+	const loaded = loadState(saved, { config: { dt: 1, gravity: 0 } });
+	assert.ok(loaded);
+	assert.equal(loaded.items[0].onGround, true);
+});
+
 test("save/load preserves player size", () => {
 	const level = makeLevel([
 		"    ",
