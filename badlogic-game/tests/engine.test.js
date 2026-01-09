@@ -349,6 +349,26 @@ test("loadState rejects invalid data", () => {
 	assert.equal(missingLevel, null);
 });
 
+test("save/load preserves mushroom spawn flag", () => {
+	const level = makeLevel([
+		"    ",
+		"    ",
+		"    ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 1,
+		startY: 2,
+		config: { dt: 1, gravity: 0 },
+	});
+	state.mushroomSpawned = true;
+	const saved = saveState(state);
+	const loaded = loadState(saved, { config: { dt: 1, gravity: 0 } });
+	assert.ok(loaded);
+	assert.equal(loaded.mushroomSpawned, true);
+});
+
 test("camera clamps within bounds", () => {
 	const level = makeLevel([
 		"            ",

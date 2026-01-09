@@ -177,6 +177,30 @@ test("e2e: hud shows level index", () => {
 	assert.equal(hud, expected);
 });
 
+test("e2e: item renders with mushroom glyph", () => {
+	const level = makeLevel([
+		"    ",
+		"    ",
+		"    ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 3,
+		startY: 2,
+		config: { dt: 1, gravity: 0 },
+	});
+	state.items.push({ x: 1, y: 2, vx: 0, vy: 0, alive: true, onGround: true });
+	const frame = renderFrame(state)
+		.split("\n")
+		.map((line) => line.trimEnd())
+		.join("\n");
+	const expected = fs
+		.readFileSync(path.join(__dirname, "fixtures", "story10-item.txt"), "utf8")
+		.trimEnd();
+	assert.equal(frame, expected);
+});
+
 test("e2e: big player renders tall", () => {
 	const level = makeLevel([
 		"    ",
