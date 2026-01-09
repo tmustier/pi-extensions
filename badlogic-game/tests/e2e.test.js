@@ -804,3 +804,28 @@ test("e2e: particle renders", () => {
 		.trimEnd();
 	assert.equal(frame, expected);
 });
+
+test("e2e: particle renders in viewport", () => {
+	const level = makeLevel([
+		"    ",
+		"    ",
+		"    ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 10,
+		startY: 10,
+		config: { dt: 1, gravity: 0, viewportWidth: 4 },
+	});
+	state.cameraX = 1;
+	state.particles.push({ x: 2, y: 1, vx: 0, vy: 0, life: 1 });
+	const frame = renderViewport(state, 4, 4)
+		.split("\n")
+		.map((line) => line.trimEnd())
+		.join("\n");
+	const expected = fs
+		.readFileSync(path.join(__dirname, "fixtures", "story31-particles-viewport.txt"), "utf8")
+		.trimEnd();
+	assert.equal(frame, expected);
+});

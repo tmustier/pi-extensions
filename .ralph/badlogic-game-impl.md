@@ -54,12 +54,12 @@ Implement `/badlogic-game` per `badlogic-game/spec.md` with deterministic core l
 - Spec: `badlogic-game/spec.md`
 - Existing WIP: `arcade/wip/badlogic-game.ts`
 
-## Reflection (Iteration 33)
+## Reflection (Iteration 34)
 1. What has been accomplished so far?
-   - Added player-facing save regression test and HUD score E2E fixture.
-   - Verification: `node --test badlogic-game/tests/*.test.js` -> 74 pass; `npx tsc --noEmit -p badlogic-game/tsconfig.json` -> ok.
+   - Added player facing save regression test and viewport particle E2E fixture.
+   - Verification: `node --test badlogic-game/tests/*.test.js` -> 75 pass; `npx tsc --noEmit -p badlogic-game/tsconfig.json` -> ok.
 2. What's working well?
-   - Player facing persistence and HUD score display are covered deterministically.
+   - Facing persistence and viewport particle rendering are covered deterministically.
 3. What's not working or blocking progress?
    - Manual M4 run still pending (interactive UI required).
 4. Should the approach be adjusted?
