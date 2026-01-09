@@ -246,6 +246,29 @@ test("e2e: hud rounds time up", () => {
 	assert.equal(hud, expected);
 });
 
+test("e2e: hud truncates to width", () => {
+	const level = makeLevel([
+		"    ",
+		"    ",
+		"    ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 1,
+		startY: 2,
+		config: { dt: 1, gravity: 0 },
+	});
+	const hud = renderHud(state, 10)
+		.split("\n")
+		.map((line) => line.trimEnd())
+		.join("\n");
+	const expected = fs
+		.readFileSync(path.join(__dirname, "fixtures", "story15-hud-narrow.txt"), "utf8")
+		.trimEnd();
+	assert.equal(hud, expected);
+});
+
 test("e2e: hud shows level index", () => {
 	const level = makeLevel([
 		"    ",

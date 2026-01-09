@@ -414,6 +414,24 @@ test("tileGlyph defaults to blanks for unknown tiles", () => {
 	assert.equal(tileGlyph("!"), "  ");
 });
 
+test("saveState includes version", () => {
+	const level = makeLevel([
+		"    ",
+		"    ",
+		"    ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 1,
+		startY: 2,
+		config: { dt: 1, gravity: 0 },
+	});
+	const saved = saveState(state);
+	assert.equal(saved.version, 1);
+	assert.equal(saved.level.lines.length, 4);
+});
+
 test("camera clamps within bounds", () => {
 	const level = makeLevel([
 		"            ",
