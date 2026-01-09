@@ -13,6 +13,7 @@ const {
 	renderHud,
 	saveState,
 	loadState,
+	setPaused,
 } = require("../engine.js");
 
 test("e2e: one step right renders expected frame", () => {
@@ -48,7 +49,7 @@ test("e2e: camera clamps to right edge", () => {
 		level,
 		startX: 1,
 		startY: 2,
-		config: { dt: 1, gravity: 0 },
+		config: { dt: 1, gravity: 0, viewportWidth: 8 },
 	});
 	state.player.onGround = true;
 	for (let i = 0; i < 3; i += 1) {
@@ -182,4 +183,25 @@ test("e2e: save + load preserves hud", () => {
 		.readFileSync(path.join(__dirname, "fixtures", "story5-resume-hud.txt"), "utf8")
 		.trimEnd();
 	assert.equal(hud, expected);
+});
+
+test("e2e: paused cue renders centered", () => {
+	const level = makeLevel([
+		"        ",
+		"        ",
+		"        ",
+		"########",
+	]);
+	const state = createGame({
+		level,
+		startX: 1,
+		startY: 2,
+		config: { dt: 1, gravity: 0, viewportWidth: 8 },
+	});
+	setPaused(state, true);
+	const frame = renderViewport(state, 8, 4);
+	const expected = fs
+		.readFileSync(path.join(__dirname, "fixtures", "story6-paused.txt"), "utf8")
+		.trimEnd();
+	assert.equal(frame, expected);
 });

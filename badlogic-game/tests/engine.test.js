@@ -8,6 +8,7 @@ const {
 	createGame,
 	stepGame,
 	getCameraX,
+	updateCamera,
 	setPaused,
 	saveState,
 	loadState,
@@ -331,12 +332,35 @@ test("camera clamps within bounds", () => {
 		level,
 		startX: 1,
 		startY: 2,
-		config: { dt: 1, gravity: 0 },
+		config: { dt: 1, gravity: 0, viewportWidth: 8 },
 	});
 	state.player.x = 1;
+	updateCamera(state);
 	assert.equal(getCameraX(state, 8), 0);
 	state.player.x = 10;
+	updateCamera(state);
 	assert.equal(getCameraX(state, 8), 4);
+});
+
+test("camera dead-zone holds until edge", () => {
+	const level = makeLevel([
+		"                    ",
+		"                    ",
+		"                    ",
+		"####################",
+	]);
+	const state = createGame({
+		level,
+		startX: 1,
+		startY: 2,
+		config: { dt: 1, gravity: 0, viewportWidth: 10 },
+	});
+	state.player.x = 5;
+	updateCamera(state);
+	assert.equal(state.cameraX, 0);
+	state.player.x = 8;
+	updateCamera(state);
+	assert.equal(state.cameraX, 1);
 });
 
 test("level1 dimensions match spec", () => {

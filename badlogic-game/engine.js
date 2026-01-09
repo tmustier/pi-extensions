@@ -2,7 +2,9 @@
 "use strict";
 
 const { getTile, setTile, isSolidAt, isHazardAt } = require("./tiles.js");
-const { renderFrame, renderViewport, renderHud, getCameraX } = require("./render.js");
+const { renderFrame, renderViewport, renderHud } = require("./render.js");
+const { getCameraX, updateCamera } = require("./camera.js");
+const { spawnParticles, updateParticles, setCue, updateCue } = require("./effects.js");
 
 /**
  * @typedef {Object} Config
@@ -17,6 +19,7 @@ const { renderFrame, renderViewport, renderHud, getCameraX } = require("./render
  * @property {number} airAccel
  * @property {number} enemySpeed
  * @property {number} mushroomScore
+ * @property {number} viewportWidth
  */
 
 /**
@@ -58,6 +61,9 @@ const { renderFrame, renderViewport, renderHud, getCameraX } = require("./render
  * @property {PlayerState} player
  * @property {EnemyState[]} enemies
  * @property {{ x: number, y: number, vx: number, vy: number, alive: boolean, onGround: boolean }[]} items
+ * @property {{ x: number, y: number, vx: number, vy: number, life: number }[]} particles
+ * @property {{ text: string, ttl: number, persist: boolean } | null} cue
+ * @property {number} cameraX
  * @property {number} score
  * @property {number} coins
  * @property {number} lives
@@ -98,6 +104,7 @@ const DEFAULT_CONFIG = {
 	airAccel: 22,
 	enemySpeed: 1,
 	mushroomScore: 1000,
+	viewportWidth: 40,
 };
 
 const SCORE_VALUES = {
@@ -218,6 +225,9 @@ function createGame(options) {
 		},
 		enemies,
 		items: [],
+		particles: [],
+		cue: null,
+		cameraX: 0,
 	};
 	state.player.onGround = isSolidAt(state.level, startX, startY + 1);
 	return state;
@@ -301,6 +311,10 @@ function stepGame(state, input) {
 		applyPlayerDamage(state, true);
 	}
 
+	updateCamera(state);
+	updateParticles(state, dt);
+	updateCue(state, dt);
+
 	state.time = Math.max(0, state.time - dt);
 	state.tick += 1;
 	return state;
@@ -345,8 +359,11 @@ function collectItems(state) {
 			if (player.size === "small") {
 				player.size = /** @type {"small" | "big"} */ ("big");
 				player.invuln = INVULN_TIME;
+				setCue(state, "POWER UP", 0.6, false);
+				spawnParticles(state, player.x, player.y - 0.2, 4);
 			} else {
 				awardScore(state, SCORE_VALUES.mushroom);
+				spawnParticles(state, player.x, player.y - 0.2, 4);
 			}
 		}
 	}
@@ -373,6 +390,7 @@ function spawnMushroom(state, tileX, tileY) {
 function awardCoin(state) {
 	state.coins += 1;
 	state.score += SCORE_VALUES.coin;
+	spawnParticles(state, state.player.x, state.player.y - 0.2, 4);
 }
 
 /** @param {GameState} state @param {number} value */
@@ -442,6 +460,7 @@ function resolveEnemyCollisions(state, prevY) {
 				enemy.alive = false;
 				player.vy = -state.config.jumpVel * 0.6;
 				awardScore(state, SCORE_VALUES.stomp);
+				spawnParticles(state, enemy.x, enemy.y - 0.2, 4);
 			} else {
 				applyPlayerDamage(state);
 			}
@@ -499,6 +518,11 @@ function applyPlayerDamage(state, forceDeath) {
 /** @param {GameState} state @param {boolean} paused */
 function setPaused(state, paused) {
 	state.paused = paused;
+	if (paused) {
+		setCue(state, "PAUSED", 0, true);
+	} else if (state.cue && state.cue.persist) {
+		state.cue = null;
+	}
 	return state;
 }
 
@@ -569,6 +593,9 @@ function loadState(save, options) {
 		levelIndex: save.levelIndex || 1,
 		mushroomSpawned: !!save.mushroomSpawned,
 		paused: false,
+		cameraX: 0,
+		particles: [],
+		cue: null,
 		player: {
 			x: save.player.x,
 			y: save.player.y,
@@ -665,6 +692,7 @@ module.exports = {
 	renderViewport,
 	renderHud,
 	getCameraX,
+	updateCamera,
 	setPaused,
 	saveState,
 	loadState,

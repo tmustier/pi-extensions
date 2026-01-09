@@ -2,6 +2,7 @@
 "use strict";
 
 const { tileGlyph } = require("./tiles.js");
+const { getCameraX } = require("./camera.js");
 
 /**
  * @typedef {Object} Level
@@ -30,6 +31,10 @@ const { tileGlyph } = require("./tiles.js");
  * @property {PlayerState} player
  * @property {EnemyState[]} enemies
  * @property {ItemState[]} items
+ * @property {{ x: number, y: number, life: number }[]} particles
+ * @property {{ text: string, ttl: number, persist: boolean } | null} cue
+ * @property {{ viewportWidth: number }} config
+ * @property {number} cameraX
  * @property {number} score
  * @property {number} coins
  * @property {number} lives
@@ -47,19 +52,7 @@ const { tileGlyph } = require("./tiles.js");
 
 const ENEMY_GLYPH = "GG";
 const ITEM_GLYPH = "MM";
-
-/** @param {number} value @param {number} min @param {number} max @returns {number} */
-function clamp(value, min, max) {
-	return Math.max(min, Math.min(max, value));
-}
-
-/** @param {GameState} state @param {number} viewportWidth @returns {number} */
-function getCameraX(state, viewportWidth) {
-	const levelWidth = state.level.width;
-	const maxX = Math.max(0, levelWidth - viewportWidth);
-	const target = state.player.x + 0.5 - viewportWidth / 2;
-	return clamp(target, 0, maxX);
-}
+const PARTICLE_GLYPH = "..";
 
 /** @param {GameState} state @param {number} viewportWidth @param {number} viewportHeight @returns {string} */
 function renderViewport(state, viewportWidth, viewportHeight) {
@@ -80,6 +73,7 @@ function renderViewport(state, viewportWidth, viewportHeight) {
 	}
 	renderEnemies(rows, state.enemies, cameraX);
 	renderItems(rows, state.items, cameraX);
+	renderParticles(rows, state.particles, cameraX);
 	const px = Math.floor(state.player.x - cameraX);
 	const py = Math.floor(state.player.y);
 	const playerGlyph = state.player.size === "big" ? "[]" : "<>";
@@ -89,7 +83,8 @@ function renderViewport(state, viewportWidth, viewportHeight) {
 			rows[py - 1][px] = "<>";
 		}
 	}
-	return rows.map((row) => row.join("")).join("\n");
+	const rowStrings = rows.map((row) => row.join(""));
+	return applyCue(rowStrings, state.cue).join("\n");
 }
 
 /** @param {GameState} state @returns {string} */
@@ -106,6 +101,7 @@ function renderFrame(state) {
 	}
 	renderEnemies(rows, state.enemies, 0);
 	renderItems(rows, state.items, 0);
+	renderParticles(rows, state.particles, 0);
 	const px = Math.floor(state.player.x);
 	const py = Math.floor(state.player.y);
 	const playerGlyph = state.player.size === "big" ? "[]" : "<>";
@@ -115,7 +111,8 @@ function renderFrame(state) {
 			rows[py - 1][px] = "<>";
 		}
 	}
-	return rows.map((row) => row.join("")).join("\n");
+	const rowStrings = rows.map((row) => row.join(""));
+	return applyCue(rowStrings, state.cue).join("\n");
 }
 
 /** @param {GameState} state @param {number} width @returns {string} */
@@ -158,6 +155,30 @@ function renderItems(rows, items, offsetX) {
 	}
 }
 
+/** @param {string[][]} rows @param {{ x: number, y: number, life: number }[]} particles @param {number} offsetX */
+function renderParticles(rows, particles, offsetX) {
+	const height = rows.length;
+	const width = rows[0] ? rows[0].length : 0;
+	for (const p of particles) {
+		if (p.life <= 0) continue;
+		const px = Math.floor(p.x - offsetX);
+		const py = Math.floor(p.y);
+		if (py >= 0 && py < height && px >= 0 && px < width) {
+			rows[py][px] = PARTICLE_GLYPH;
+		}
+	}
+}
+
+/** @param {string[]} rows @param {{ text: string } | null} cue */
+function applyCue(rows, cue) {
+	if (!cue || !cue.text) return rows;
+	const rowIndex = Math.floor(rows.length / 2);
+	const row = rows[rowIndex] || "";
+	const start = Math.max(0, Math.floor((row.length - cue.text.length) / 2));
+	rows[rowIndex] = row.slice(0, start) + cue.text + row.slice(start + cue.text.length);
+	return rows;
+}
+
 /** @param {string} line @param {number} width @returns {string} */
 function fitLine(line, width) {
 	if (typeof width !== "number") return line;
@@ -172,9 +193,10 @@ function padNum(value, length) {
 
 module.exports = {
 	ENEMY_GLYPH,
+	ITEM_GLYPH,
+	PARTICLE_GLYPH,
 	getCameraX,
 	renderFrame,
 	renderViewport,
 	renderHud,
-	ITEM_GLYPH,
 };
