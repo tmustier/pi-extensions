@@ -30,6 +30,26 @@ test("makeLevel validates rows", () => {
 	assert.throws(() => makeLevel([" ", "  "]), /same width/);
 });
 
+test("save/load preserves player size", () => {
+	const level = makeLevel([
+		"    ",
+		"    ",
+		"    ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 1,
+		startY: 2,
+		config: { dt: 1, gravity: 0 },
+	});
+	state.player.size = "big";
+	const saved = saveState(state);
+	const loaded = loadState(saved, { config: { dt: 1, gravity: 0 } });
+	assert.ok(loaded);
+	assert.equal(loaded.player.size, "big");
+});
+
 test("stepGame moves right", () => {
 	const level = makeLevel([
 		"        ",
