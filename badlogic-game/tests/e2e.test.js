@@ -83,6 +83,29 @@ test("e2e: tile glyphs render consistently", () => {
 	assert.equal(frame, expected);
 });
 
+test("e2e: unknown tiles render blank", () => {
+	const level = makeLevel([
+		"!  ",
+		"   ",
+		"   ",
+		"###",
+	]);
+	const state = createGame({
+		level,
+		startX: 10,
+		startY: 10,
+		config: { dt: 1, gravity: 0 },
+	});
+	const frame = renderFrame(state)
+		.split("\n")
+		.map((line) => line.trimEnd())
+		.join("\n");
+	const expected = fs
+		.readFileSync(path.join(__dirname, "fixtures", "story16-unknown-tile.txt"), "utf8")
+		.trimEnd();
+	assert.equal(frame, expected);
+});
+
 test("e2e: hazard glyphs render", () => {
 	const level = makeLevel([
 		" ^~ ",

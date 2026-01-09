@@ -25,6 +25,11 @@ test("rng deterministic", () => {
 	}
 });
 
+test("makeLevel validates rows", () => {
+	assert.throws(() => makeLevel([]), /non-empty/);
+	assert.throws(() => makeLevel([" ", "  "]), /same width/);
+});
+
 test("stepGame moves right", () => {
 	const level = makeLevel([
 		"        ",
