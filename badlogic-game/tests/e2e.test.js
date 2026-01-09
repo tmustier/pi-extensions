@@ -760,6 +760,30 @@ test("e2e: paused cue renders centered", () => {
 	assert.equal(frame, expected);
 });
 
+test("e2e: paused cue renders in frame", () => {
+	const level = makeLevel([
+		"    ",
+		"    ",
+		"    ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 10,
+		startY: 10,
+		config: { dt: 1, gravity: 0 },
+	});
+	setPaused(state, true);
+	const frame = renderFrame(state)
+		.split("\n")
+		.map((line) => line.trimEnd())
+		.join("\n");
+	const expected = fs
+		.readFileSync(path.join(__dirname, "fixtures", "story32-paused-frame.txt"), "utf8")
+		.trimEnd();
+	assert.equal(frame, expected);
+});
+
 test("e2e: power up cue overlays", () => {
 	const level = makeLevel([
 		"        ",

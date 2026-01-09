@@ -234,6 +234,26 @@ test("save/load preserves player facing", () => {
 	assert.equal(loaded.player.facing, -1);
 });
 
+test("save/load preserves invuln", () => {
+	const level = makeLevel([
+		"    ",
+		"    ",
+		"    ",
+		"####",
+	]);
+	const state = createGame({
+		level,
+		startX: 1,
+		startY: 2,
+		config: { dt: 1, gravity: 0 },
+	});
+	state.player.invuln = 1.5;
+	const saved = saveState(state);
+	const loaded = loadState(saved, { config: { dt: 1, gravity: 0 } });
+	assert.ok(loaded);
+	assert.equal(loaded.player.invuln, 1.5);
+});
+
 test("save/load preserves player size", () => {
 	const level = makeLevel([
 		"    ",
