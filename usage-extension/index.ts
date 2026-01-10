@@ -91,7 +91,9 @@ const TABLE_WIDTH = NAME_COL_WIDTH + DATA_COLUMNS.reduce((sum, col) => sum + col
 // =============================================================================
 
 function getSessionsDir(): string {
-	return join(homedir(), ".pi", "agent", "sessions");
+	// Replicate Pi's logic: respect PI_CODING_AGENT_DIR env var
+	const agentDir = process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
+	return join(agentDir, "sessions");
 }
 
 function getAllSessionFiles(): string[] {
