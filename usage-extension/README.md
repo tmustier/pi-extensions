@@ -84,6 +84,8 @@ The "Cache" column combines both read and write tokens.
 
 Statistics are parsed from session files in `~/.pi/agent/sessions/`. Each session is a JSONL file containing message entries with usage data.
 
+Respects the `PI_CODING_AGENT_DIR` environment variable if set.
+
 ## Changelog
 
 ### 2026-01-10
