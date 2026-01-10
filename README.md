@@ -12,6 +12,7 @@ Personal extensions for the [Pi coding agent](https://github.com/badlogic/pi-mon
 | [agent-guidance](agent-guidance/) | Switch between Claude/Codex/Gemini with model-specific guidance (CLAUDE.md, CODEX.md, GEMINI.md) |
 | [raw-paste](raw-paste/) | Ever want to paste raw text you can edit in your command line? Now you can. `/paste` command with optional keybinding. |
 | [code-actions](code-actions/) | Pick code blocks or inline snippets from assistant messages to copy, insert, or run with `/code`. |
+| [usage-extension](usage-extension/) | 📊 Usage statistics dashboard. See cost, tokens, and messages by provider/model across Today, This Week, All Time. |
 | [relaunch](relaunch/) | WIP BEING DEVELOPED - Exit pi and resume the current session with `/relaunch`. |
 
 ## Quick Setup
@@ -31,6 +32,7 @@ Add extensions to your `~/.pi/agent/settings.json`:
     "~/pi-extensions/agent-guidance/agent-guidance.ts",
     "~/pi-extensions/raw-paste",
     "~/pi-extensions/code-actions",
+    "~/pi-extensions/usage-extension",
     "~/pi-extensions/relaunch"
   ]
 }
