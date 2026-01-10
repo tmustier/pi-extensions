@@ -2,7 +2,7 @@
 "use strict";
 
 const { createRng, makeLevel } = require("./core.js");
-const { DEFAULT_CONFIG, START_LIVES, START_TIME, GAME_MODES } = require("./constants.js");
+const { DEFAULT_CONFIG, START_LIVES, START_TIME, GAME_MODES, FIREBALL_SPAWN_INTERVAL } = require("./constants.js");
 const { renderFrame, renderViewport, renderHud } = require("./render.js");
 const { getCameraX, updateCamera } = require("./camera.js");
 const { stepGame, setPaused } = require("./logic.js");
@@ -13,14 +13,28 @@ const { isSolidAt } = require("./tiles.js");
 /** @typedef {import("./types").GameOptions} GameOptions */
 /** @typedef {import("./types").Level} Level */
 
-/** @param {Level} level @returns {{ level: Level, enemies: import("./types").EnemyState[] }} */
-function extractEnemies(level) {
+/**
+ * @param {Level} level
+ * @returns {{
+ *   level: Level,
+ *   enemies: import("./types").EnemyState[],
+ *   fireballSpawners: import("./types").FireballSpawner[],
+ *   boss: import("./types").BossState | null
+ * }}
+ */
+function extractEntities(level) {
 	const tiles = level.tiles.map((row) => row.slice());
 	/** @type {import("./types").EnemyState[]} */
 	const enemies = [];
+	/** @type {import("./types").FireballSpawner[]} */
+	const fireballSpawners = [];
+	/** @type {import("./types").BossState | null} */
+	let boss = null;
+
 	for (let y = 0; y < level.height; y += 1) {
 		for (let x = 0; x < level.width; x += 1) {
-			if (tiles[y][x] === "E") {
+			const tile = tiles[y][x];
+			if (tile === "E") {
 				enemies.push({
 					x,
 					y,
@@ -29,6 +43,40 @@ function extractEnemies(level) {
 					alive: true,
 					onGround: false,
 				});
+				tiles[y][x] = " ";
+			} else if (tile === "<") {
+				// Fireball spawner shooting left
+				fireballSpawners.push({
+					x,
+					y,
+					timer: 0,
+					interval: FIREBALL_SPAWN_INTERVAL,
+					direction: -1,
+				});
+				tiles[y][x] = " ";
+			} else if (tile === ">") {
+				// Fireball spawner shooting right
+				fireballSpawners.push({
+					x,
+					y,
+					timer: 0,
+					interval: FIREBALL_SPAWN_INTERVAL,
+					direction: 1,
+				});
+				tiles[y][x] = " ";
+			} else if (tile === "W") {
+				// Boss (Bowser)
+				boss = {
+					x,
+					y,
+					vx: -1.5,
+					vy: 0,
+					alive: true,
+					health: 5,
+					maxHealth: 5,
+					invuln: 0,
+					onGround: false,
+				};
 				tiles[y][x] = " ";
 			}
 		}
@@ -40,6 +88,8 @@ function extractEnemies(level) {
 			tiles,
 		},
 		enemies,
+		fireballSpawners,
+		boss,
 	};
 }
 
@@ -52,12 +102,17 @@ function createGame(options) {
 	const rng = createRng(opts.seed || 1);
 	const startX = typeof opts.startX === "number" ? opts.startX : 1;
 	const startY = typeof opts.startY === "number" ? opts.startY : 1;
-	const extracted = extractEnemies(level);
+	const extracted = extractEntities(level);
 	const enemies = extracted.enemies.map((enemy) => {
 		const seeded = { ...enemy, vx: -config.enemySpeed };
 		seeded.onGround = isSolidAt(extracted.level, seeded.x, seeded.y + 1);
 		return seeded;
 	});
+	// Initialize boss if present
+	const boss = extracted.boss;
+	if (boss) {
+		boss.onGround = isSolidAt(extracted.level, boss.x, boss.y + 1);
+	}
 	/** @type {GameState} */
 	const state = {
 		level: extracted.level,
@@ -90,6 +145,9 @@ function createGame(options) {
 		},
 		enemies,
 		items: [],
+		fireballs: [],
+		fireballSpawners: extracted.fireballSpawners,
+		boss,
 	};
 	state.player.onGround = isSolidAt(state.level, startX, startY + 1);
 	return state;

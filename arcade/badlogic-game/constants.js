@@ -38,16 +38,33 @@ const INVULN_TIME = 1.2;
 const START_LIVES = 3;
 const START_TIME = 300;
 const DEATH_WAIT = 1.2;
-const DEATH_JUMP_VEL = 8;
+const DEATH_JUMP_VEL = 14;
 
-/** @type {{ playing: "playing", paused: "paused", dead: "dead", levelClear: "level_clear", gameOver: "game_over" }} */
+/** @type {{ playing: "playing", paused: "paused", dead: "dead", levelClear: "level_clear", gameOver: "game_over", levelIntro: "level_intro" }} */
 const GAME_MODES = {
 	playing: "playing",
 	paused: "paused",
 	dead: "dead",
 	levelClear: "level_clear",
 	gameOver: "game_over",
+	levelIntro: "level_intro",
 };
+
+const LEVEL_INTRO_TIME = 2.0;
+
+// Fireball constants
+const FIREBALL_SPEED = 4;
+const FIREBALL_WAVE_AMP = 1.5;
+const FIREBALL_WAVE_FREQ = 4;
+const FIREBALL_SPAWN_INTERVAL = 3.0;
+
+// Boss constants
+const BOSS_W = 2;
+const BOSS_H = 2;
+const BOSS_SPEED = 1.5;
+const BOSS_HEALTH = 5;
+const BOSS_INVULN_TIME = 0.8;
+const BOSS_SCORE = 5000;
 
 module.exports = {
 	DEFAULT_CONFIG,
@@ -66,4 +83,15 @@ module.exports = {
 	DEATH_WAIT,
 	DEATH_JUMP_VEL,
 	GAME_MODES,
+	LEVEL_INTRO_TIME,
+	FIREBALL_SPEED,
+	FIREBALL_WAVE_AMP,
+	FIREBALL_WAVE_FREQ,
+	FIREBALL_SPAWN_INTERVAL,
+	BOSS_W,
+	BOSS_H,
+	BOSS_SPEED,
+	BOSS_HEALTH,
+	BOSS_INVULN_TIME,
+	BOSS_SCORE,
 };

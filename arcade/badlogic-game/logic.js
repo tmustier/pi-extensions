@@ -6,13 +6,14 @@ const { updateParticles, setCue, updateCue } = require("./effects.js");
 const { updateEnemies } = require("./enemies.js");
 const { updateItems } = require("./items.js");
 const { stepDeath } = require("./death.js");
+const { updateFireballSpawners, updateFireballs, checkFireballCollision } = require("./fireballs.js");
+const { updateBoss, resolveBossCollision } = require("./boss.js");
 const {
 	applyPlayerDamage,
 	checkGoal,
 	checkHazard,
 	collectCoin,
 	collectItems,
-	getPlayerHeight,
 	resolveEnemyCollisions,
 	stepPlayerMovement,
 } = require("./player.js");
@@ -35,25 +36,48 @@ function stepGame(state, input) {
 	const { prevY, height } = stepPlayerMovement(state, input);
 	updateEnemies(state);
 	updateItems(state);
+	updateFireballSpawners(state);
+	updateFireballs(state);
+	updateBoss(state);
 
 	resolveEnemyCollisions(state, prevY);
+
+	// Check boss collision
+	if (state.boss && state.boss.alive) {
+		const bossHurt = resolveBossCollision(state, prevY);
+		if (bossHurt) {
+			applyPlayerDamage(state);
+		}
+	}
+
+	// Check fireball collision
+	if (checkFireballCollision(state)) {
+		applyPlayerDamage(state);
+	}
+
 	collectCoin(state);
 	collectItems(state);
-	checkGoal(state, height);
+
+	// Only check goal if no boss or boss is defeated
+	if (!state.boss || !state.boss.alive) {
+		checkGoal(state, height);
+	}
 
 	if (state.mode === GAME_MODES.playing) {
+		// Check hazards
 		if (checkHazard(state)) {
 			applyPlayerDamage(state);
 		} else if (state.player.y >= state.level.height) {
 			applyPlayerDamage(state, true);
 		}
-	}
 
-	if (state.mode === GAME_MODES.playing) {
-		updateCamera(state);
-		updateParticles(state, dt);
-		updateCue(state, dt);
-		state.time = Math.max(0, state.time - dt);
+		// Update world (only if still playing after hazard check)
+		if (state.mode === GAME_MODES.playing) {
+			updateCamera(state);
+			updateParticles(state, dt);
+			updateCue(state, dt);
+			state.time = Math.max(0, state.time - dt);
+		}
 	}
 
 	state.tick += 1;

@@ -91,29 +91,25 @@ function collectCoin(state) {
 
 /** @param {GameState} state */
 function collectItems(state) {
-	const items = state.items;
 	const player = state.player;
-	const collected = [];
 	const height = getPlayerHeight(player);
-	for (let i = 0; i < items.length; i += 1) {
-		const item = items[i];
-		if (!item.alive) continue;
-		if (overlaps(player.x, player.y, PLAYER_W, height, item.x, item.y, ITEM_W, ITEM_H)) {
-			collected.push(i);
-			if (player.size === "small") {
-				player.size = /** @type {"small" | "big"} */ ("big");
-				player.invuln = INVULN_TIME;
-				setCue(state, "POWER UP", 0.6, false);
-				spawnParticles(state, player.x, player.y - 0.2, 4);
-			} else {
-				awardScore(state, SCORE_VALUES.mushroom);
-				spawnParticles(state, player.x, player.y - 0.2, 4);
-			}
+
+	state.items = state.items.filter((item) => {
+		if (!item.alive) return false;
+		if (!overlaps(player.x, player.y, PLAYER_W, height, item.x, item.y, ITEM_W, ITEM_H)) {
+			return true; // Keep item
 		}
-	}
-	for (let i = collected.length - 1; i >= 0; i -= 1) {
-		items.splice(collected[i], 1);
-	}
+		// Collected - apply effect
+		if (player.size === "small") {
+			player.size = /** @type {"small" | "big"} */ ("big");
+			player.invuln = INVULN_TIME;
+			setCue(state, "POWER UP", 0.6, false);
+		} else {
+			awardScore(state, SCORE_VALUES.mushroom);
+		}
+		spawnParticles(state, player.x, player.y - 0.2, 4);
+		return false; // Remove item
+	});
 }
 
 /** @param {GameState} state @param {number} tileX @param {number} tileY */

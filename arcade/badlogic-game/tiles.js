@@ -1,6 +1,8 @@
 // @ts-check
 "use strict";
 
+const { COLORS: C } = require("./colors.js");
+
 /**
  * @typedef {Object} Level
  * @property {number} width
@@ -9,22 +11,26 @@
  */
 
 /** @type {Set<string>} */
-const SOLID_TILES = new Set(["#", "B", "?", "U", "T", "P"]);
+const SOLID_TILES = new Set(["#", "B", "?", "U", "T", "P", "C"]);
 /** @type {Set<string>} */
-const HAZARD_TILES = new Set(["^", "~"]);
+const HAZARD_TILES = new Set(["^", "~", "L"]);
+
 /** @type {Record<string, string>} */
 const TILE_GLYPHS = {
-	"#": "##",
-	"B": "[]",
-	"?": "??",
-	"U": "..",
-	"o": "o ",
-	"T": "||",
-	"P": "||",
-	"G": "|>",
-	"F": "||",  // flagpole
-	"^": "/\\",
-	"~": "~~",
+	"#": `${C.brown}##${C.reset}`,
+	"B": `${C.brown}[]${C.reset}`,
+	"?": `${C.brightYellow}??${C.reset}`,
+	"U": `${C.gray}..${C.reset}`,
+	"o": `${C.brightYellow}o ${C.reset}`,
+	"T": `${C.green}||${C.reset}`,
+	"P": `${C.green}||${C.reset}`,
+	"G": `${C.red}|>${C.reset}`,
+	"F": `${C.white}||${C.reset}`,
+	"^": `${C.gray}/\\${C.reset}`,
+	"~": `${C.blue}~~${C.reset}`,
+	"L": `${C.orange}}{${C.reset}`,
+	"C": `${C.gray}[]${C.reset}`,
+	"A": `${C.white}/\\${C.reset}`,
 };
 
 /** @param {string} tile @returns {string} */

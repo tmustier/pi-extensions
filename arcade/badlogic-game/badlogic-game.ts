@@ -16,12 +16,25 @@ const {
 	makeLevel,
 } = require("./engine.js") as typeof import("./engine.js");
 const { ALL_LEVELS } = require("./levels.js") as typeof import("./levels.js");
+const { COLORS } = require("./colors.js") as { COLORS: Record<string, string> };
+const { DEFAULT_CONFIG, LEVEL_INTRO_TIME } = require("./constants.js") as typeof import("./constants.js");
 
 const TICK_MS = 25;
 const VIEWPORT_W = 40;
 const VIEWPORT_H = 15;
 const HUD_LINES = 2;
 const SAVE_TYPE = "badlogic-game-save";
+const FRAME_INNER_WIDTH = 36;
+const START_X = 1;
+const START_Y = 13;
+
+// Level metadata: name and theme color
+const LEVEL_META: { name: string; frameColor: string; textColor: string }[] = [
+	{ name: "WORLD 1-1", frameColor: COLORS.yellow, textColor: COLORS.cyan },
+	{ name: "WORLD 1-2", frameColor: COLORS.yellow, textColor: COLORS.cyan },
+	{ name: "WORLD 1-3", frameColor: COLORS.yellow, textColor: COLORS.cyan },
+	{ name: "BOWSER'S CASTLE", frameColor: COLORS.red, textColor: COLORS.red },
+];
 
 class BadlogicGameComponent {
 	private readonly tui: any;
@@ -36,6 +49,8 @@ class BadlogicGameComponent {
 	private jumpQueued = false;
 	private autosaveTimer = 0;
 	private levelClearTimer = 0;
+	private introTimer = 0;
+	private shownHazardAdvice = false;
 	private readonly config: any;
 
 	constructor(tui: any, onClose: () => void, onSave: (state: any) => void, saved?: any) {
@@ -43,7 +58,9 @@ class BadlogicGameComponent {
 		this.onClose = onClose;
 		this.onSave = onSave;
 
+		// Override default config with game-specific values
 		this.config = {
+			...DEFAULT_CONFIG,
 			dt: TICK_MS / 1000,
 			viewportWidth: VIEWPORT_W,
 			walkSpeed: 5.2,
@@ -56,12 +73,30 @@ class BadlogicGameComponent {
 			jumpVel: 15,
 		};
 		const restored = saved ? loadState(saved, { config: this.config }) : null;
-		this.state = restored || createGame({ level: makeLevel(ALL_LEVELS[0]), startX: 1, startY: 13, config: this.config, levelIndex: 1 });
+		if (restored) {
+			this.state = restored;
+		} else {
+			this.state = createGame({ level: makeLevel(ALL_LEVELS[0]), startX: START_X, startY: START_Y, config: this.config, levelIndex: 1 });
+			this.state.mode = "level_intro";
+			this.introTimer = 0;
+		}
 
 		this.interval = setInterval(() => this.tick(), TICK_MS);
 	}
 
 	private tick(): void {
+		// Handle level intro
+		if (this.state.mode === "level_intro") {
+			this.introTimer += TICK_MS / 1000;
+			if (this.introTimer >= LEVEL_INTRO_TIME) {
+				this.state.mode = "playing";
+				this.introTimer = 0;
+			}
+			this.version += 1;
+			this.tui.requestRender();
+			return;
+		}
+
 		const input: any = {};
 		if (this.moveDir < 0) input.left = true;
 		if (this.moveDir > 0) input.right = true;
@@ -69,7 +104,18 @@ class BadlogicGameComponent {
 		if (this.jumpQueued) input.jump = true;
 		this.jumpQueued = false;
 
+		const wasPlaying = this.state.mode === "playing";
+		const prevSize = this.state.player.size;
 		stepGame(this.state, input);
+
+		// Show hazard advice on first death/damage in level 4 (castle with lava/fireballs)
+		if (!this.shownHazardAdvice && this.state.levelIndex === 4 && wasPlaying) {
+			const tookDamage = this.state.mode === "dead" || (prevSize === "big" && this.state.player.size === "small");
+			if (tookDamage) {
+				this.shownHazardAdvice = true;
+				this.state.cue = { text: "TIP: [X] Walk  [S/Down/J] Stop", ttl: 3.0, persist: false };
+			}
+		}
 
 		if (this.state.mode === "playing") {
 			this.autosaveTimer += TICK_MS / 1000;
@@ -101,8 +147,8 @@ class BadlogicGameComponent {
 		const prev = this.state;
 		this.state = createGame({
 			level: makeLevel(ALL_LEVELS[levelNum - 1]),
-			startX: 1,
-			startY: 13,
+			startX: START_X,
+			startY: START_Y,
 			config: this.config,
 			levelIndex: levelNum,
 		});
@@ -112,6 +158,8 @@ class BadlogicGameComponent {
 			this.state.lives = prev.lives;
 			this.state.player.size = prev.player.size;
 		}
+		this.state.mode = "level_intro";
+		this.introTimer = 0;
 		this.levelClearTimer = 0;
 		this.version += 1;
 		this.tui.requestRender();
@@ -125,45 +173,26 @@ class BadlogicGameComponent {
 		if (matchesKey(key, "escape") || key === "q" || key === "Q") {
 			this.onSave(saveState(this.state));
 			this.onClose();
-			return true;
-		}
-		// Number keys 1-9 for level select
-		const num = parseInt(key, 10);
-		if (num >= 1 && num <= 9) {
-			this.goToLevel(num);
-			return true;
-		}
-		if (key === "r" || key === "R") {
+		} else if (key >= "1" && key <= "9") {
+			this.goToLevel(parseInt(key, 10));
+		} else if (key === "r" || key === "R") {
 			this.restart();
-			return true;
-		}
-		if (key === "p" || key === "P") {
+		} else if (key === "p" || key === "P") {
 			const paused = this.state.mode === "paused";
 			setPaused(this.state, !paused);
 			if (this.state.mode === "paused") this.onSave(saveState(this.state));
 			this.version += 1;
 			this.tui.requestRender();
-			return true;
-		}
-		if (key === "x" || key === "X") {
+		} else if (key === "x" || key === "X") {
 			this.runHeld = !this.runHeld;
-			return true;
-		}
-		if (matchesKey(key, "up") || key === " " || key === "z" || key === "Z" || key === "h" || key === "H") {
+		} else if (matchesKey(key, "up") || key === " " || key === "z" || key === "Z" || key === "k" || key === "K") {
 			this.jumpQueued = true;
-			return true;
-		}
-		if (matchesKey(key, "left") || key === "a" || key === "A") {
+		} else if (matchesKey(key, "left") || key === "a" || key === "A" || key === "h" || key === "H") {
 			this.moveDir = -1;
-			return true;
-		}
-		if (matchesKey(key, "right") || key === "d" || key === "l" || key === "D" || key === "L") {
+		} else if (matchesKey(key, "right") || key === "d" || key === "l" || key === "D" || key === "L") {
 			this.moveDir = 1;
-			return true;
-		}
-		if (key === "s" || key === "S") {
+		} else if (matchesKey(key, "down") || key === "s" || key === "S" || key === "j" || key === "J") {
 			this.moveDir = 0;
-			return true;
 		}
 		return true;
 	}
@@ -192,10 +221,50 @@ class BadlogicGameComponent {
 		if (this.cache.version === this.version && this.cache.width === width) return this.cache.lines;
 
 		const lines: string[] = [];
+
+		// Level intro screen with cool frame
+		if (this.state.mode === "level_intro") {
+			const levelNum = this.state.levelIndex;
+			const levelId = `1-${levelNum}`;
+			const meta = LEVEL_META[levelNum - 1] || LEVEL_META[0];
+			const { name: levelName, frameColor, textColor } = meta;
+			const emptyRow = " ".repeat(FRAME_INNER_WIDTH);
+
+			const livesDisplay = `${textColor}<>  x ${this.state.lives}${COLORS.reset}`;
+			const livesLen = 6 + this.state.lives.toString().length;
+
+			// Center content in frame (accounting for color codes)
+			const centerText = (text: string, visLen: number) => {
+				const leftPad = Math.floor((FRAME_INNER_WIDTH - visLen) / 2);
+				const rightPad = FRAME_INNER_WIDTH - visLen - leftPad;
+				return " ".repeat(leftPad) + text + " ".repeat(rightPad);
+			};
+
+			// Build retro frame
+			lines.push("");
+			lines.push("");
+			lines.push(pad(`${frameColor}╔${"═".repeat(FRAME_INNER_WIDTH)}╗${COLORS.reset}`));
+			lines.push(pad(`${frameColor}║${COLORS.reset}${emptyRow}${frameColor}║${COLORS.reset}`));
+			lines.push(pad(`${frameColor}║${COLORS.reset}${centerText(`${textColor}${levelName}${COLORS.reset}`, levelName.length)}${frameColor}║${COLORS.reset}`));
+			lines.push(pad(`${frameColor}║${COLORS.reset}${emptyRow}${frameColor}║${COLORS.reset}`));
+			lines.push(pad(`${frameColor}║${COLORS.reset}${centerText(`${textColor}${levelId}${COLORS.reset}`, 3)}${frameColor}║${COLORS.reset}`));
+			lines.push(pad(`${frameColor}║${COLORS.reset}${emptyRow}${frameColor}║${COLORS.reset}`));
+			lines.push(pad(`${frameColor}║${COLORS.reset}${centerText(livesDisplay, livesLen)}${frameColor}║${COLORS.reset}`));
+			lines.push(pad(`${frameColor}║${COLORS.reset}${emptyRow}${frameColor}║${COLORS.reset}`));
+			lines.push(pad(`${frameColor}╚${"═".repeat(FRAME_INNER_WIDTH)}╝${COLORS.reset}`));
+			lines.push("");
+			lines.push(pad(`${COLORS.gray}[1-4] Select level${COLORS.reset}`));
+			lines.push("");
+
+			this.cache = { lines, width, version: this.version };
+			return lines;
+		}
+
 		lines.push(...renderHud(this.state, minWidth).split("\n").map(pad));
 		lines.push(...renderViewport(this.state, VIEWPORT_W, VIEWPORT_H).split("\n").map(pad));
 		lines.push("");
-		lines.push(pad("[Arrows/AD] Move  [Space/H] Jump  [P] Pause  [R] Restart  [1-3] Level  [Q] Quit"));
+		const toggleHint = this.runHeld ? "[X] Walk" : "[X] Run";
+		lines.push(pad(`[Arrows/HJKL] Move  [Space/K] Jump  ${toggleHint}  [P] Pause  [R] Restart  [1-4] Level  [Q] Quit`));
 		if (this.state.mode === "game_over") lines.push(pad("GAME OVER - [Q] Quit"));
 		if (this.state.mode === "victory") lines.push(pad("YOU WIN! Final Score: " + this.state.score + " - [Q] Quit"));
 

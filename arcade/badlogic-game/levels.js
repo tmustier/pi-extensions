@@ -261,17 +261,142 @@ function buildLevel3() {
 	return grid.map((row) => row.join(""));
 }
 
+/** @returns {string[]} */
+function buildLevel4() {
+	const grid = makeGrid(LEVEL_1_WIDTH, LEVEL_1_HEIGHT, " ");
+
+	// This is Bowser's Castle - lava floor, fireballs, and a boss fight!
+
+	// Lava baseline - deadly floor throughout most of the level
+	fillRow(grid, 14, 0, 20, "L");
+	fillRow(grid, 14, 25, 60, "L");
+	fillRow(grid, 14, 65, 100, "L");
+	fillRow(grid, 14, 105, 130, "L");
+
+	// Safe ground sections
+	fillRow(grid, 14, 0, 8, "C");   // Starting platform
+	fillRow(grid, 14, 131, LEVEL_1_WIDTH - 1, "C");  // Boss arena
+
+	// Segment 1: Opening gauntlet with floating platforms over lava
+	setTile(grid, 10, 12, "C");
+	setTile(grid, 11, 12, "C");
+	setTile(grid, 14, 10, "C");
+	setTile(grid, 15, 10, "C");
+	setTile(grid, 18, 11, "C");
+	setTile(grid, 19, 11, "C");
+
+	// Coins to guide the way
+	setTile(grid, 10, 9, "o");
+	setTile(grid, 14, 7, "o");
+
+	// Segment 2: Bridge section with gaps and goombas
+	fillRow(grid, 11, 22, 35, "C");  // Bridge
+	setTile(grid, 26, 11, " ");  // Gap in bridge
+	setTile(grid, 27, 11, " ");
+	setTile(grid, 30, 10, "E");  // Goomba on bridge
+	setTile(grid, 33, 10, "E");
+
+	// Fireball spawner shooting across the bridge
+	setTile(grid, 22, 9, ">");
+
+	// Segment 3: Vertical climb section
+	setTile(grid, 38, 12, "C");
+	setTile(grid, 39, 12, "C");
+	setTile(grid, 41, 10, "C");
+	setTile(grid, 42, 10, "C");
+	setTile(grid, 44, 8, "C");
+	setTile(grid, 45, 8, "C");
+	setTile(grid, 47, 6, "C");
+	setTile(grid, 48, 6, "C");
+	setTile(grid, 50, 8, "C");
+	setTile(grid, 51, 8, "C");
+	setTile(grid, 53, 10, "C");
+	setTile(grid, 54, 10, "C");
+	setTile(grid, 56, 12, "C");
+	setTile(grid, 57, 12, "C");
+
+	// Power-up for the climb
+	setTile(grid, 47, 4, "?");
+
+	// Segment 4: Descending platforms
+	fillRow(grid, 10, 60, 64, "C");
+
+	setTile(grid, 67, 11, "C");
+	setTile(grid, 68, 11, "C");
+	setTile(grid, 71, 12, "C");
+	setTile(grid, 72, 12, "C");
+	setTile(grid, 75, 11, "C");
+	setTile(grid, 76, 11, "C");
+
+	// Goombas on the descent
+	setTile(grid, 75, 10, "E");
+
+	// Segment 5: Lava corridor with tight jumps
+	setTile(grid, 80, 10, "C");
+	setTile(grid, 83, 11, "C");
+	setTile(grid, 86, 10, "C");
+	setTile(grid, 89, 11, "C");
+	setTile(grid, 92, 10, "C");
+	setTile(grid, 95, 11, "C");
+	setTile(grid, 98, 10, "C");
+
+	// Fireball shooting through the corridor
+	setTile(grid, 84, 9, ">");
+
+	// Segment 6: Final approach to boss
+	fillRow(grid, 12, 102, 110, "C");
+	setTile(grid, 105, 11, "E");
+	setTile(grid, 108, 11, "E");
+
+	// Power-up before boss
+	setTile(grid, 106, 9, "?");
+
+	// Bridge to boss arena
+	fillRow(grid, 12, 112, 130, "C");
+	setTile(grid, 118, 12, " ");  // Gap
+	setTile(grid, 119, 12, " ");
+	setTile(grid, 124, 12, " ");  // Gap
+	setTile(grid, 125, 12, " ");
+
+	// Segment 7: Boss Arena
+	// Solid floor for boss fight
+	fillRow(grid, 13, 131, LEVEL_1_WIDTH - 5, "C");
+
+	// Walls to contain the fight
+	for (let y = 8; y <= 13; y++) {
+		setTile(grid, 131, y, "C");
+	}
+	for (let y = 8; y <= 13; y++) {
+		setTile(grid, LEVEL_1_WIDTH - 5, y, "C");
+	}
+
+	// Bowser!
+	setTile(grid, 145, 12, "W");
+
+	// Fireball spawner in arena
+	setTile(grid, 150, 10, "<");
+
+	// Coins as a reward for entering
+	setTile(grid, 138, 10, "o");
+	setTile(grid, 140, 10, "o");
+	setTile(grid, 142, 10, "o");
+
+	return grid.map((row) => row.join(""));
+}
+
 const LEVEL_1_LINES = buildLevel1();
 const LEVEL_2_LINES = buildLevel2();
 const LEVEL_3_LINES = buildLevel3();
+const LEVEL_4_LINES = buildLevel4();
 
 /** @type {string[][]} */
-const ALL_LEVELS = [LEVEL_1_LINES, LEVEL_2_LINES, LEVEL_3_LINES];
+const ALL_LEVELS = [LEVEL_1_LINES, LEVEL_2_LINES, LEVEL_3_LINES, LEVEL_4_LINES];
 
 module.exports = {
 	LEVEL_1_LINES,
 	LEVEL_2_LINES,
 	LEVEL_3_LINES,
+	LEVEL_4_LINES,
 	ALL_LEVELS,
 	LEVEL_1_WIDTH,
 	LEVEL_1_HEIGHT,

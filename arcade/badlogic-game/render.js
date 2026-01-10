@@ -3,57 +3,13 @@
 
 const { tileGlyph } = require("./tiles.js");
 const { getCameraX } = require("./camera.js");
+const { COLORS: C, colorize } = require("./colors.js");
 
-/**
- * @typedef {Object} Level
- * @property {number} width
- * @property {number} height
- * @property {string[][]} tiles
- */
-
-/**
- * @typedef {Object} PlayerState
- * @property {number} x
- * @property {number} y
- * @property {number} vx
- * @property {number} facing
- * @property {boolean} onGround
- * @property {"small" | "big"} [size]
- * @property {number} [invuln]
- */
-
-/**
- * @typedef {Object} EnemyState
- * @property {number} x
- * @property {number} y
- * @property {boolean} alive
- */
-
-/**
- * @typedef {Object} GameState
- * @property {Level} level
- * @property {PlayerState} player
- * @property {EnemyState[]} enemies
- * @property {ItemState[]} items
- * @property {{ x: number, y: number, life: number }[]} particles
- * @property {{ text: string, ttl: number, persist: boolean } | null} cue
- * @property {{ viewportWidth: number }} config
- * @property {number} cameraX
- * @property {number} tick
- * @property {number} score
- * @property {number} coins
- * @property {number} lives
- * @property {number} time
- * @property {number} levelIndex
- * @property {"small" | "big"} [size]
- */
-
-/**
- * @typedef {Object} ItemState
- * @property {number} x
- * @property {number} y
- * @property {boolean} alive
- */
+/** @typedef {import("./types").GameState} GameState */
+/** @typedef {import("./types").EnemyState} EnemyState */
+/** @typedef {import("./types").ItemState} ItemState */
+/** @typedef {import("./types").FireballState} FireballState */
+/** @typedef {import("./types").BossState} BossState */
 
 // Animation frames for entities
 const PLAYER_FRAMES_SMALL = ["<>", "><"];
@@ -66,9 +22,12 @@ const PLAYER_JUMP_SMALL = "^^";
 const PLAYER_JUMP_BIG_HEAD = "^^";
 const PLAYER_JUMP_BIG_BODY = "[]";
 
-const ENEMY_FRAMES = ["@@", "oo", "@@", "OO"];  // wiggling eyes
-const ITEM_GLYPH = "%}";  // mushroom: stem + cap
-const PARTICLE_GLYPH = "**";
+const ENEMY_FRAMES = [`${C.brown}@@${C.reset}`, `${C.brown}oo${C.reset}`, `${C.brown}@@${C.reset}`, `${C.brown}OO${C.reset}`];
+const ITEM_GLYPH = `${C.red}%}${C.reset}`;  // mushroom
+const PARTICLE_GLYPH = `${C.brightYellow}**${C.reset}`;
+const FIREBALL_FRAMES = [`${C.orange}()${C.reset}`, `${C.brightRed}{}${C.reset}`];
+const BOSS_BODY = [`${C.green}MM${C.reset}`, `${C.green}WW${C.reset}`];
+const BOSS_HEAD = [`${C.green}><${C.reset}`, `${C.green}<>${C.reset}`];
 
 /** @param {GameState} state @returns {string} */
 function getPlayerGlyph(state) {
@@ -76,22 +35,23 @@ function getPlayerGlyph(state) {
 	const tick = state.tick || 0;
 	const isMoving = Math.abs(player.vx) > 0.1;
 	const inAir = !player.onGround;
-	
+	const color = player.size === "big" ? C.brightCyan : C.cyan;
+
 	// Blink when invulnerable
 	if (player.invuln && player.invuln > 0 && Math.floor(tick / 4) % 2 === 0) {
 		return "  ";  // invisible during blink
 	}
-	
+
 	if (player.size === "big") {
-		if (inAir) return PLAYER_JUMP_BIG_BODY;
-		if (!isMoving) return PLAYER_IDLE_BIG_BODY;
+		if (inAir) return colorize(PLAYER_JUMP_BIG_BODY, color);
+		if (!isMoving) return colorize(PLAYER_IDLE_BIG_BODY, color);
 		const frame = Math.floor(tick / 6) % PLAYER_FRAMES_BIG_BODY.length;
-		return PLAYER_FRAMES_BIG_BODY[frame];
+		return colorize(PLAYER_FRAMES_BIG_BODY[frame], color);
 	} else {
-		if (inAir) return PLAYER_JUMP_SMALL;
-		if (!isMoving) return PLAYER_IDLE_SMALL;
+		if (inAir) return colorize(PLAYER_JUMP_SMALL, color);
+		if (!isMoving) return colorize(PLAYER_IDLE_SMALL, color);
 		const frame = Math.floor(tick / 6) % PLAYER_FRAMES_SMALL.length;
-		return PLAYER_FRAMES_SMALL[frame];
+		return colorize(PLAYER_FRAMES_SMALL[frame], color);
 	}
 }
 
@@ -101,16 +61,17 @@ function getPlayerHeadGlyph(state) {
 	const tick = state.tick || 0;
 	const isMoving = Math.abs(player.vx) > 0.1;
 	const inAir = !player.onGround;
-	
+	const color = C.brightCyan;
+
 	// Blink when invulnerable
 	if (player.invuln && player.invuln > 0 && Math.floor(tick / 4) % 2 === 0) {
 		return "  ";
 	}
-	
-	if (inAir) return PLAYER_JUMP_BIG_HEAD;
-	if (!isMoving) return PLAYER_IDLE_BIG_HEAD;
+
+	if (inAir) return colorize(PLAYER_JUMP_BIG_HEAD, color);
+	if (!isMoving) return colorize(PLAYER_IDLE_BIG_HEAD, color);
 	const frame = Math.floor(tick / 6) % PLAYER_FRAMES_BIG_HEAD.length;
-	return PLAYER_FRAMES_BIG_HEAD[frame];
+	return colorize(PLAYER_FRAMES_BIG_HEAD[frame], color);
 }
 
 /** @param {EnemyState} enemy @param {number} tick @returns {string} */
@@ -140,6 +101,8 @@ function renderViewport(state, viewportWidth, viewportHeight) {
 	renderEnemies(rows, state.enemies, cameraX, state.tick);
 	renderItems(rows, state.items, cameraX);
 	renderParticles(rows, state.particles, cameraX);
+	if (state.fireballs) renderFireballs(rows, state.fireballs, cameraX, state.tick);
+	if (state.boss) renderBoss(rows, state.boss, cameraX, state.tick);
 	const px = Math.floor(state.player.x - cameraX);
 	const py = Math.floor(state.player.y);
 	const playerGlyph = getPlayerGlyph(state);
@@ -193,47 +156,70 @@ function renderHud(state, width) {
 	return `${line1}\n${line2}`;
 }
 
+/**
+ * Set a glyph at position if within bounds
+ * @param {string[][]} rows @param {number} x @param {number} y @param {string} glyph
+ */
+function setGlyph(rows, x, y, glyph) {
+	if (y >= 0 && y < rows.length && x >= 0 && x < (rows[0]?.length || 0)) {
+		rows[y][x] = glyph;
+	}
+}
+
 /** @param {string[][]} rows @param {EnemyState[]} enemies @param {number} offsetX @param {number} [tick] */
 function renderEnemies(rows, enemies, offsetX, tick) {
-	const height = rows.length;
-	const width = rows[0] ? rows[0].length : 0;
 	const t = tick || 0;
 	for (const enemy of enemies) {
 		if (!enemy.alive) continue;
-		const ex = Math.floor(enemy.x - offsetX);
-		const ey = Math.floor(enemy.y);
-		if (ey >= 0 && ey < height && ex >= 0 && ex < width) {
-			rows[ey][ex] = getEnemyGlyph(enemy, t);
-		}
+		setGlyph(rows, Math.floor(enemy.x - offsetX), Math.floor(enemy.y), getEnemyGlyph(enemy, t));
 	}
 }
 
 /** @param {string[][]} rows @param {ItemState[]} items @param {number} offsetX */
 function renderItems(rows, items, offsetX) {
-	const height = rows.length;
-	const width = rows[0] ? rows[0].length : 0;
 	for (const item of items) {
 		if (!item.alive) continue;
-		const ix = Math.floor(item.x - offsetX);
-		const iy = Math.floor(item.y);
-		if (iy >= 0 && iy < height && ix >= 0 && ix < width) {
-			rows[iy][ix] = ITEM_GLYPH;
-		}
+		setGlyph(rows, Math.floor(item.x - offsetX), Math.floor(item.y), ITEM_GLYPH);
 	}
 }
 
 /** @param {string[][]} rows @param {{ x: number, y: number, life: number }[]} particles @param {number} offsetX */
 function renderParticles(rows, particles, offsetX) {
-	const height = rows.length;
-	const width = rows[0] ? rows[0].length : 0;
 	for (const p of particles) {
 		if (p.life <= 0) continue;
-		const px = Math.floor(p.x - offsetX);
-		const py = Math.floor(p.y);
-		if (py >= 0 && py < height && px >= 0 && px < width) {
-			rows[py][px] = PARTICLE_GLYPH;
-		}
+		setGlyph(rows, Math.floor(p.x - offsetX), Math.floor(p.y), PARTICLE_GLYPH);
 	}
+}
+
+/** @param {string[][]} rows @param {FireballState[]} fireballs @param {number} offsetX @param {number} [tick] */
+function renderFireballs(rows, fireballs, offsetX, tick) {
+	const t = tick || 0;
+	for (const fb of fireballs) {
+		if (!fb.alive) continue;
+		const frame = Math.floor(t / 4) % FIREBALL_FRAMES.length;
+		setGlyph(rows, Math.floor(fb.x - offsetX), Math.floor(fb.y), FIREBALL_FRAMES[frame]);
+	}
+}
+
+/** @param {string[][]} rows @param {BossState | null} boss @param {number} offsetX @param {number} [tick] */
+function renderBoss(rows, boss, offsetX, tick) {
+	if (!boss || !boss.alive) return;
+	const t = tick || 0;
+
+	// Blink when invulnerable
+	if (boss.invuln > 0 && Math.floor(t / 4) % 2 === 0) {
+		return;
+	}
+
+	const bx = Math.floor(boss.x - offsetX);
+	const by = Math.floor(boss.y);
+	const frame = Math.floor(t / 8) % BOSS_BODY.length;
+
+	// Render boss (2x2)
+	setGlyph(rows, bx, by, BOSS_BODY[frame]);
+	setGlyph(rows, bx + 1, by, BOSS_BODY[frame]);
+	setGlyph(rows, bx, by - 1, BOSS_HEAD[frame]);
+	setGlyph(rows, bx + 1, by - 1, BOSS_HEAD[frame]);
 }
 
 /** @param {string[]} rows @param {{ text: string } | null} cue */
@@ -265,7 +251,6 @@ module.exports = {
 	getEnemyGlyph,
 	getPlayerGlyph,
 	getPlayerHeadGlyph,
-	getCameraX,
 	renderFrame,
 	renderViewport,
 	renderHud,

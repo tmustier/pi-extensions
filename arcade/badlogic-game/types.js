@@ -66,6 +66,39 @@
  */
 
 /**
+ * @typedef {Object} FireballState
+ * @property {number} x
+ * @property {number} y
+ * @property {number} vx
+ * @property {number} vy
+ * @property {boolean} alive
+ * @property {"linear" | "wave"} pattern
+ * @property {number} startY - starting Y for wave pattern
+ */
+
+/**
+ * @typedef {Object} FireballSpawner
+ * @property {number} x
+ * @property {number} y
+ * @property {number} timer
+ * @property {number} interval
+ * @property {number} direction - 1 for right, -1 for left
+ */
+
+/**
+ * @typedef {Object} BossState
+ * @property {number} x
+ * @property {number} y
+ * @property {number} vx
+ * @property {number} vy
+ * @property {boolean} alive
+ * @property {number} health
+ * @property {number} maxHealth
+ * @property {number} invuln
+ * @property {boolean} onGround
+ */
+
+/**
  * @typedef {Object} Cue
  * @property {string} text
  * @property {number} ttl
@@ -90,11 +123,14 @@
  * @property {number} time
  * @property {number} levelIndex
  * @property {boolean} mushroomSpawned
- * @property {"playing" | "paused" | "dead" | "level_clear" | "game_over"} mode
+ * @property {"playing" | "paused" | "dead" | "level_clear" | "game_over" | "level_intro"} mode
  * @property {number} spawnX
  * @property {number} spawnY
  * @property {number} deathTimer
  * @property {boolean} deathJumped
+ * @property {FireballState[]} fireballs
+ * @property {FireballSpawner[]} fireballSpawners
+ * @property {BossState | null} boss
  */
 
 /**
@@ -115,6 +151,54 @@
  * @property {number} [levelIndex]
  */
 
+/** @typedef {"playing" | "paused" | "dead" | "level_clear" | "game_over" | "level_intro"} GameMode */
+
+/**
+ * @typedef {Object} SnapshotPlayerState
+ * @property {number} x
+ * @property {number} y
+ * @property {number} vx
+ * @property {number} vy
+ * @property {boolean} onGround
+ * @property {number} facing
+ * @property {"small" | "big"} size
+ * @property {number} invuln
+ */
+
+/**
+ * @typedef {Object} SnapshotEnemyState
+ * @property {number} x
+ * @property {number} y
+ * @property {number} vx
+ * @property {number} vy
+ * @property {boolean} alive
+ */
+
+/**
+ * @typedef {Object} SnapshotItemState
+ * @property {number} x
+ * @property {number} y
+ * @property {number} vx
+ * @property {number} vy
+ * @property {boolean} alive
+ * @property {boolean} onGround
+ */
+
+/**
+ * @typedef {Object} SnapshotState
+ * @property {number} tick
+ * @property {number} score
+ * @property {number} coins
+ * @property {number} lives
+ * @property {number} time
+ * @property {number} levelIndex
+ * @property {boolean} mushroomSpawned
+ * @property {GameMode} mode
+ * @property {SnapshotPlayerState} player
+ * @property {SnapshotEnemyState[]} enemies
+ * @property {SnapshotItemState[]} items
+ */
+
 /**
  * @typedef {Object} SaveState
  * @property {number} version
@@ -130,9 +214,12 @@
  * @property {boolean} mushroomSpawned
  * @property {number} [spawnX]
  * @property {number} [spawnY]
- * @property {"playing" | "paused" | "dead" | "level_clear" | "game_over"} [mode]
+ * @property {GameMode} [mode]
  * @property {boolean} [paused]
  * @property {boolean} [gameOver]
+ * @property {{ x: number, y: number, vx: number, vy: number, alive: boolean, pattern: "linear" | "wave", startY: number }[]} [fireballs]
+ * @property {{ x: number, y: number, timer: number, interval: number, direction: number }[]} [fireballSpawners]
+ * @property {{ x: number, y: number, vx: number, vy: number, alive: boolean, health: number, maxHealth: number, invuln: number, onGround: boolean } | null} [boss]
  */
 
 module.exports = {};
