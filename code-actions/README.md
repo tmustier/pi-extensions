@@ -35,4 +35,4 @@ Examples:
 
 - Only assistant messages are scanned.
 - Inline code uses single backticks. Code blocks use triple backticks.
-- Inline snippets are included by default but only if they include at least two `/` characters; use `blocks` to show only code blocks.
+- Inline snippets are filtered to path-like content: `~/...`, `./...`, paths with 2+ slashes, or files with extensions. Use `blocks` to show only code blocks.
