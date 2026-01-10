@@ -9,11 +9,18 @@ export type Snippet = {
 	sourceLabel: string;
 };
 
-const INLINE_FILTER = {
-	minSlashCount: 2,
-};
+// ─────────────────────────────────────────────────────────────
+// Constants
+// ─────────────────────────────────────────────────────────────
 
-const IGNORED_INLINE = new Set([
+/** Minimum slashes required for generic path-like content (e.g. `foo/bar/baz`) */
+const MIN_SLASH_COUNT = 2;
+
+/** Matches file extensions like .ts, .html, .json */
+const HAS_FILE_EXTENSION = /\.[a-zA-Z0-9]{1,6}$/;
+
+/** Commands/keywords that appear in inline code but aren't actionable */
+const IGNORED_COMMANDS = new Set([
 	"main",
 	"inline",
 	"blocks",
@@ -60,16 +67,44 @@ export function extractText(content: unknown): string {
 	return text;
 }
 
+// ─────────────────────────────────────────────────────────────
+// Filtering
+// ─────────────────────────────────────────────────────────────
+
+/** Check if content looks like a file path worth extracting */
+function looksLikePath(content: string): boolean {
+	const slashCount = (content.match(/\//g) || []).length;
+
+	// ~/... or commands containing ~/ (e.g. "open ~/file.html")
+	if (/(?:^|[\s"'])~\//.test(content)) return true;
+
+	// ./... (current directory)
+	if (content.startsWith("./")) return true;
+
+	// Absolute paths: /foo/bar (2+ slashes) or /file.html (has extension)
+	if (content.startsWith("/")) {
+		return slashCount >= MIN_SLASH_COUNT || HAS_FILE_EXTENSION.test(content);
+	}
+
+	// Generic: foo/bar/baz requires 2+ slashes
+	return slashCount >= MIN_SLASH_COUNT;
+}
+
 function shouldIncludeInlineSnippet(content: string): boolean {
 	const trimmed = content.trim();
+
+	// Reject: empty, comments, known commands, short identifiers
 	if (trimmed.length === 0) return false;
 	if (trimmed.startsWith("//") || trimmed.startsWith("/*") || trimmed.startsWith("*")) return false;
-	if (IGNORED_INLINE.has(trimmed)) return false;
+	if (IGNORED_COMMANDS.has(trimmed)) return false;
 	if (/^[A-Za-z0-9._-]{1,5}$/.test(trimmed)) return false;
-	const slashCount = (trimmed.match(/\//g) || []).length;
-	if (slashCount < INLINE_FILTER.minSlashCount) return false;
-	return true;
+
+	return looksLikePath(trimmed);
 }
+
+// ─────────────────────────────────────────────────────────────
+// Extraction
+// ─────────────────────────────────────────────────────────────
 
 export function extractSnippets(
 	text: string,
