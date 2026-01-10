@@ -24,7 +24,6 @@ type StatusTracker = {
 	state: StatusState;
 	running: boolean;
 	sawCommit: boolean;
-	sawError: boolean;
 };
 
 const STATUS_TEXT: Record<StatusState, string> = {
@@ -35,7 +34,7 @@ const STATUS_TEXT: Record<StatusState, string> = {
 	timeout: ":🛑",
 };
 
-const INACTIVE_TIMEOUT_MS = 120_000;
+const INACTIVE_TIMEOUT_MS = 180_000;
 const GIT_COMMIT_RE = /\bgit\b[^\n]*\bcommit\b/;
 
 export default function (pi: ExtensionAPI) {
@@ -43,7 +42,6 @@ export default function (pi: ExtensionAPI) {
 		state: "new",
 		running: false,
 		sawCommit: false,
-		sawError: false,
 	};
 	let timeoutId: ReturnType<typeof setTimeout> | undefined;
 	const nativeClearTimeout = globalThis.clearTimeout;
@@ -82,7 +80,6 @@ export default function (pi: ExtensionAPI) {
 	const resetState = (ctx: ExtensionContext, next: StatusState): void => {
 		status.running = false;
 		status.sawCommit = false;
-		status.sawError = false;
 		clearTabTimeout();
 		setTitle(ctx, next);
 	};
@@ -90,7 +87,6 @@ export default function (pi: ExtensionAPI) {
 	const beginRun = (ctx: ExtensionContext): void => {
 		status.running = true;
 		status.sawCommit = false;
-		status.sawError = false;
 		setTitle(ctx, "running");
 		resetTimeout(ctx);
 	};
@@ -103,13 +99,6 @@ export default function (pi: ExtensionAPI) {
 			}
 		}
 		return undefined;
-	};
-
-	const shouldShowTimeout = (stopReason: StopReason | undefined): boolean => {
-		// API errors (e.g., "terminated", rate limits, overloaded) show 🛑
-		if (stopReason === "error") return true;
-		// Tool errors during the run (sawError) also show 🛑 unless user aborted
-		return status.sawError && stopReason !== "aborted";
 	};
 
 	const handlers = [
@@ -157,10 +146,7 @@ export default function (pi: ExtensionAPI) {
 		],
 		[
 			"tool_result",
-			async (event: ToolResultEvent, ctx: ExtensionContext) => {
-				if (event.isError) {
-					status.sawError = true;
-				}
+			async (_event: ToolResultEvent, ctx: ExtensionContext) => {
 				markActivity(ctx);
 			},
 		],
@@ -170,7 +156,7 @@ export default function (pi: ExtensionAPI) {
 				status.running = false;
 				clearTabTimeout();
 				const stopReason = getStopReason(event.messages);
-				if (shouldShowTimeout(stopReason)) {
+				if (stopReason === "error") {
 					setTitle(ctx, "timeout");
 					return;
 				}

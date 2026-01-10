@@ -5,7 +5,7 @@ Manage as many parallel Pis as your mind can handle without forgetting any of th
 Adds little modifiable indicators to tab titles:
 - ✅ means done and committed
 - 🚧 means done without a commit - Pi might need you to answer a question
-- 🛑 means timed out with no messages or tool calls since 120s, or the agent stopped due to an error
+- 🛑 means the agent is blocked (no messages or tool calls for 180s while running) or stopped due to an error
 - `running...` means agent turn in progress - you can check back later
 
 The more tabs you have open, the better it is.
