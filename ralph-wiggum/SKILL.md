@@ -1,6 +1,6 @@
 ---
 name: ralph-wiggum
-description: Long-running iterative development loops with pacing control. Use when tasks require multiple iterations, many discrete steps, or periodic reflection; avoid for simple one-shot tasks or quick fixes.
+description: Long-running iterative development loops with pacing control and verifiable progress. Use when tasks require multiple iterations, many discrete steps, or periodic reflection with clear checkpoints; avoid for simple one-shot tasks or quick fixes.
 ---
 
 # Ralph Wiggum - Long-Running Development Loops
@@ -21,9 +21,10 @@ ralph_start({
 
 1. Save task content to `.ralph/<name>.md`.
 2. Work on the task and update the file each iteration.
-3. Call `ralph_done` to proceed to the next iteration.
-4. Output `<promise>COMPLETE</promise>` when finished.
-5. Stop when complete or when max iterations is reached (default 50).
+3. Record verification evidence (commands run, file paths, outputs) in the task file.
+4. Call `ralph_done` to proceed to the next iteration.
+5. Output `<promise>COMPLETE</promise>` when finished.
+6. Stop when complete or when max iterations is reached (default 50).
 
 ## User Commands
 
@@ -56,6 +57,9 @@ Brief description.
 - [ ] Item 2
 - [x] Completed item
 
+## Verification
+- Evidence, commands run, or file paths
+
 ## Notes
 (Update with progress, decisions, blockers)
 ```
@@ -64,5 +68,6 @@ Brief description.
 
 1. Write a clear checklist with discrete items.
 2. Update checklist and notes as you go.
-3. Reflect when stuck to reassess approach.
-4. Output the completion marker only when truly done.
+3. Capture verification evidence for completed items.
+4. Reflect when stuck to reassess approach.
+5. Output the completion marker only when truly done.
