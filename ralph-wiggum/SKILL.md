@@ -1,18 +1,11 @@
+---
+name: ralph-wiggum
+description: Long-running iterative development loops with pacing control. Use when tasks require multiple iterations, many discrete steps, or periodic reflection; avoid for simple one-shot tasks or quick fixes.
+---
+
 # Ralph Wiggum - Long-Running Development Loops
 
-Long-running iterative development loops with pacing control.
-
-## When to Use
-
-- Complex tasks requiring multiple iterations
-- Tasks with many discrete steps that build on each other
-- Work that benefits from periodic reflection
-
-Do NOT use for simple one-shot tasks or quick fixes.
-
-## Agent Tool
-
-Call `ralph_start` to begin a loop on yourself:
+Use the `ralph_start` tool to begin a loop:
 
 ```
 ralph_start({
@@ -26,26 +19,26 @@ ralph_start({
 
 ## Loop Behavior
 
-1. Task content is saved to `.ralph/<name>.md`
-2. Each iteration: work on task, update file
-3. Call `ralph_done` tool to proceed to next iteration
-4. When complete: output `<promise>COMPLETE</promise>`
-5. Loop ends on completion or max iterations (default 50)
+1. Save task content to `.ralph/<name>.md`.
+2. Work on the task and update the file each iteration.
+3. Call `ralph_done` to proceed to the next iteration.
+4. Output `<promise>COMPLETE</promise>` when finished.
+5. Stop when complete or when max iterations is reached (default 50).
 
 ## User Commands
 
-- `/ralph start <name|path>` - Start a new loop
-- `/ralph resume <name>` - Resume loop
-- `/ralph stop` - Pause loop (when agent idle)
-- `/ralph-stop` - Stop active loop (idle only)
-- `/ralph status` - Show loops
-- `/ralph list --archived` - Show archived loops
-- `/ralph archive <name>` - Move loop to archive
-- `/ralph clean [--all]` - Clean completed loops
-- `/ralph cancel <name>` - Delete loop
-- `/ralph nuke [--yes]` - Delete all .ralph data
+- `/ralph start <name|path>` - Start a new loop.
+- `/ralph resume <name>` - Resume loop.
+- `/ralph stop` - Pause loop (when agent idle).
+- `/ralph-stop` - Stop active loop (idle only).
+- `/ralph status` - Show loops.
+- `/ralph list --archived` - Show archived loops.
+- `/ralph archive <name>` - Move loop to archive.
+- `/ralph clean [--all]` - Clean completed loops.
+- `/ralph cancel <name>` - Delete loop.
+- `/ralph nuke [--yes]` - Delete all .ralph data.
 
-During streaming: press ESC to interrupt, send a normal message to resume, and run `/ralph-stop` when idle to end the loop.
+Press ESC to interrupt streaming, send a normal message to resume, and run `/ralph-stop` when idle to end the loop.
 
 ## Task File Format
 
@@ -69,7 +62,7 @@ Brief description.
 
 ## Best Practices
 
-1. **Clear checklist**: Break work into discrete items
-2. **Update as you go**: Mark items complete, add notes
-3. **Reflect when stuck**: Use reflection to reassess approach
-4. **Complete properly**: Only output completion marker when truly done
+1. Write a clear checklist with discrete items.
+2. Update checklist and notes as you go.
+3. Reflect when stuck to reassess approach.
+4. Output the completion marker only when truly done.
