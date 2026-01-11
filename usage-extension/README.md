@@ -40,6 +40,10 @@ In Pi, run:
 
 Use `Tab` or `←`/`→` to switch between periods.
 
+### Timezone
+
+Time periods are calculated in the local timezone where Pi runs. If you want to override it, set the `TZ` environment variable (IANA timezone, e.g. `TZ=UTC` or `TZ=America/New_York`) before launching Pi.
+
 ### Columns
 
 | Column | Description |
