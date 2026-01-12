@@ -7,7 +7,7 @@ A Pi extension that displays aggregated usage statistics across all sessions.
 ## Compatibility
 
 - **Pi version:** 0.42.4+
-- **Last updated:** 2026-01-10
+- **Last updated:** 2026-01-12
 
 ## Installation
 
@@ -52,7 +52,7 @@ Time periods are calculated in the local timezone where Pi runs. If you want to 
 | **Sessions** | Number of unique sessions |
 | **Msgs** | Number of assistant messages |
 | **Cost** | Total cost in USD (from API response) |
-| **Tokens** | Total tokens (input + output + cache) |
+| **Tokens** | Total tokens (input + output) |
 | **↑In** | Input tokens *(dimmed)* |
 | **↓Out** | Output tokens *(dimmed)* |
 | **Cache** | Cache read + write tokens *(dimmed)* |
@@ -86,11 +86,16 @@ The "Cache" column combines both read and write tokens.
 
 ## Data Source
 
-Statistics are parsed from session files in `~/.pi/agent/sessions/`. Each session is a JSONL file containing message entries with usage data.
+Statistics are parsed from session files in `~/.pi/agent/sessions/`. Each session is a JSONL file containing message entries with usage data. Assistant messages duplicated across branched session files are deduplicated by timestamp + total tokens (matching ccusage).
 
 Respects the `PI_CODING_AGENT_DIR` environment variable if set.
 
 ## Changelog
+
+### 2026-01-12
+- Deduplicate assistant messages across branched sessions to avoid double-counting
+- Tokens total now excludes cache read/write tokens (cache remains in Cache column)
+- Thanks @nicobailon
 
 ### 2026-01-10
 - Initial release
