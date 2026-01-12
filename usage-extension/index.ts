@@ -134,7 +134,10 @@ interface SessionMessage {
 	timestamp: number;
 }
 
-function parseSessionFile(filePath: string): { sessionId: string; messages: SessionMessage[] } | null {
+function parseSessionFile(
+	filePath: string,
+	seenHashes: Set<string>
+): { sessionId: string; messages: SessionMessage[] } | null {
 	try {
 		const content = readFileSync(filePath, "utf8");
 		const lines = content.trim().split("\n");
@@ -151,15 +154,28 @@ function parseSessionFile(filePath: string): { sessionId: string; messages: Sess
 				} else if (entry.type === "message" && entry.message?.role === "assistant") {
 					const msg = entry.message;
 					if (msg.usage && msg.provider && msg.model) {
+						const input = msg.usage.input || 0;
+						const output = msg.usage.output || 0;
+						const cacheRead = msg.usage.cacheRead || 0;
+						const cacheWrite = msg.usage.cacheWrite || 0;
+						const timestamp = msg.timestamp || new Date(entry.timestamp).getTime();
+
+						// Deduplicate by timestamp + total tokens (same as ccusage)
+						// Session files contain many duplicate entries
+						const totalTokens = input + output + cacheRead + cacheWrite;
+						const hash = `${timestamp}:${totalTokens}`;
+						if (seenHashes.has(hash)) continue;
+						seenHashes.add(hash);
+
 						messages.push({
 							provider: msg.provider,
 							model: msg.model,
 							cost: msg.usage.cost?.total || 0,
-							input: msg.usage.input || 0,
-							output: msg.usage.output || 0,
-							cacheRead: msg.usage.cacheRead || 0,
-							cacheWrite: msg.usage.cacheWrite || 0,
-							timestamp: msg.timestamp || new Date(entry.timestamp).getTime(),
+							input,
+							output,
+							cacheRead,
+							cacheWrite,
+							timestamp,
 						});
 					}
 				}
@@ -227,9 +243,10 @@ function collectUsageData(): UsageData {
 	};
 
 	const sessionFiles = getAllSessionFiles();
+	const seenHashes = new Set<string>(); // Deduplicate across all files
 
 	for (const filePath of sessionFiles) {
-		const parsed = parseSessionFile(filePath);
+		const parsed = parseSessionFile(filePath, seenHashes);
 		if (!parsed) continue;
 
 		const { sessionId, messages } = parsed;
@@ -241,7 +258,10 @@ function collectUsageData(): UsageData {
 			if (msg.timestamp >= weekStartMs) periods.push("thisWeek");
 
 			const tokens = {
-				total: msg.input + msg.output + msg.cacheRead + msg.cacheWrite,
+				// Total = input + output only. cacheRead/cacheWrite are tracked separately.
+				// cacheRead tokens were already counted when first sent, so including them
+				// would double-count and massively inflate totals (cache hits repeat every message).
+				total: msg.input + msg.output,
 				input: msg.input,
 				output: msg.output,
 				cache: msg.cacheRead + msg.cacheWrite,
