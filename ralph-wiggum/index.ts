@@ -48,6 +48,9 @@ interface LoopState {
 	itemsPerIteration: number; // Prompt hint only - "process N items per turn"
 	reflectEvery: number; // Reflect every N iterations
 	reflectInstructions: string;
+	compactEvery: number; // Compact context every N iterations (0 = iteration-based disabled)
+	compactThreshold: number; // Compact when context usage exceeds this % (0 = threshold-based disabled)
+	lastCompactAt: number; // Last iteration we compacted at
 	active: boolean; // Backwards compat
 	status: LoopStatus;
 	startedAt: string;
@@ -115,6 +118,10 @@ export default function (pi: ExtensionAPI) {
 		if ("lastReflectionAtItems" in raw && raw.lastReflectionAt === undefined) {
 			raw.lastReflectionAt = (raw as any).lastReflectionAtItems;
 		}
+		// Default compaction settings for old states
+		if (raw.compactEvery === undefined) raw.compactEvery = 0;
+		if (raw.compactThreshold === undefined) raw.compactThreshold = 0;
+		if (raw.lastCompactAt === undefined) raw.lastCompactAt = 0;
 		return raw as LoopState;
 	}
 
@@ -208,11 +215,68 @@ export default function (pi: ExtensionAPI) {
 			const next = state.reflectEvery - ((state.iteration - 1) % state.reflectEvery);
 			lines.push(theme.fg("dim", `Next reflection in: ${next} iterations`));
 		}
+		// Show compaction info
+		if (state.compactEvery > 0 || state.compactThreshold > 0) {
+			const parts: string[] = [];
+			if (state.compactEvery > 0) {
+				const nextCompact = state.compactEvery - ((state.iteration - state.lastCompactAt - 1) % state.compactEvery);
+				parts.push(`every ${state.compactEvery} (next in ${nextCompact})`);
+			}
+			if (state.compactThreshold > 0) {
+				parts.push(`at ${state.compactThreshold}%`);
+			}
+			lines.push(theme.fg("dim", `Auto-compact: ${parts.join(" or ")}`));
+		}
 		// Warning about stopping
 		lines.push("");
 		lines.push(theme.fg("warning", "ESC pauses the assistant"));
 		lines.push(theme.fg("warning", "Send a message to resume; /ralph-stop ends the loop"));
 		ctx.ui.setWidget("ralph", lines);
+	}
+
+	// --- Compaction helpers ---
+
+	function getContextUsagePercent(ctx: ExtensionContext): number {
+		// Try to get context usage from Pi's API if available
+		// Falls back to 0 if not exposed
+		try {
+			const session = (ctx as any).session;
+			if (session?.contextUsage) {
+				const { used, total } = session.contextUsage;
+				return Math.round((used / total) * 100);
+			}
+			// Alternative: check via pi API
+			const piAny = pi as any;
+			if (piAny.getContextUsage) {
+				const usage = piAny.getContextUsage();
+				if (usage?.used && usage?.total) {
+					return Math.round((usage.used / usage.total) * 100);
+				}
+			}
+		} catch {
+			// Context usage not available
+		}
+		return 0;
+	}
+
+	function needsCompaction(state: LoopState, ctx: ExtensionContext): { needed: boolean; reason: string } {
+		// Check iteration-based compaction
+		if (state.compactEvery > 0) {
+			const itersSinceCompact = state.iteration - state.lastCompactAt;
+			if (itersSinceCompact >= state.compactEvery) {
+				return { needed: true, reason: `iteration ${state.iteration} (every ${state.compactEvery})` };
+			}
+		}
+
+		// Check threshold-based compaction
+		if (state.compactThreshold > 0) {
+			const usage = getContextUsagePercent(ctx);
+			if (usage >= state.compactThreshold) {
+				return { needed: true, reason: `context at ${usage}% (threshold: ${state.compactThreshold}%)` };
+			}
+		}
+
+		return { needed: false, reason: "" };
 	}
 
 	// --- Prompt building ---
@@ -248,6 +312,10 @@ export default function (pi: ExtensionAPI) {
 
 	// --- Arg parsing ---
 
+	// Compaction defaults: compact every 10 iterations OR when context hits 70%
+	const DEFAULT_COMPACT_EVERY = 10;
+	const DEFAULT_COMPACT_THRESHOLD = 70;
+
 	function parseArgs(argsStr: string) {
 		const tokens = argsStr.match(/(?:[^\s"]+|"[^"]*")+/g) || [];
 		const result = {
@@ -256,6 +324,8 @@ export default function (pi: ExtensionAPI) {
 			itemsPerIteration: 0,
 			reflectEvery: 0,
 			reflectInstructions: DEFAULT_REFLECT_INSTRUCTIONS,
+			compactEvery: DEFAULT_COMPACT_EVERY,
+			compactThreshold: DEFAULT_COMPACT_THRESHOLD,
 		};
 
 		for (let i = 0; i < tokens.length; i++) {
@@ -273,6 +343,15 @@ export default function (pi: ExtensionAPI) {
 			} else if (tok === "--reflect-instructions" && next) {
 				result.reflectInstructions = next.replace(/^"|"$/g, "");
 				i++;
+			} else if (tok === "--compact-every" && next) {
+				result.compactEvery = parseInt(next, 10) || 0;
+				i++;
+			} else if (tok === "--compact-threshold" && next) {
+				result.compactThreshold = parseInt(next, 10) || 0;
+				i++;
+			} else if (tok === "--no-compact") {
+				result.compactEvery = 0;
+				result.compactThreshold = 0;
 			} else if (!tok.startsWith("--")) {
 				result.name = tok;
 			}
@@ -318,6 +397,9 @@ export default function (pi: ExtensionAPI) {
 				itemsPerIteration: args.itemsPerIteration,
 				reflectEvery: args.reflectEvery,
 				reflectInstructions: args.reflectInstructions,
+				compactEvery: args.compactEvery,
+				compactThreshold: args.compactThreshold,
+				lastCompactAt: 0,
 				active: true,
 				status: "active",
 				startedAt: existing?.startedAt || new Date().toISOString(),
@@ -547,12 +629,17 @@ Options:
   --items-per-iteration N  Suggest N items per turn (prompt hint)
   --reflect-every N        Reflect every N iterations
   --max-iterations N       Stop after N iterations (default 50)
+  --compact-every N        Compact context every N iterations (default 10)
+  --compact-threshold N    Compact when context exceeds N% (default 70)
+  --no-compact             Disable auto-compaction
 
 To stop: press ESC to interrupt, then run /ralph-stop when idle
 
 Examples:
   /ralph start my-feature
-  /ralph start review --items-per-iteration 5 --reflect-every 10`;
+  /ralph start review --items-per-iteration 5 --reflect-every 10
+  /ralph start big-refactor --compact-every 5 --compact-threshold 60
+  /ralph start quick-fix --no-compact`;
 
 	pi.registerCommand("ralph", {
 		description: "Ralph Wiggum - long-running development loops",
@@ -601,13 +688,15 @@ Examples:
 	pi.registerTool({
 		name: "ralph_start",
 		label: "Start Ralph Loop",
-		description: "Start a long-running development loop. Use for complex multi-iteration tasks.",
+		description: "Start a long-running development loop. Use for complex multi-iteration tasks. Auto-compacts context every 10 iterations or when context exceeds 70% by default.",
 		parameters: Type.Object({
 			name: Type.String({ description: "Loop name (e.g., 'refactor-auth')" }),
 			taskContent: Type.String({ description: "Task in markdown with goals and checklist" }),
 			itemsPerIteration: Type.Optional(Type.Number({ description: "Suggest N items per turn (0 = no limit)" })),
 			reflectEvery: Type.Optional(Type.Number({ description: "Reflect every N iterations" })),
 			maxIterations: Type.Optional(Type.Number({ description: "Max iterations (default: 50)", default: 50 })),
+			compactEvery: Type.Optional(Type.Number({ description: "Compact context every N iterations (default: 10, 0 = disabled)" })),
+			compactThreshold: Type.Optional(Type.Number({ description: "Compact when context exceeds N% (default: 70, 0 = disabled)" })),
 		}),
 		async execute(_toolCallId, params, _onUpdate, ctx) {
 			const loopName = sanitize(params.name);
@@ -629,6 +718,9 @@ Examples:
 				itemsPerIteration: params.itemsPerIteration ?? 0,
 				reflectEvery: params.reflectEvery ?? 0,
 				reflectInstructions: DEFAULT_REFLECT_INSTRUCTIONS,
+				compactEvery: params.compactEvery ?? DEFAULT_COMPACT_EVERY,
+				compactThreshold: params.compactThreshold ?? DEFAULT_COMPACT_THRESHOLD,
+				lastCompactAt: 0,
 				active: true,
 				status: "active",
 				startedAt: new Date().toISOString(),
@@ -641,8 +733,11 @@ Examples:
 
 			pi.sendUserMessage(buildPrompt(state, params.taskContent, false), { deliverAs: "followUp" });
 
+			const compactInfo = state.compactEvery > 0 || state.compactThreshold > 0
+				? ` Auto-compact: every ${state.compactEvery} iters or at ${state.compactThreshold}% context.`
+				: "";
 			return {
-				content: [{ type: "text", text: `Started loop "${loopName}" (max ${state.maxIterations} iterations).` }],
+				content: [{ type: "text", text: `Started loop "${loopName}" (max ${state.maxIterations} iterations).${compactInfo}` }],
 				details: {},
 			};
 		},
@@ -689,6 +784,15 @@ Examples:
 			const needsReflection = state.reflectEvery > 0 && (state.iteration - 1) % state.reflectEvery === 0;
 			if (needsReflection) state.lastReflectionAt = state.iteration;
 
+			// Check if we need to compact context
+			const compaction = needsCompaction(state, ctx);
+			if (compaction.needed) {
+				state.lastCompactAt = state.iteration;
+				if (ctx.hasUI) {
+					ctx.ui.notify(`Compacting context: ${compaction.reason}`, "info");
+				}
+			}
+
 			saveState(ctx, state);
 			updateUI(ctx);
 
@@ -698,11 +802,15 @@ Examples:
 				return { content: [{ type: "text", text: `Error: Could not read task file: ${state.taskFile}` }], details: {} };
 			}
 
-			// Queue next iteration - use followUp so user can still interrupt
+			// Queue compaction first if needed, then the next iteration prompt
+			if (compaction.needed) {
+				pi.sendUserMessage("/compact", { deliverAs: "followUp" });
+			}
 			pi.sendUserMessage(buildPrompt(state, content, needsReflection), { deliverAs: "followUp" });
 
+			const compactMsg = compaction.needed ? ` Compacting first (${compaction.reason}).` : "";
 			return {
-				content: [{ type: "text", text: `Iteration ${state.iteration - 1} complete. Next iteration queued.` }],
+				content: [{ type: "text", text: `Iteration ${state.iteration - 1} complete.${compactMsg} Next iteration queued.` }],
 				details: {},
 			};
 		},

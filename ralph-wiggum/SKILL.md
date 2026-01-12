@@ -1,6 +1,6 @@
 ---
 name: ralph-wiggum
-description: Long-running iterative development loops with pacing control and verifiable progress. Use when tasks require multiple iterations, many discrete steps, or periodic reflection with clear checkpoints; avoid for simple one-shot tasks or quick fixes.
+description: Long-running iterative development loops with pacing control, auto-compaction, and verifiable progress. Use when tasks require multiple iterations, many discrete steps, or periodic reflection with clear checkpoints; avoid for simple one-shot tasks or quick fixes.
 ---
 
 # Ralph Wiggum - Long-Running Development Loops
@@ -13,7 +13,9 @@ ralph_start({
   taskContent: "# Task\n\n## Goals\n- Goal 1\n\n## Checklist\n- [ ] Item 1\n- [ ] Item 2",
   maxIterations: 50,        // Default: 50
   itemsPerIteration: 3,     // Optional: suggest N items per turn
-  reflectEvery: 10          // Optional: reflect every N iterations
+  reflectEvery: 10,         // Optional: reflect every N iterations
+  compactEvery: 10,         // Default: 10 (0 to disable)
+  compactThreshold: 70      // Default: 70% (0 to disable)
 })
 ```
 
@@ -25,6 +27,14 @@ ralph_start({
 4. Call `ralph_done` to proceed to the next iteration.
 5. Output `<promise>COMPLETE</promise>` when finished.
 6. Stop when complete or when max iterations is reached (default 50).
+
+## Auto-Compaction
+
+Ralph automatically triggers `/compact` to prevent context overflow during long loops:
+- **Iteration-based**: Every N iterations (default: 10)
+- **Threshold-based**: When context usage exceeds N% (default: 70%)
+
+Compaction runs whichever condition is met first. Disable with `--no-compact` or set both to 0.
 
 ## User Commands
 

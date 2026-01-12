@@ -5,6 +5,7 @@ This one is cool because:
 - You can ask Pi and it will set up and run the loop all by itself in-session. If you prefer, it can also invoke another Pi via tmux
 - You can have multiple parallel loops at once in the same repo (unlike OG ralph-wiggum)
 - You can ask Pi to self-reflect at regular intervals so it doesn't mindlessly grind through wrong instructions (optional)
+- **Auto-compaction**: Automatically runs `/compact` to prevent context overflow during long loops (every 10 iterations or at 70% context by default)
 
 <img width="432" height="357" alt="Screenshot 2026-01-07 at 17 16 24" src="https://github.com/user-attachments/assets/68cdab11-76c6-4aed-9ea1-558cbb267ea6" />
 
@@ -48,6 +49,9 @@ If you hit `esc`, you can run `/ralph-stop` to clear the loop. Alternatively, ju
 | `--max-iterations N` | Stop after N iterations (default 50) |
 | `--items-per-iteration N` | Suggest N items per turn (prompt hint) |
 | `--reflect-every N` | Reflect every N iterations |
+| `--compact-every N` | Compact context every N iterations (default 10) |
+| `--compact-threshold N` | Compact when context exceeds N% (default 70) |
+| `--no-compact` | Disable auto-compaction |
 
 ## Agent Tool
 
@@ -59,9 +63,13 @@ ralph_start({
   taskContent: "# Task\n\n## Checklist\n- [ ] Item 1",
   maxIterations: 50,
   itemsPerIteration: 3,
-  reflectEvery: 10
+  reflectEvery: 10,
+  compactEvery: 10,      // default: 10 (0 to disable)
+  compactThreshold: 70   // default: 70 (0 to disable)
 })
 ```
+
+Auto-compaction triggers `/compact` when either condition is met, preventing context overflow during long-running loops.
 
 ## Credits
 
