@@ -7,7 +7,7 @@ A Pi extension that displays aggregated usage statistics across all sessions.
 ## Compatibility
 
 - **Pi version:** 0.42.4+
-- **Last updated:** 2026-01-10
+- **Last updated:** 2026-01-12
 
 ## Installation
 
@@ -90,7 +90,19 @@ Statistics are parsed from session files in `~/.pi/agent/sessions/`. Each sessio
 
 Respects the `PI_CODING_AGENT_DIR` environment variable if set.
 
+### Deduplication
+
+When Pi branches a session, it copies the full conversation history into the new session file. To avoid counting the same API calls multiple times, messages are deduplicated across all session files using a hash of `timestamp:totalTokens` (matching the approach used by [ccusage](https://github.com/ryoppippi/ccusage)).
+
+### Token Calculation
+
+The **Tokens** column shows `input + output` tokens only. Cache tokens (read + write) are displayed separately in the **Cache** column and are not included in the total, since cache read tokens represent data that was already counted when originally sent.
+
 ## Changelog
+
+### 2026-01-12
+- Fixed duplicate message counting from branched sessions ([#5](https://github.com/nicobailon/pi-extensions/pull/5))
+- Fixed token totals to exclude cache read tokens (which inflate totals on cache hits)
 
 ### 2026-01-10
 - Initial release
