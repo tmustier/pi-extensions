@@ -9,8 +9,8 @@
 
 import type { ExtensionAPI, ExtensionCommandContext, Theme } from "@mariozechner/pi-coding-agent";
 import { DynamicBorder } from "@mariozechner/pi-coding-agent";
-import { Container, Spacer, matchesKey, visibleWidth, truncateToWidth } from "@mariozechner/pi-tui";
-import { readFileSync, existsSync, readdirSync } from "node:fs";
+import { CancellableLoader, Container, Spacer, matchesKey, visibleWidth, truncateToWidth } from "@mariozechner/pi-tui";
+import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
@@ -96,21 +96,22 @@ function getSessionsDir(): string {
 	return join(agentDir, "sessions");
 }
 
-function getAllSessionFiles(): string[] {
+async function getAllSessionFiles(signal?: AbortSignal): Promise<string[]> {
 	const sessionsDir = getSessionsDir();
 	const files: string[] = [];
 
-	if (!existsSync(sessionsDir)) return files;
-
 	try {
-		const cwdDirs = readdirSync(sessionsDir, { withFileTypes: true });
+		const cwdDirs = await readdir(sessionsDir, { withFileTypes: true });
 		for (const dir of cwdDirs) {
+			if (signal?.aborted) return files;
 			if (!dir.isDirectory()) continue;
 			const cwdPath = join(sessionsDir, dir.name);
 			try {
-				const sessionFiles = readdirSync(cwdPath).filter((f) => f.endsWith(".jsonl"));
+				const sessionFiles = await readdir(cwdPath);
 				for (const file of sessionFiles) {
-					files.push(join(cwdPath, file));
+					if (file.endsWith(".jsonl")) {
+						files.push(join(cwdPath, file));
+					}
 				}
 			} catch {
 				// Skip directories we can't read
@@ -134,17 +135,24 @@ interface SessionMessage {
 	timestamp: number;
 }
 
-function parseSessionFile(
+async function parseSessionFile(
 	filePath: string,
-	seenHashes: Set<string>
-): { sessionId: string; messages: SessionMessage[] } | null {
+	seenHashes: Set<string>,
+	signal?: AbortSignal
+): Promise<{ sessionId: string; messages: SessionMessage[] } | null> {
 	try {
-		const content = readFileSync(filePath, "utf8");
+		const content = await readFile(filePath, "utf8");
+		if (signal?.aborted) return null;
 		const lines = content.trim().split("\n");
 		const messages: SessionMessage[] = [];
 		let sessionId = "";
 
-		for (const line of lines) {
+		for (let i = 0; i < lines.length; i++) {
+			if (signal?.aborted) return null;
+			if (i % 500 === 0) {
+				await new Promise<void>((resolve) => setImmediate(resolve));
+			}
+			const line = lines[i]!;
 			if (!line.trim()) continue;
 			try {
 				const entry = JSON.parse(line);
@@ -158,7 +166,8 @@ function parseSessionFile(
 						const output = msg.usage.output || 0;
 						const cacheRead = msg.usage.cacheRead || 0;
 						const cacheWrite = msg.usage.cacheWrite || 0;
-						const timestamp = msg.timestamp || new Date(entry.timestamp).getTime();
+						const fallbackTs = entry.timestamp ? new Date(entry.timestamp).getTime() : 0;
+						const timestamp = msg.timestamp || (Number.isNaN(fallbackTs) ? 0 : fallbackTs);
 
 						// Deduplicate by timestamp + total tokens (same as ccusage)
 						// Session files contain many duplicate entries
@@ -223,7 +232,7 @@ function emptyTimeFilteredStats(): TimeFilteredStats {
 	};
 }
 
-function collectUsageData(): UsageData {
+async function collectUsageData(signal?: AbortSignal): Promise<UsageData | null> {
 	const startOfToday = new Date();
 	startOfToday.setHours(0, 0, 0, 0);
 	const todayMs = startOfToday.getTime();
@@ -242,17 +251,21 @@ function collectUsageData(): UsageData {
 		allTime: emptyTimeFilteredStats(),
 	};
 
-	const sessionFiles = getAllSessionFiles();
+	const sessionFiles = await getAllSessionFiles(signal);
+	if (signal?.aborted) return null;
 	const seenHashes = new Set<string>(); // Deduplicate across all files
 
 	for (const filePath of sessionFiles) {
-		const parsed = parseSessionFile(filePath, seenHashes);
+		if (signal?.aborted) return null;
+		const parsed = await parseSessionFile(filePath, seenHashes, signal);
+		if (signal?.aborted) return null;
 		if (!parsed) continue;
 
 		const { sessionId, messages } = parsed;
 		const sessionContributed = { today: false, thisWeek: false, allTime: false };
 
 		for (const msg of messages) {
+			if (signal?.aborted) return null;
 			const periods: TabName[] = ["allTime"];
 			if (msg.timestamp >= todayMs) periods.push("today");
 			if (msg.timestamp >= weekStartMs) periods.push("thisWeek");
@@ -301,6 +314,8 @@ function collectUsageData(): UsageData {
 		if (sessionContributed.today) data.today.totals.sessions++;
 		if (sessionContributed.thisWeek) data.thisWeek.totals.sessions++;
 		if (sessionContributed.allTime) data.allTime.totals.sessions++;
+
+		await new Promise<void>((resolve) => setImmediate(resolve));
 	}
 
 	return data;
@@ -367,11 +382,11 @@ class UsageComponent {
 	private requestRender: () => void;
 	private done: () => void;
 
-	constructor(theme: Theme, requestRender: () => void, done: () => void) {
+	constructor(theme: Theme, data: UsageData, requestRender: () => void, done: () => void) {
 		this.theme = theme;
 		this.requestRender = requestRender;
 		this.done = done;
-		this.data = collectUsageData();
+		this.data = data;
 		this.updateProviderOrder();
 	}
 
@@ -554,6 +569,38 @@ export default function (pi: ExtensionAPI) {
 	pi.registerCommand("usage", {
 		description: "Show usage statistics dashboard",
 		handler: async (_args: string, ctx: ExtensionCommandContext) => {
+			if (!ctx.hasUI) {
+				return;
+			}
+
+			const data = await ctx.ui.custom<UsageData | null>((tui, theme, _kb, done) => {
+				const loader = new CancellableLoader(
+					tui,
+					(s: string) => theme.fg("accent", s),
+					(s: string) => theme.fg("muted", s),
+					"Loading Usage..."
+				);
+				let finished = false;
+				const finish = (value: UsageData | null) => {
+					if (finished) return;
+					finished = true;
+					loader.dispose();
+					done(value);
+				};
+
+				loader.onAbort = () => finish(null);
+
+				collectUsageData(loader.signal)
+					.then(finish)
+					.catch(() => finish(null));
+
+				return loader;
+			});
+
+			if (!data) {
+				return;
+			}
+
 			await ctx.ui.custom<void>((tui, theme, _kb, done) => {
 				const container = new Container();
 
@@ -562,7 +609,7 @@ export default function (pi: ExtensionAPI) {
 				container.addChild(new DynamicBorder((s: string) => theme.fg("border", s)));
 				container.addChild(new Spacer(1));
 
-				const usage = new UsageComponent(theme, () => tui.requestRender(), () => done());
+				const usage = new UsageComponent(theme, data, () => tui.requestRender(), () => done());
 
 				return {
 					render: (w: number) => {
@@ -572,7 +619,7 @@ export default function (pi: ExtensionAPI) {
 						return [...borderLines, ...usageLines, "", bottomBorder];
 					},
 					invalidate: () => container.invalidate(),
-					handleInput: (data: string) => usage.handleInput(data),
+					handleInput: (input: string) => usage.handleInput(input),
 					dispose: () => {},
 				};
 			});
