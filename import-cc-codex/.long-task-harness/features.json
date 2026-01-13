@@ -1,0 +1,120 @@
+{
+  "version": "2.0",
+  "description": "Feature checklist with history tracking for session continuity",
+  "metadata": {
+    "project_name": "import-cc-codex",
+    "created": "2026-01-13",
+    "last_updated": "2026-01-13",
+    "total_features": 6,
+    "completed_features": 0
+  },
+  "features": [
+    {
+      "id": "imp-001",
+      "name": "CLI import by path (phase 1)",
+      "description": "Import a Claude Code or Codex transcript from a provided path into a Pi session and open it immediately",
+      "steps": [
+        "Add CLI entrypoint: pi --import <path> with optional --source claude|codex",
+        "Auto-detect source when --source is omitted",
+        "Write a Pi session JSONL (v3) under current project sessions dir",
+        "Open imported session with a status banner"
+      ],
+      "passes": false,
+      "notes": "Developer-only v0 path for testing",
+      "history": {
+        "sessions": [],
+        "files": [],
+        "decisions": []
+      }
+    },
+    {
+      "id": "imp-002",
+      "name": "Transcript parsing + message mapping",
+      "description": "Parse CC/Codex transcripts into Pi message entries with tool mapping and summary handling",
+      "steps": [
+        "CC parser: user/assistant messages, tool_use/tool_result, summary handling",
+        "Codex parser: response_item messages, function_call/function_call_output",
+        "Resolve missing tool names with unknown:<short-id> fallback",
+        "Handle thinking blocks, missing images, aborted assistant messages"
+      ],
+      "passes": false,
+      "notes": "Preserve raw tool output; optional JSON parse while keeping raw",
+      "history": {
+        "sessions": [],
+        "files": [],
+        "decisions": []
+      }
+    },
+    {
+      "id": "imp-003",
+      "name": "Usage exclusion + context estimate",
+      "description": "Exclude imported usage from totals and provide stable context % before first new response",
+      "steps": [
+        "Record import metadata + imported range in custom entry",
+        "Skip imported assistant usage in /session stats and footer totals",
+        "Use deterministic estimate across imported messages for context %",
+        "Normalize timestamps when out-of-order while storing originals"
+      ],
+      "passes": false,
+      "notes": "Preserve provenance while keeping UI order stable",
+      "history": {
+        "sessions": [],
+        "files": [],
+        "decisions": []
+      }
+    },
+    {
+      "id": "imp-004",
+      "name": "Imported session labeling + metadata",
+      "description": "Make imports obvious and preserve source metadata without altering session semantics",
+      "steps": [
+        "Add session_info entry with source label",
+        "Add custom import metadata (sourcePath, originalCwd, sourceSessionId)",
+        "Surface original cwd in session display name",
+        "Show banner on import load"
+      ],
+      "passes": false,
+      "notes": "Avoid parentSession linkage; use custom metadata",
+      "history": {
+        "sessions": [],
+        "files": [],
+        "decisions": []
+      }
+    },
+    {
+      "id": "imp-005",
+      "name": "Tool output redaction (opt-out)",
+      "description": "Redact obvious secrets in tool outputs by default with a flag to disable",
+      "steps": [
+        "Define redaction patterns (tokens/keys/Authorization)",
+        "Apply redaction during import mapping",
+        "Expose opt-out flag"
+      ],
+      "passes": false,
+      "notes": "Balance privacy with debugging fidelity",
+      "history": {
+        "sessions": [],
+        "files": [],
+        "decisions": []
+      }
+    },
+    {
+      "id": "imp-006",
+      "name": "In-session /import selector (phase 2)",
+      "description": "Add /import command with /resume-like UI and Claude/Codex indicators",
+      "steps": [
+        "Add /import command with cwd/all toggle and lazy loading",
+        "Mirror /resume list formatting + columns",
+        "Add Claude/Codex badge/prefix in list",
+        "Search uses first user message + summary text fields"
+      ],
+      "passes": false,
+      "notes": "Phase 2; depends on phase 1 import pipeline",
+      "history": {
+        "sessions": [],
+        "files": [],
+        "decisions": []
+      }
+    }
+  ]
+}
