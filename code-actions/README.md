@@ -36,3 +36,7 @@ Examples:
 - Only assistant messages are scanned.
 - Inline code uses single backticks. Code blocks use triple backticks.
 - Inline snippets are filtered to path-like content: `~/...`, `./...`, paths with 2+ slashes, or files with extensions. Use `blocks` to show only code blocks.
+
+## Changelog
+
+See `CHANGELOG.md`.

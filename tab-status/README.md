@@ -30,3 +30,7 @@ Or add to `~/.pi/agent/settings.json`:
 
 - [x] Status indicators in terminal tabs
 - [ ] Central location to view and navigate to specific tabs across terminal windows
+
+## Changelog
+
+See `CHANGELOG.md`.

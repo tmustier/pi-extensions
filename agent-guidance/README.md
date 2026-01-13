@@ -71,3 +71,7 @@ Create `~/.pi/agent/agent-guidance.json`:
   "models": { "claude-3-5*": ["CLAUDE-3-5.md"] }
 }
 ```
+
+## Changelog
+
+See `CHANGELOG.md`.

@@ -48,3 +48,7 @@ Or add to `~/.pi/agent/settings.json`:
 }
 ```
 
+## Changelog
+
+See `CHANGELOG.md`.
+

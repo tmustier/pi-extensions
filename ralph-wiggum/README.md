@@ -66,3 +66,7 @@ ralph_start({
 ## Credits
 
 Based on Geoffrey Huntley's Ralph Wiggum approach for long-running agent tasks.
+
+## Changelog
+
+See `CHANGELOG.md`.

@@ -23,3 +23,7 @@ Optional: add your own keybinding in `raw-paste/index.ts` if your terminal suppo
 
 - Terminal.app and Warp intercept `Cmd+V` and `Cmd+Shift+V`, so the extension cannot see those keys.
 - Use `/rawpaste` before pasting in those terminals.
+
+## Changelog
+
+See `CHANGELOG.md`.
