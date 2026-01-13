@@ -93,6 +93,8 @@ Respects the `PI_CODING_AGENT_DIR` environment variable if set.
 ## Changelog
 
 ### 2026-01-12
+- Add loading spinner while parsing session files (Esc to cancel)
+- Make data loading async to keep UI responsive
 - Deduplicate assistant messages across branched sessions to avoid double-counting
 - Tokens total now excludes cache read/write tokens (cache remains in Cache column)
 - Thanks @nicobailon
