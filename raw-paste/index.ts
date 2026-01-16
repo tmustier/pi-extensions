@@ -1,5 +1,4 @@
 import { CustomEditor, type ExtensionAPI, type ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { matchesKey } from "@mariozechner/pi-tui";
 
 const PASTE_START = "\x1b[200~";
 const PASTE_END = "\x1b[201~";
@@ -12,11 +11,12 @@ class RawPasteEditor extends CustomEditor {
 	private onArm?: () => void;
 
 	constructor(
-		theme: ConstructorParameters<typeof CustomEditor>[0],
-		keybindings: ConstructorParameters<typeof CustomEditor>[1],
+		tui: ConstructorParameters<typeof CustomEditor>[0],
+		theme: ConstructorParameters<typeof CustomEditor>[1],
+		keybindings: ConstructorParameters<typeof CustomEditor>[2],
 		onArm?: () => void,
 	) {
-		super(theme, keybindings);
+		super(tui, theme, keybindings);
 		this.onArm = onArm;
 	}
 
@@ -96,8 +96,8 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_start", (_event, ctx) => {
 		if (!ctx.hasUI) return;
 
-		ctx.ui.setEditorComponent((_tui, theme, keybindings) => {
-			editor = new RawPasteEditor(theme, keybindings, () => notifyArmed(ctx));
+		ctx.ui.setEditorComponent((tui, theme, keybindings) => {
+			editor = new RawPasteEditor(tui, theme, keybindings, () => notifyArmed(ctx));
 			return editor;
 		});
 	});
