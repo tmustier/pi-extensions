@@ -1,7 +1,7 @@
-# Badlogic Game Spec (Mario-Style TUI)
+# Mario-Not Spec (Mario-Style TUI)
 
 - Status: Draft
-- Command: `/badlogic-game`
+- Command: `/mario-not`
 - Goals:
   - A fast-boot, Mario-like platformer in the TUI that feels playable in under 10 seconds.
   - Clear, verifiable behavior for each system so implementation can be incremental.
@@ -18,7 +18,7 @@
         - Resume saved run instantly without menus; avoid accidental movement.
         - Show controls briefly without blocking play.
       - Implementation details:
-        - On `/badlogic-game`, load saved state if present; set `paused=true` and render immediately.
+        - On `/mario-not`, load saved state if present; set `paused=true` and render immediately.
         - Resume on first non-quit input; do not show multi-screen menus.
         - If no save, start Level 1 at the start position with `paused=false` after first render.
         - Keep assets in code; no file/network I/O; precompute tilemaps at startup.

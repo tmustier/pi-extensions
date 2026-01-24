@@ -1,11 +1,11 @@
-# badlogic-game (experimental)
+# mario-not (experimental)
 
 Mario-style TUI platformer. This project is experimental and tuning is in flux.
 
 ## Run
 
-- Command: `/badlogic-game`
-- Extension entrypoint: `arcade/badlogic-game/badlogic-game.ts`
+- Command: `/mario-not`
+- Extension entrypoint: `arcade/mario-not/mario-not.ts`
 
 ## Controls
 
@@ -21,10 +21,10 @@ Mario-style TUI platformer. This project is experimental and tuning is in flux.
 Tests:
 
 ```bash
-node --test arcade/badlogic-game/tests/*.test.js
-npx tsc --noEmit -p arcade/badlogic-game/tsconfig.json
+node --test arcade/mario-not/tests/*.test.js
+npx tsc --noEmit -p arcade/mario-not/tsconfig.json
 ```
 
 Spec:
 
-- `arcade/badlogic-game/spec.md`
+- `arcade/mario-not/spec.md`

@@ -6,7 +6,7 @@
 - **picman** (`/picman`)
 - **ping** (`/ping`) - in a similar vein to [patriceckhart's](https://github.com/patriceckhart/pi-ng-pong)
 - **tetris** (`/tetris`)
-- **badlogic-game** (`/badlogic-game`) - Mario-style platformer (experimental)
+- **mario-not** (`/mario-not`) - Mario-style platformer (experimental)
 
 <table>
   <tr>
@@ -39,7 +39,7 @@ Then filter to just the games in `~/.pi/agent/settings.json`:
         "arcade/picman.ts",
         "arcade/ping.ts",
         "arcade/tetris.ts",
-        "arcade/badlogic-game/badlogic-game.ts"
+        "arcade/mario-not/mario-not.ts"
       ]
     }
   ]
@@ -51,14 +51,14 @@ Then filter to just the games in `~/.pi/agent/settings.json`:
 ```bash
 # All games
 ln -s ~/pi-extensions/arcade/*.ts ~/.pi/agent/extensions/
-ln -s ~/pi-extensions/arcade/badlogic-game/badlogic-game.ts ~/.pi/agent/extensions/
+ln -s ~/pi-extensions/arcade/mario-not/mario-not.ts ~/.pi/agent/extensions/
 
 # Or individual games
 ln -s ~/pi-extensions/arcade/spice-invaders.ts ~/.pi/agent/extensions/
 ln -s ~/pi-extensions/arcade/picman.ts ~/.pi/agent/extensions/
 ln -s ~/pi-extensions/arcade/ping.ts ~/.pi/agent/extensions/
 ln -s ~/pi-extensions/arcade/tetris.ts ~/.pi/agent/extensions/
-ln -s ~/pi-extensions/arcade/badlogic-game/badlogic-game.ts ~/.pi/agent/extensions/
+ln -s ~/pi-extensions/arcade/mario-not/mario-not.ts ~/.pi/agent/extensions/
 ```
 
 Or add to `~/.pi/agent/settings.json`:
@@ -70,7 +70,7 @@ Or add to `~/.pi/agent/settings.json`:
     "~/pi-extensions/arcade/picman.ts",
     "~/pi-extensions/arcade/ping.ts",
     "~/pi-extensions/arcade/tetris.ts",
-    "~/pi-extensions/arcade/badlogic-game/badlogic-game.ts"
+    "~/pi-extensions/arcade/mario-not/mario-not.ts"
   ]
 }
 ```

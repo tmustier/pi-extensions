@@ -14,7 +14,7 @@ Personal extensions for the [Pi coding agent](https://github.com/badlogic/pi-mon
 | [/paste](raw-paste/) | Paste editable text, not [paste #1 +21 lines]. Running `/paste` with optional keybinding |
 | [/code](code-actions/) | Pick code blocks or inline snippets from assistant messages to copy, insert, or run with `/code` |
 | [/relaunch](relaunch/) | WIP BEING DEVELOPED - Exit pi and resume the current session with `/relaunch`. |
-| [arcade](arcade/) | Play minigames while your tests run: 👾 sPIce-invaders, 👻 picman, 🏓 ping, 🧩 tetris, 🍄 not-mario aka badlogic-game |
+| [arcade](arcade/) | Play minigames while your tests run: 👾 sPIce-invaders, 👻 picman, 🏓 ping, 🧩 tetris, 🍄 mario-not |
 
 ## Install (pi package manager)
 
@@ -48,7 +48,7 @@ If you keep a local clone, add extensions to your `~/.pi/agent/settings.json`:
     "~/pi-extensions/arcade/ping.ts",
     "~/pi-extensions/arcade/picman.ts",
     "~/pi-extensions/arcade/tetris.ts",
-    "~/pi-extensions/arcade/badlogic-game/badlogic-game.ts",
+    "~/pi-extensions/arcade/mario-not/mario-not.ts",
     "~/pi-extensions/ralph-wiggum",
     "~/pi-extensions/agent-guidance/agent-guidance.ts",
     "~/pi-extensions/raw-paste",

@@ -1,5 +1,5 @@
 /**
- * Badlogic Game - a Mario-style TUI platformer. Play with /badlogic-game
+ * Mario-Not - a Mario-style TUI platformer. Play with /mario-not
  */
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
@@ -23,7 +23,7 @@ const TICK_MS = 25;
 const VIEWPORT_W = 40;
 const VIEWPORT_H = 15;
 const HUD_LINES = 2;
-const SAVE_TYPE = "badlogic-game-save";
+const SAVE_TYPE = "mario-not-save";
 const FRAME_INNER_WIDTH = 36;
 const START_X = 1;
 const START_Y = 13;
@@ -36,7 +36,7 @@ const LEVEL_META: { name: string; frameColor: string; textColor: string }[] = [
 	{ name: "BOWSER'S CASTLE", frameColor: COLORS.red, textColor: COLORS.red },
 ];
 
-class BadlogicGameComponent {
+class MarioNotComponent {
 	private readonly tui: any;
 	private readonly onClose: () => void;
 	private readonly onSave: (state: any) => void;
@@ -209,7 +209,7 @@ class BadlogicGameComponent {
 		if (width < minWidth || height < minHeight) {
 			return [
 				"",
-				pad("BADLOGIC-GAME"),
+				pad("MARIO-NOT"),
 				"",
 				pad("Terminal too small"),
 				pad(`Need ${minWidth} cols, ${minHeight} rows`),
@@ -278,11 +278,11 @@ class BadlogicGameComponent {
 }
 
 export default function (api: ExtensionAPI) {
-	api.registerCommand("badlogic-game", {
-		description: "Play Badlogic Game (Mario-style platformer)!",
+	api.registerCommand("mario-not", {
+		description: "Play Mario-Not (Mario-style platformer)!",
 		handler: async (_args: string, ctx: ExtensionCommandContext) => {
 			if (!ctx.hasUI) {
-				ctx.ui.notify("Badlogic Game requires interactive mode", "error");
+				ctx.ui.notify("Mario-Not requires interactive mode", "error");
 				return;
 			}
 
@@ -290,7 +290,7 @@ export default function (api: ExtensionAPI) {
 			const saved = entries.reverse().find((e) => e.type === "custom" && e.customType === SAVE_TYPE)?.data as any | undefined;
 
 			await ctx.ui.custom((tui, _theme, _kb, done) =>
-				new BadlogicGameComponent(tui, () => done(undefined), (state) => api.appendEntry(SAVE_TYPE, state), saved)
+				new MarioNotComponent(tui, () => done(undefined), (state) => api.appendEntry(SAVE_TYPE, state), saved)
 			);
 		},
 	});

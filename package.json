@@ -8,7 +8,7 @@
       "./arcade/picman.ts",
       "./arcade/ping.ts",
       "./arcade/tetris.ts",
-      "./arcade/badlogic-game/badlogic-game.ts",
+      "./arcade/mario-not/mario-not.ts",
       "./code-actions/index.ts",
       "./files-widget/index.ts",
       "./raw-paste/index.ts",
