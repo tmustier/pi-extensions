@@ -233,13 +233,46 @@ function loadFileContent(filePath: string, cwd: string, diffMode: boolean, hasCh
 
   try {
     if (diffMode && hasChanges) {
-      const cmd = hasCommand("delta")
-        ? `git diff HEAD -- "${filePath}" | delta --no-gitconfig --width=${termWidth}`
-        : `git diff HEAD -- "${filePath}"`;
       try {
-        return execSync(cmd, { cwd, encoding: "utf-8", timeout: 10000 }).split("\n");
-      } catch {
-        return ["No changes or not in git"];
+        // Try different diff strategies
+        let diffOutput = "";
+        
+        // First try: unstaged changes
+        const unstaged = execSync(`git diff -- "${filePath}"`, { cwd, encoding: "utf-8", timeout: 10000 });
+        if (unstaged.trim()) {
+          diffOutput = unstaged;
+        } else {
+          // Second try: staged changes
+          const staged = execSync(`git diff --cached -- "${filePath}"`, { cwd, encoding: "utf-8", timeout: 10000 });
+          if (staged.trim()) {
+            diffOutput = staged;
+          } else {
+            // Third try: diff against HEAD (for new files that are staged)
+            const headDiff = execSync(`git diff HEAD -- "${filePath}"`, { cwd, encoding: "utf-8", timeout: 10000 });
+            if (headDiff.trim()) {
+              diffOutput = headDiff;
+            }
+          }
+        }
+        
+        if (!diffOutput.trim()) {
+          return ["No diff available - file may be untracked or unchanged"];
+        }
+        
+        if (hasCommand("delta")) {
+          // Pipe through delta for nice formatting
+          const deltaOutput = execSync(`echo ${JSON.stringify(diffOutput)} | delta --no-gitconfig --width=${termWidth}`, { 
+            cwd, 
+            encoding: "utf-8", 
+            timeout: 10000,
+            shell: "/bin/bash"
+          });
+          return deltaOutput.split("\n");
+        }
+        
+        return diffOutput.split("\n");
+      } catch (e: any) {
+        return [`Diff error: ${e.message}`];
       }
     }
 
