@@ -27,6 +27,10 @@ interface FileNode {
   lineCount?: number;
   diffStats?: DiffStats;
   hasChangedChildren?: boolean; // For directories
+  // Aggregated stats for directories
+  totalLines?: number;
+  totalAdditions?: number;
+  totalDeletions?: number;
 }
 
 interface FlatNode {
@@ -50,7 +54,8 @@ function hasCommand(cmd: string): boolean {
 function getGitStatus(cwd: string): Map<string, string> {
   const status = new Map<string, string>();
   try {
-    const output = execSync("git status --porcelain", { cwd, encoding: "utf-8", timeout: 5000 });
+    // Include ignored files with --ignored flag
+    const output = execSync("git status --porcelain --ignored", { cwd, encoding: "utf-8", timeout: 5000 });
     for (const line of output.split("\n")) {
       if (line.length < 3) continue;
       const statusCode = line.slice(0, 2).trim() || "?";
@@ -200,6 +205,29 @@ function buildFileTree(
     }
 
     node.children = [...dirs, ...files];
+    
+    // Calculate aggregated stats for this directory
+    let totalLines = 0;
+    let totalAdditions = 0;
+    let totalDeletions = 0;
+    
+    for (const child of node.children) {
+      if (child.isDirectory) {
+        totalLines += child.totalLines || 0;
+        totalAdditions += child.totalAdditions || 0;
+        totalDeletions += child.totalDeletions || 0;
+      } else {
+        totalLines += child.lineCount || 0;
+        if (child.diffStats) {
+          totalAdditions += child.diffStats.additions;
+          totalDeletions += child.diffStats.deletions;
+        }
+      }
+    }
+    
+    node.totalLines = totalLines;
+    node.totalAdditions = totalAdditions;
+    node.totalDeletions = totalDeletions;
   } catch {}
 
   return node;
@@ -260,14 +288,27 @@ function loadFileContent(filePath: string, cwd: string, diffMode: boolean, hasCh
         }
         
         if (hasCommand("delta")) {
-          // Pipe through delta for nice formatting
-          const deltaOutput = execSync(`echo ${JSON.stringify(diffOutput)} | delta --no-gitconfig --width=${termWidth}`, { 
-            cwd, 
-            encoding: "utf-8", 
-            timeout: 10000,
-            shell: "/bin/bash"
-          });
-          return deltaOutput.split("\n");
+          // Pipe through delta with line numbers for better readability
+          try {
+            const deltaOutput = execSync(
+              `delta --no-gitconfig --width=${termWidth} --line-numbers`, 
+              { 
+                cwd, 
+                encoding: "utf-8", 
+                timeout: 10000,
+                input: diffOutput,
+              }
+            );
+            // Remove leading empty lines
+            const lines = deltaOutput.split("\n");
+            let startIdx = 0;
+            while (startIdx < lines.length && !lines[startIdx].trim()) {
+              startIdx++;
+            }
+            return lines.slice(startIdx);
+          } catch {
+            // Fall back to raw diff
+          }
         }
         
         return diffOutput.split("\n");
@@ -334,9 +375,39 @@ function createFileBrowser(
   
   function refreshGitStatus(): void {
     const currentPath = flatList[selectedIndex]?.node.path;
+    const viewingFilePath = viewingFile?.path;
+    
+    // Capture current expansion state
+    const expandedPaths = new Set<string>();
+    function captureExpanded(node: FileNode): void {
+      if (node.isDirectory && node.expanded) {
+        expandedPaths.add(node.path);
+      }
+      if (node.children) {
+        for (const child of node.children) {
+          captureExpanded(child);
+        }
+      }
+    }
+    if (root) captureExpanded(root);
+    
     gitStatus = getGitStatus(cwd);
     diffStats = getGitDiffStats(cwd);
     root = buildFileTree(cwd, cwd, gitStatus, diffStats, ignored, agentModifiedFiles);
+    
+    // Restore expansion state
+    function restoreExpanded(node: FileNode): void {
+      if (node.isDirectory) {
+        node.expanded = expandedPaths.has(node.path);
+      }
+      if (node.children) {
+        for (const child of node.children) {
+          restoreExpanded(child);
+        }
+      }
+    }
+    if (root) restoreExpanded(root);
+    
     flatList = root ? flattenTree(root) : [];
     
     // Try to preserve selection
@@ -346,7 +417,25 @@ function createFileBrowser(
         selectedIndex = newIdx;
       }
     }
-    selectedIndex = Math.min(selectedIndex, flatList.length - 1);
+    selectedIndex = Math.min(selectedIndex, Math.max(0, flatList.length - 1));
+    
+    // Update viewingFile reference if we're viewing a file (search entire tree, not just flatList)
+    if (viewingFilePath && root) {
+      function findNode(node: FileNode): FileNode | null {
+        if (node.path === viewingFilePath) return node;
+        if (node.children) {
+          for (const child of node.children) {
+            const found = findNode(child);
+            if (found) return found;
+          }
+        }
+        return null;
+      }
+      const newNode = findNode(root);
+      if (newNode) {
+        viewingFile = newNode;
+      }
+    }
   }
 
   // Viewer state
@@ -358,6 +447,10 @@ function createFileBrowser(
   let selectMode = false;
   let selectStart = 0;
   let selectEnd = 0;
+  let viewerSearchMode = false;
+  let viewerSearchQuery = "";
+  let viewerSearchMatches: number[] = []; // Line indices with matches
+  let viewerSearchIndex = 0; // Current match index
 
   // UI state
   let viewerHeight = 18;
@@ -400,6 +493,31 @@ function createFileBrowser(
     }
     
     return results;
+  }
+  
+  // Calculate total stats for the project (traverses entire tree)
+  function getTotalStats(): { totalLines: number; additions: number; deletions: number } {
+    let totalLines = 0;
+    let additions = 0;
+    let deletions = 0;
+    
+    function traverse(node: FileNode): void {
+      if (!node.isDirectory) {
+        totalLines += node.lineCount || 0;
+        if (node.diffStats) {
+          additions += node.diffStats.additions;
+          deletions += node.diffStats.deletions;
+        }
+      }
+      if (node.children) {
+        for (const child of node.children) {
+          traverse(child);
+        }
+      }
+    }
+    
+    if (root) traverse(root);
+    return { totalLines, additions, deletions };
   }
   
   // Collapse all directories except those in the given set
@@ -474,8 +592,9 @@ function createFileBrowser(
   function openFile(node: FileNode): void {
     viewingFile = node;
     viewerScroll = 0;
-    // Default to diff mode if file has changes
-    viewerDiffMode = !!node.gitStatus;
+    // Default to diff mode if file has tracked changes (not untracked files)
+    const isUntracked = node.gitStatus === "?" || node.gitStatus === "??";
+    viewerDiffMode = !!node.gitStatus && !isUntracked;
     selectMode = false;
     viewerContent = []; // Will be loaded on first render with correct width
     lastRenderWidth = 0; // Force reload
@@ -497,6 +616,37 @@ function createFileBrowser(
     viewingFile = null;
     viewerContent = [];
     selectMode = false;
+    viewerSearchMode = false;
+    viewerSearchQuery = "";
+    viewerSearchMatches = [];
+  }
+
+  function updateViewerSearch(): void {
+    viewerSearchMatches = [];
+    if (!viewerSearchQuery) return;
+    
+    const q = viewerSearchQuery.toLowerCase();
+    // Search in raw content (without ANSI codes) for better matching
+    const rawLines = viewerRawContent.split("\n");
+    for (let i = 0; i < rawLines.length; i++) {
+      if (rawLines[i].toLowerCase().includes(q)) {
+        viewerSearchMatches.push(i);
+      }
+    }
+    viewerSearchIndex = 0;
+    
+    // Jump to first match
+    if (viewerSearchMatches.length > 0) {
+      viewerScroll = Math.max(0, viewerSearchMatches[0] - 3);
+    }
+  }
+
+  function jumpToNextMatch(direction: 1 | -1): void {
+    if (viewerSearchMatches.length === 0) return;
+    viewerSearchIndex += direction;
+    if (viewerSearchIndex < 0) viewerSearchIndex = viewerSearchMatches.length - 1;
+    if (viewerSearchIndex >= viewerSearchMatches.length) viewerSearchIndex = 0;
+    viewerScroll = Math.max(0, viewerSearchMatches[viewerSearchIndex] - 3);
   }
 
   function sendComment(): void {
@@ -541,11 +691,37 @@ ${selectedText}
           reloadViewerContent(width);
         }
 
-        // Header
+        // Header with file stats
+        const isUntracked = viewingFile.gitStatus === "?" || viewingFile.gitStatus === "??";
         let header = theme.bold(viewingFile.name);
-        if (viewerDiffMode) header += theme.fg("warning", " [DIFF]");
+        if (isUntracked) {
+          header += theme.fg("dim", " [UNTRACKED]");
+        } else if (viewerDiffMode) {
+          header += theme.fg("warning", " [DIFF]");
+        }
         if (selectMode) {
           header += theme.fg("accent", ` [SELECT ${selectStart + 1}-${selectEnd + 1}]`);
+        }
+        // Show diff stats and line count
+        if (viewingFile.diffStats) {
+          if (viewingFile.diffStats.additions > 0) {
+            header += theme.fg("success", ` +${viewingFile.diffStats.additions}`);
+          }
+          if (viewingFile.diffStats.deletions > 0) {
+            header += theme.fg("error", ` -${viewingFile.diffStats.deletions}`);
+          }
+        } else if (isUntracked && viewingFile.lineCount) {
+          // For untracked files, show line count as additions
+          header += theme.fg("success", ` +${viewingFile.lineCount}`);
+        }
+        if (viewingFile.lineCount) {
+          header += theme.fg("dim", ` ${viewingFile.lineCount}L`);
+        }
+        // Show search indicator
+        if (viewerSearchMode) {
+          header += theme.fg("accent", `  /${viewerSearchQuery}█`);
+        } else if (viewerSearchQuery && viewerSearchMatches.length > 0) {
+          header += theme.fg("dim", ` [${viewerSearchIndex + 1}/${viewerSearchMatches.length}]`);
         }
         lines.push(truncateToWidth(header, width));
         lines.push(theme.fg("borderMuted", "─".repeat(width)));
@@ -570,21 +746,32 @@ ${selectedText}
         const pct = viewerContent.length > 0 
           ? Math.round((viewerScroll / Math.max(1, viewerContent.length - viewerHeight)) * 100) 
           : 0;
-        const help = selectMode
-          ? theme.fg("dim", "j/k: extend  c: comment  Esc: cancel")
-          : theme.fg("dim", `j/k/PgUp/Dn: scroll  +/-: height  v: select  ${viewingFile.gitStatus ? "d: diff  " : ""}q: back  ${pct}%`);
-        lines.push(help);
+        let help: string;
+        if (selectMode) {
+          help = theme.fg("dim", "j/k: extend  c: comment  Esc: cancel");
+        } else if (viewerSearchMode) {
+          help = theme.fg("dim", "Type to search  Enter: confirm  Esc: cancel");
+        } else {
+          help = theme.fg("dim", `j/k: scroll  /: search  n/N: next/prev match  []: files  ${viewingFile.gitStatus && !isUntracked ? "d: diff  " : ""}q: back  ${pct}%`);
+        }
+        lines.push(truncateToWidth(help, width));
 
       } else {
         // ===== FILE BROWSER =====
 
-        // Header with path and branch
+        // Header with path, branch, and total stats
         const pathDisplay = basename(cwd);
         const branchDisplay = gitBranch ? theme.fg("accent", ` (${gitBranch})`) : "";
+        const stats = getTotalStats();
+        let statsDisplay = theme.fg("dim", ` ${stats.totalLines}L`);
+        if (stats.additions > 0 || stats.deletions > 0) {
+          if (stats.additions > 0) statsDisplay += theme.fg("success", ` +${stats.additions}`);
+          if (stats.deletions > 0) statsDisplay += theme.fg("error", ` -${stats.deletions}`);
+        }
         const searchIndicator = searchMode
           ? theme.fg("accent", `  /${searchQuery}█`)
           : "";
-        lines.push(truncateToWidth(theme.bold(pathDisplay) + branchDisplay + searchIndicator, width));
+        lines.push(truncateToWidth(theme.bold(pathDisplay) + branchDisplay + statsDisplay + searchIndicator, width));
         lines.push(theme.fg("borderMuted", "─".repeat(width)));
 
         const displayList = getDisplayList();
@@ -607,9 +794,14 @@ ${selectedText}
               ? (node.expanded ? "▼ " : "▶ ") 
               : "  ";
 
+            // Check if ignored
+            const isIgnored = node.gitStatus === "!" || node.gitStatus === "!!";
+
             // Build status indicator
             let status = "";
-            if (node.agentModified) {
+            if (isIgnored) {
+              // No status indicator for ignored files
+            } else if (node.agentModified) {
               status = theme.fg("accent", " 🤖");
             } else if (node.gitStatus === "M" || node.gitStatus === "MM") {
               status = theme.fg("warning", " M");
@@ -621,29 +813,53 @@ ${selectedText}
               status = theme.fg("error", " D");
             }
 
-            // File metadata (line count and diff stats)
+            // File/folder metadata: +/- diff stats and total line count
             let meta = "";
-            if (!node.isDirectory) {
+            if (!isIgnored) {
               const parts: string[] = [];
-              if (node.lineCount) {
-                parts.push(theme.fg("dim", `${node.lineCount}L`));
-              }
-              if (node.diffStats) {
-                if (node.diffStats.additions > 0) {
-                  parts.push(theme.fg("success", `+${node.diffStats.additions}`));
+              
+              if (node.isDirectory && !node.expanded) {
+                // Directory stats (only when collapsed - expanded would be duplicative)
+                if (node.totalAdditions && node.totalAdditions > 0) {
+                  parts.push(theme.fg("success", `+${node.totalAdditions}`));
                 }
-                if (node.diffStats.deletions > 0) {
-                  parts.push(theme.fg("error", `-${node.diffStats.deletions}`));
+                if (node.totalDeletions && node.totalDeletions > 0) {
+                  parts.push(theme.fg("error", `-${node.totalDeletions}`));
+                }
+                if (node.totalLines) {
+                  parts.push(theme.fg("dim", `${node.totalLines}L`));
+                }
+              } else if (!node.isDirectory) {
+                // File stats
+                if (node.diffStats) {
+                  // Tracked file with changes - show +/- 
+                  if (node.diffStats.additions > 0) {
+                    parts.push(theme.fg("success", `+${node.diffStats.additions}`));
+                  }
+                  if (node.diffStats.deletions > 0) {
+                    parts.push(theme.fg("error", `-${node.diffStats.deletions}`));
+                  }
+                } else if ((node.gitStatus === "?" || node.gitStatus === "??") && node.lineCount) {
+                  // Untracked file - show line count as additions
+                  parts.push(theme.fg("success", `+${node.lineCount}`));
+                }
+                // Always show total line count for files
+                if (node.lineCount) {
+                  parts.push(theme.fg("dim", `${node.lineCount}L`));
                 }
               }
+              
               if (parts.length > 0) {
                 meta = " " + parts.join(" ");
               }
             }
 
-            // Style the name - directories with changes are yellow
+            // Style the name
             let name = node.name;
-            if (node.isDirectory) {
+            if (isIgnored) {
+              // Ignored files get dim name
+              name = theme.fg("dim", name);
+            } else if (node.isDirectory) {
               if (node.hasChangedChildren) {
                 name = theme.fg("warning", name);
               } else {
@@ -693,6 +909,25 @@ ${selectedText}
     handleInput(data: string): void {
       if (viewingFile) {
         // ===== FILE VIEWER INPUT =====
+        
+        // Handle search mode first
+        if (viewerSearchMode) {
+          if (matchesKey(data, Key.enter)) {
+            viewerSearchMode = false;
+          } else if (matchesKey(data, Key.escape)) {
+            viewerSearchMode = false;
+            viewerSearchQuery = "";
+            viewerSearchMatches = [];
+          } else if (matchesKey(data, Key.backspace)) {
+            viewerSearchQuery = viewerSearchQuery.slice(0, -1);
+            updateViewerSearch();
+          } else if (data.length === 1 && data.charCodeAt(0) >= 32 && data.charCodeAt(0) < 127) {
+            viewerSearchQuery += data;
+            updateViewerSearch();
+          }
+          return;
+        }
+        
         if (matchesKey(data, "q") && !selectMode) {
           closeViewer();
           return;
@@ -700,9 +935,27 @@ ${selectedText}
         if (matchesKey(data, Key.escape)) {
           if (selectMode) {
             selectMode = false;
+          } else if (viewerSearchQuery) {
+            viewerSearchQuery = "";
+            viewerSearchMatches = [];
           } else {
             closeViewer();
           }
+          return;
+        }
+        // Start search
+        if (matchesKey(data, "/") && !selectMode) {
+          viewerSearchMode = true;
+          viewerSearchQuery = "";
+          return;
+        }
+        // Navigate matches
+        if (matchesKey(data, "n") && !selectMode && viewerSearchMatches.length > 0) {
+          jumpToNextMatch(1);
+          return;
+        }
+        if (matchesKey(data, "N") && !selectMode && viewerSearchMatches.length > 0) {
+          jumpToNextMatch(-1);
           return;
         }
         if (matchesKey(data, "j") || matchesKey(data, Key.down)) {
@@ -721,11 +974,11 @@ ${selectedText}
           }
           return;
         }
-        if (matchesKey(data, Key.ctrl("d")) || matchesKey(data, Key.pageDown)) {
+        if (matchesKey(data, Key.pageDown)) {
           viewerScroll = Math.min(Math.max(0, viewerContent.length - viewerHeight), viewerScroll + viewerHeight);
           return;
         }
-        if (matchesKey(data, Key.ctrl("u")) || matchesKey(data, Key.pageUp)) {
+        if (matchesKey(data, Key.pageUp)) {
           viewerScroll = Math.max(0, viewerScroll - viewerHeight);
           return;
         }
@@ -760,6 +1013,31 @@ ${selectedText}
         }
         if (matchesKey(data, "c") && selectMode) {
           sendComment();
+          return;
+        }
+        // Navigate to next/prev changed file from viewer
+        if (matchesKey(data, "]") && !selectMode) {
+          // Go to next changed file
+          closeViewer();
+          navigateToChange(1);
+          // Open the new file
+          const displayList = getDisplayList();
+          const item = displayList[selectedIndex];
+          if (item && !item.node.isDirectory) {
+            openFile(item.node);
+          }
+          return;
+        }
+        if (matchesKey(data, "[") && !selectMode) {
+          // Go to prev changed file
+          closeViewer();
+          navigateToChange(-1);
+          // Open the new file
+          const displayList = getDisplayList();
+          const item = displayList[selectedIndex];
+          if (item && !item.node.isDirectory) {
+            openFile(item.node);
+          }
           return;
         }
       } else {
@@ -884,7 +1162,23 @@ export default function editorExtension(pi: ExtensionAPI): void {
     description: "Open file browser",
     handler: async (_args, ctx) => {
       await ctx.ui.custom<void>((tui, theme, _kb, done) => {
-        const browser = createFileBrowser(cwd, agentModifiedFiles, theme, pi, () => done());
+        let pollInterval: ReturnType<typeof setInterval> | null = null;
+        
+        const cleanup = () => {
+          if (pollInterval) {
+            clearInterval(pollInterval);
+            pollInterval = null;
+          }
+          done();
+        };
+        
+        const browser = createFileBrowser(cwd, agentModifiedFiles, theme, pi, cleanup);
+        
+        // Set up polling interval for git status updates (triggers re-render)
+        pollInterval = setInterval(() => {
+          tui.requestRender();
+        }, 3000);
+        
         return {
           render: (w) => browser.render(w),
           handleInput: (data) => {
@@ -983,3 +1277,5 @@ export default function editorExtension(pi: ExtensionAPI): void {
 // - Add ability to stage/unstage files directly from browser
 // - Add keyboard shortcut to open file in external editor
 // - Consider adding split view for side-by-side diff
+
+// test change for diff display
