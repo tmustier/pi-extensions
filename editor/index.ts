@@ -341,11 +341,40 @@ function createFileBrowser(
   // UI state
   let viewerHeight = 18;
   let browserHeight = 15;
+  let showOnlyChanged = false;
 
   function getDisplayList(): FlatNode[] {
-    if (!searchQuery) return flatList;
-    const q = searchQuery.toLowerCase();
-    return flatList.filter(f => f.node.name.toLowerCase().includes(q));
+    let list = flatList;
+    
+    // Filter to only changed files if toggled
+    if (showOnlyChanged) {
+      list = list.filter(f => 
+        f.node.gitStatus || 
+        f.node.agentModified || 
+        (f.node.isDirectory && f.node.hasChangedChildren)
+      );
+    }
+    
+    // Apply search filter
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      list = list.filter(f => f.node.name.toLowerCase().includes(q));
+    }
+    
+    return list;
+  }
+  
+  function findNextChanged(fromIndex: number, direction: 1 | -1): number {
+    const displayList = getDisplayList();
+    let i = fromIndex + direction;
+    while (i >= 0 && i < displayList.length) {
+      const node = displayList[i].node;
+      if (!node.isDirectory && (node.gitStatus || node.agentModified)) {
+        return i;
+      }
+      i += direction;
+    }
+    return fromIndex; // No change found, stay put
   }
 
   function toggleDir(node: FileNode): void {
@@ -360,7 +389,8 @@ function createFileBrowser(
   function openFile(node: FileNode): void {
     viewingFile = node;
     viewerScroll = 0;
-    viewerDiffMode = false;
+    // Default to diff mode if file has changes
+    viewerDiffMode = !!node.gitStatus;
     selectMode = false;
     viewerContent = []; // Will be loaded on first render with correct width
     lastRenderWidth = 0; // Force reload
@@ -556,9 +586,10 @@ ${selectedText}
 
         // Footer
         lines.push(theme.fg("borderMuted", "─".repeat(width)));
+        const changedIndicator = showOnlyChanged ? theme.fg("warning", " [changed only]") : "";
         const help = searchMode
           ? theme.fg("dim", "Type to search  ↑↓: nav  Enter: confirm  Esc: cancel")
-          : theme.fg("dim", "j/k: nav  Enter: open  /: search  h/l: collapse/expand  +/-: height  q: close");
+          : theme.fg("dim", "j/k: nav  []: next/prev change  c: toggle changed  /: search  q: close") + changedIndicator;
         lines.push(truncateToWidth(help, width));
       }
 
