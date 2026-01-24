@@ -24,6 +24,9 @@ interface FileNode {
   expanded?: boolean;
   gitStatus?: string;
   agentModified?: boolean;
+  lineCount?: number;
+  diffStats?: DiffStats;
+  hasChangedChildren?: boolean; // For directories
 }
 
 interface FlatNode {
@@ -58,6 +61,65 @@ function getGitStatus(cwd: string): Map<string, string> {
   return status;
 }
 
+function getGitBranch(cwd: string): string {
+  try {
+    return execSync("git branch --show-current", { cwd, encoding: "utf-8", timeout: 2000 }).trim();
+  } catch {
+    return "";
+  }
+}
+
+interface DiffStats {
+  additions: number;
+  deletions: number;
+}
+
+function getGitDiffStats(cwd: string): Map<string, DiffStats> {
+  const stats = new Map<string, DiffStats>();
+  try {
+    // Get diff stats for modified files
+    const output = execSync("git diff --numstat HEAD", { cwd, encoding: "utf-8", timeout: 5000 });
+    for (const line of output.split("\n")) {
+      const parts = line.split("\t");
+      if (parts.length >= 3) {
+        const additions = parseInt(parts[0], 10) || 0;
+        const deletions = parseInt(parts[1], 10) || 0;
+        const filePath = parts[2];
+        stats.set(filePath, { additions, deletions });
+      }
+    }
+    // Also get stats for staged files
+    const stagedOutput = execSync("git diff --numstat --cached", { cwd, encoding: "utf-8", timeout: 5000 });
+    for (const line of stagedOutput.split("\n")) {
+      const parts = line.split("\t");
+      if (parts.length >= 3) {
+        const additions = parseInt(parts[0], 10) || 0;
+        const deletions = parseInt(parts[1], 10) || 0;
+        const filePath = parts[2];
+        const existing = stats.get(filePath);
+        if (existing) {
+          stats.set(filePath, { 
+            additions: existing.additions + additions, 
+            deletions: existing.deletions + deletions 
+          });
+        } else {
+          stats.set(filePath, { additions, deletions });
+        }
+      }
+    }
+  } catch {}
+  return stats;
+}
+
+function getFileLineCount(filePath: string): number {
+  try {
+    const content = readFileSync(filePath, "utf-8");
+    return content.split("\n").length;
+  } catch {
+    return 0;
+  }
+}
+
 function getIgnoredNames(): Set<string> {
   return new Set([
     "node_modules", ".git", ".DS_Store", "__pycache__", ".pytest_cache",
@@ -72,6 +134,7 @@ function buildFileTree(
   dir: string,
   cwd: string,
   gitStatus: Map<string, string>,
+  diffStats: Map<string, DiffStats>,
   ignored: Set<string>,
   agentModified: Set<string>,
   depth = 0
@@ -87,6 +150,7 @@ function buildFileTree(
     isDirectory: true,
     children: [],
     expanded: depth < 1,
+    hasChangedChildren: false,
   };
 
   try {
@@ -106,16 +170,31 @@ function buildFileTree(
       }
 
       if (stat.isDirectory()) {
-        const child = buildFileTree(fullPath, cwd, gitStatus, ignored, agentModified, depth + 1);
-        if (child) dirs.push(child);
+        const child = buildFileTree(fullPath, cwd, gitStatus, diffStats, ignored, agentModified, depth + 1);
+        if (child) {
+          dirs.push(child);
+          // Propagate hasChangedChildren up
+          if (child.hasChangedChildren || child.gitStatus) {
+            node.hasChangedChildren = true;
+          }
+        }
       } else {
         const relPath = relative(cwd, fullPath);
+        const fileGitStatus = gitStatus.get(relPath);
+        const fileDiffStats = diffStats.get(relPath);
+        
+        if (fileGitStatus) {
+          node.hasChangedChildren = true;
+        }
+        
         files.push({
           name: entry,
           path: fullPath,
           isDirectory: false,
-          gitStatus: gitStatus.get(relPath),
+          gitStatus: fileGitStatus,
           agentModified: agentModified.has(fullPath),
+          lineCount: getFileLineCount(fullPath),
+          diffStats: fileDiffStats,
         });
       }
     }
@@ -207,8 +286,10 @@ function createFileBrowser(
   onClose: () => void
 ) {
   const gitStatus = getGitStatus(cwd);
+  const diffStats = getGitDiffStats(cwd);
+  const gitBranch = getGitBranch(cwd);
   const ignored = getIgnoredNames();
-  const root = buildFileTree(cwd, cwd, gitStatus, ignored, agentModifiedFiles);
+  const root = buildFileTree(cwd, cwd, gitStatus, diffStats, ignored, agentModifiedFiles);
   let flatList = root ? flattenTree(root) : [];
   let selectedIndex = 0;
   let searchQuery = "";
@@ -342,31 +423,40 @@ ${selectedText}
       } else {
         // ===== FILE BROWSER =====
 
-        // Header
-        const title = theme.bold("📁 Files");
+        // Header with path and branch
+        const pathDisplay = basename(cwd);
+        const branchDisplay = gitBranch ? theme.fg("accent", ` (${gitBranch})`) : "";
         const searchIndicator = searchMode
           ? theme.fg("accent", `  /${searchQuery}█`)
           : "";
-        lines.push(truncateToWidth(title + searchIndicator, width));
+        lines.push(truncateToWidth(theme.bold(pathDisplay) + branchDisplay + searchIndicator, width));
         lines.push(theme.fg("borderMuted", "─".repeat(width)));
 
         const displayList = getDisplayList();
         if (displayList.length === 0) {
           lines.push(theme.fg("dim", "  (no files" + (searchQuery ? " matching '" + searchQuery + "'" : "") + ")"));
+          // Fill to maintain height
+          for (let i = 1; i < browserHeight; i++) {
+            lines.push("");
+          }
         } else {
-          // Calculate viewport
-          const start = Math.max(0, selectedIndex - Math.floor(browserHeight / 2));
+          // Calculate viewport - always show browserHeight lines
+          const start = Math.max(0, Math.min(selectedIndex - Math.floor(browserHeight / 2), displayList.length - browserHeight));
           const end = Math.min(displayList.length, start + browserHeight);
 
           for (let i = start; i < end; i++) {
             const { node, depth } = displayList[i];
             const isSelected = i === selectedIndex;
             const indent = "  ".repeat(depth);
-            const icon = node.isDirectory ? (node.expanded ? "▼ " : "▶ ") : "  ";
+            const icon = node.isDirectory 
+              ? (node.expanded ? "▼ " : "▶ ") 
+              : "  ";
 
             // Build status indicator
             let status = "";
-            if (node.agentModified) {
+            if (node.isDirectory && node.hasChangedChildren) {
+              status = theme.fg("warning", " ●"); // Directory has changed files
+            } else if (node.agentModified) {
               status = theme.fg("accent", " 🤖");
             } else if (node.gitStatus === "M" || node.gitStatus === "MM") {
               status = theme.fg("warning", " M");
@@ -378,6 +468,26 @@ ${selectedText}
               status = theme.fg("error", " D");
             }
 
+            // File metadata (line count and diff stats)
+            let meta = "";
+            if (!node.isDirectory) {
+              const parts: string[] = [];
+              if (node.lineCount) {
+                parts.push(theme.fg("dim", `${node.lineCount}L`));
+              }
+              if (node.diffStats) {
+                if (node.diffStats.additions > 0) {
+                  parts.push(theme.fg("success", `+${node.diffStats.additions}`));
+                }
+                if (node.diffStats.deletions > 0) {
+                  parts.push(theme.fg("error", `-${node.diffStats.deletions}`));
+                }
+              }
+              if (parts.length > 0) {
+                meta = " " + parts.join(" ");
+              }
+            }
+
             // Style the name
             let name = node.name;
             if (node.isDirectory) {
@@ -386,7 +496,7 @@ ${selectedText}
               name = theme.fg("warning", name);
             }
 
-            let line = `${indent}${icon}${name}${status}`;
+            let line = `${indent}${icon}${name}${status}${meta}`;
             
             // Truncate to width
             line = truncateToWidth(line, width);
@@ -398,11 +508,17 @@ ${selectedText}
             lines.push(line);
           }
 
-          // Scroll position indicator
-          if (displayList.length > browserHeight) {
-            const pct = Math.round((selectedIndex / (displayList.length - 1)) * 100);
-            lines.push(theme.fg("dim", `  ${selectedIndex + 1}/${displayList.length} (${pct}%)`));
+          // Fill remaining lines to maintain consistent height
+          const renderedCount = end - start;
+          for (let i = renderedCount; i < browserHeight; i++) {
+            lines.push("");
           }
+
+          // Scroll position indicator (always show to maintain height)
+          const pct = displayList.length > 1 
+            ? Math.round((selectedIndex / (displayList.length - 1)) * 100) 
+            : 100;
+          lines.push(theme.fg("dim", `  ${selectedIndex + 1}/${displayList.length} (${pct}%)`));
         }
 
         // Footer
