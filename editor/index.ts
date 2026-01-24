@@ -756,6 +756,21 @@ ${selectedText}
           browserHeight = Math.max(5, browserHeight - 5);
           return;
         }
+        // Toggle show only changed files
+        if (matchesKey(data, "c")) {
+          showOnlyChanged = !showOnlyChanged;
+          selectedIndex = 0;
+          return;
+        }
+        // Jump to next/prev changed file
+        if (matchesKey(data, "]")) {
+          selectedIndex = findNextChanged(selectedIndex, 1);
+          return;
+        }
+        if (matchesKey(data, "[")) {
+          selectedIndex = findNextChanged(selectedIndex, -1);
+          return;
+        }
       }
     },
 
