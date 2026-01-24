@@ -31,7 +31,13 @@ export default function editorExtension(pi: ExtensionAPI): void {
           done();
         };
 
-        const browser = createFileBrowser(cwd, agentModifiedFiles, theme, pi, cleanup);
+        const appendToEditor = (text: string) => {
+          const current = ctx.ui.getEditorText();
+          const separator = current && !current.endsWith("\n") ? "\n" : "";
+          ctx.ui.setEditorText(`${current}${separator}${text}`);
+        };
+
+        const browser = createFileBrowser(cwd, agentModifiedFiles, theme, cleanup, appendToEditor);
 
         pollInterval = setInterval(() => {
           tui.requestRender();

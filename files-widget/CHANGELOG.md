@@ -2,6 +2,11 @@
 
 All notable changes to this extension will be documented in this file.
 
+## [0.1.2] - 2026-01-24
+
+### Changed
+- `c` in viewer now appends selection to editor input instead of sending immediately
+
 ## [0.1.1] - 2026-01-24
 
 ### Added

@@ -1,4 +1,4 @@
-import type { ExtensionAPI, Theme } from "@mariozechner/pi-coding-agent";
+import type { Theme } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
 import { readFileSync } from "node:fs";
 import { basename, relative } from "node:path";
@@ -159,8 +159,8 @@ export function createFileBrowser(
   cwd: string,
   agentModifiedFiles: Set<string>,
   theme: Theme,
-  pi: ExtensionAPI,
-  onClose: () => void
+  onClose: () => void,
+  appendToEditor: (text: string) => void
 ): BrowserController {
   let gitStatus = getGitStatus(cwd);
   let diffStats = getGitDiffStats(cwd);
@@ -374,10 +374,8 @@ ${selectedText}
 
 `;
 
-    onClose();
-    setTimeout(() => {
-      pi.sendUserMessage(message, { deliverAs: "steer" });
-    }, 100);
+    appendToEditor(message);
+    viewer.selectMode = false;
   }
 
   function renderViewer(width: number): string[] {
@@ -445,7 +443,7 @@ ${selectedText}
 
     let help: string;
     if (viewer.selectMode) {
-      help = theme.fg("dim", "j/k: extend  c: comment  Esc: cancel");
+      help = theme.fg("dim", "j/k: extend  c: append  Esc: cancel");
     } else if (viewer.searchMode) {
       help = theme.fg("dim", "Type to search  Enter: confirm  Esc: cancel");
     } else {
