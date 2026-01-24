@@ -1,0 +1,25 @@
+{
+  "name": "pi-extensions",
+  "private": true,
+  "pi": {
+    "extensions": [
+      "./agent-guidance/agent-guidance.ts",
+      "./arcade/spice-invaders.ts",
+      "./arcade/picman.ts",
+      "./arcade/ping.ts",
+      "./arcade/tetris.ts",
+      "./arcade/badlogic-game/badlogic-game.ts",
+      "./code-actions/index.ts",
+      "./files-widget/index.ts",
+      "./raw-paste/index.ts",
+      "./ralph-wiggum/index.ts",
+      "./relaunch/index.ts",
+      "./tab-status/tab-status.ts",
+      "./usage-extension/index.ts",
+      "./ready-status/ready-status.ts"
+    ],
+    "skills": [
+      "./ralph-wiggum/SKILL.md"
+    ]
+  }
+}

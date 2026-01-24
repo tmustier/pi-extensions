@@ -9,6 +9,26 @@ This one is cool because:
 <img width="432" height="357" alt="Screenshot 2026-01-07 at 17 16 24" src="https://github.com/user-attachments/assets/68cdab11-76c6-4aed-9ea1-558cbb267ea6" />
 
 
+## Install
+
+```bash
+pi install git:github.com/tmustier/pi-extensions
+```
+
+Then filter to just this extension in `~/.pi/agent/settings.json`:
+
+```json
+{
+  "packages": [
+    {
+      "source": "git:github.com/tmustier/pi-extensions",
+      "extensions": ["ralph-wiggum/index.ts"],
+      "skills": ["ralph-wiggum/SKILL.md"]
+    }
+  ]
+}
+```
+
 ## Recommended usage: just ask Pi
 You ask Pi to set up a ralph-wiggum loop.
 - Pi sets up `.ralph/<name>.md` with goals and a checklist (like a list of features to build, errors to check, or files to refactor)

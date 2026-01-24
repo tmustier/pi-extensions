@@ -43,11 +43,32 @@ For each directory, loads the provider-specific file if:
 
 ## Install
 
+### Pi package manager
+
+```bash
+pi install git:github.com/tmustier/pi-extensions
+```
+
+Then filter to just this extension in `~/.pi/agent/settings.json`:
+
+```json
+{
+  "packages": [
+    {
+      "source": "git:github.com/tmustier/pi-extensions",
+      "extensions": ["agent-guidance/agent-guidance.ts"]
+    }
+  ]
+}
+```
+
+### Local clone (setup script)
+
 ```bash
 ./setup.sh
 ```
 
-Links the extension to `~/.pi/agent/extensions/`.
+Links the extension to `~/.pi/agent/extensions/` and helps you set up `AGENTS.md`.
 
 ## Templates
 

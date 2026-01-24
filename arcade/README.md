@@ -21,6 +21,33 @@
 
 ## Install
 
+### Pi package manager
+
+```bash
+pi install git:github.com/tmustier/pi-extensions
+```
+
+Then filter to just the games in `~/.pi/agent/settings.json`:
+
+```json
+{
+  "packages": [
+    {
+      "source": "git:github.com/tmustier/pi-extensions",
+      "extensions": [
+        "arcade/spice-invaders.ts",
+        "arcade/picman.ts",
+        "arcade/ping.ts",
+        "arcade/tetris.ts",
+        "arcade/badlogic-game/badlogic-game.ts"
+      ]
+    }
+  ]
+}
+```
+
+### Local clone
+
 ```bash
 # All games
 ln -s ~/pi-extensions/arcade/*.ts ~/.pi/agent/extensions/

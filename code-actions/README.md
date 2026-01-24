@@ -7,6 +7,25 @@
 <img width="751" height="416" alt="Screenshot 2026-01-09 at 17 09 17" src="https://github.com/user-attachments/assets/0dc10a64-d61f-4b56-9684-5e448c759385" />
 
 
+## Install
+
+```bash
+pi install git:github.com/tmustier/pi-extensions
+```
+
+Then filter to just this extension in `~/.pi/agent/settings.json`:
+
+```json
+{
+  "packages": [
+    {
+      "source": "git:github.com/tmustier/pi-extensions",
+      "extensions": ["code-actions/index.ts"]
+    }
+  ]
+}
+```
+
 ## Usage
 
 - Command: `/code`

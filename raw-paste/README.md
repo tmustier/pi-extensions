@@ -10,6 +10,25 @@ Useful for template prompts that need slight edits or when you need to refer to 
 <img width="1487" height="387" alt="Screenshot 2026-01-09 at 17 39 35" src="https://github.com/user-attachments/assets/292c059a-8b06-40c2-abdd-795c0699336a" />
 
 
+## Install
+
+```bash
+pi install git:github.com/tmustier/pi-extensions
+```
+
+Then filter to just this extension in `~/.pi/agent/settings.json`:
+
+```json
+{
+  "packages": [
+    {
+      "source": "git:github.com/tmustier/pi-extensions",
+      "extensions": ["raw-paste/index.ts"]
+    }
+  ]
+}
+```
+
 ## Usage
 
 - Command: `/paste`

@@ -11,6 +11,27 @@ A Pi extension that displays aggregated usage statistics across all sessions.
 
 ## Installation
 
+### Pi package manager
+
+```bash
+pi install git:github.com/tmustier/pi-extensions
+```
+
+Then filter to just this extension in `~/.pi/agent/settings.json`:
+
+```json
+{
+  "packages": [
+    {
+      "source": "git:github.com/tmustier/pi-extensions",
+      "extensions": ["usage-extension/index.ts"]
+    }
+  ]
+}
+```
+
+### Local clone
+
 Add to your `~/.pi/agent/settings.json`:
 
 ```json

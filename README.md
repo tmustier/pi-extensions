@@ -16,9 +16,28 @@ Personal extensions for the [Pi coding agent](https://github.com/badlogic/pi-mon
 | [/relaunch](relaunch/) | WIP BEING DEVELOPED - Exit pi and resume the current session with `/relaunch`. |
 | [arcade](arcade/) | Play minigames while your tests run: 👾 sPIce-invaders, 👻 picman, 🏓 ping, 🧩 tetris, 🍄 not-mario aka badlogic-game |
 
+## Install (pi package manager)
+
+```bash
+pi install git:github.com/tmustier/pi-extensions
+```
+
+To enable only a subset, replace the package entry in `~/.pi/agent/settings.json` with a filtered one:
+
+```json
+{
+  "packages": [
+    {
+      "source": "git:github.com/tmustier/pi-extensions",
+      "extensions": ["files-widget/index.ts"]
+    }
+  ]
+}
+```
+
 ## Quick Setup
 
-Add extensions to your `~/.pi/agent/settings.json`:
+If you keep a local clone, add extensions to your `~/.pi/agent/settings.json`:
 
 ```json
 {

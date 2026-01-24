@@ -14,6 +14,27 @@ The more tabs you have open, the better it is.
 
 ## Install
 
+### Pi package manager
+
+```bash
+pi install git:github.com/tmustier/pi-extensions
+```
+
+Then filter to just this extension in `~/.pi/agent/settings.json`:
+
+```json
+{
+  "packages": [
+    {
+      "source": "git:github.com/tmustier/pi-extensions",
+      "extensions": ["tab-status/tab-status.ts"]
+    }
+  ]
+}
+```
+
+### Local clone
+
 ```bash
 ln -s ~/pi-extensions/tab-status/tab-status.ts ~/.pi/agent/extensions/
 ```
