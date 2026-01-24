@@ -13,7 +13,6 @@ Personal extensions for the [Pi coding agent](https://github.com/badlogic/pi-mon
 | [/usage](usage-extension/) | 📊 Usage statistics dashboard. See cost, tokens, and messages by provider/model across Today, This Week, All Time |
 | [/paste](raw-paste/) | Paste editable text, not [paste #1 +21 lines]. Running `/paste` with optional keybinding |
 | [/code](code-actions/) | Pick code blocks or inline snippets from assistant messages to copy, insert, or run with `/code` |
-| [/relaunch](relaunch/) | WIP BEING DEVELOPED - Exit pi and resume the current session with `/relaunch`. |
 | [arcade](arcade/) | Play minigames while your tests run: 👾 sPIce-invaders, 👻 picman, 🏓 ping, 🧩 tetris, 🍄 mario-not |
 
 ## Install (pi package manager)
@@ -53,8 +52,7 @@ If you keep a local clone, add extensions to your `~/.pi/agent/settings.json`:
     "~/pi-extensions/agent-guidance/agent-guidance.ts",
     "~/pi-extensions/raw-paste",
     "~/pi-extensions/code-actions",
-    "~/pi-extensions/usage-extension",
-    "~/pi-extensions/relaunch"
+    "~/pi-extensions/usage-extension"
   ]
 }
 ```
