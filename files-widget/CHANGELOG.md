@@ -2,6 +2,14 @@
 
 All notable changes to this extension will be documented in this file.
 
+## [0.1.1] - 2026-01-24
+
+### Added
+- README with install steps, dependencies, and keybindings
+
+### Changed
+- Refactored into modular files (browser, git, tree, viewer, utils)
+
 ## [0.1.0] - 2026-01-24
 
 ### Added
