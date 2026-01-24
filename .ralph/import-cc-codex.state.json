@@ -1,0 +1,14 @@
+{
+  "name": "import-cc-codex",
+  "taskFile": ".ralph/import-cc-codex.md",
+  "iteration": 1,
+  "maxIterations": 50,
+  "itemsPerIteration": 3,
+  "reflectEvery": 3,
+  "reflectInstructions": "REFLECTION CHECKPOINT\n\nPause and reflect on your progress:\n1. What has been accomplished so far?\n2. What's working well?\n3. What's not working or blocking progress?\n4. Should the approach be adjusted?\n5. What are the next priorities?\n\nUpdate the task file with your reflection, then continue working.",
+  "active": false,
+  "status": "completed",
+  "startedAt": "2026-01-13T13:32:49.696Z",
+  "lastReflectionAt": 0,
+  "completedAt": "2026-01-13T13:33:21.479Z"
+}
