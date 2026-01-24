@@ -126,12 +126,13 @@ function buildFileTree(
   return node;
 }
 
-function flattenTree(node: FileNode, depth = 0): FlatNode[] {
+function flattenTree(node: FileNode, depth = 0, isRoot = true): FlatNode[] {
   const result: FlatNode[] = [];
 
-  if (depth === 0 && node.children) {
-    for (const child of node.children) {
-      result.push(...flattenTree(child, 0));
+  // Skip the root "." node itself, just process its children
+  if (isRoot && node.name === ".") {
+    for (const child of node.children || []) {
+      result.push(...flattenTree(child, 0, false));
     }
     return result;
   }
@@ -140,7 +141,7 @@ function flattenTree(node: FileNode, depth = 0): FlatNode[] {
 
   if (node.isDirectory && node.expanded && node.children) {
     for (const child of node.children) {
-      result.push(...flattenTree(child, depth + 1));
+      result.push(...flattenTree(child, depth + 1, false));
     }
   }
 
@@ -223,6 +224,10 @@ function createFileBrowser(
   let selectStart = 0;
   let selectEnd = 0;
 
+  // UI state
+  let viewerHeight = 18;
+  let browserHeight = 15;
+
   function getDisplayList(): FlatNode[] {
     if (!searchQuery) return flatList;
     const q = searchQuery.toLowerCase();
@@ -295,8 +300,6 @@ ${selectedText}
 
       if (viewingFile) {
         // ===== FILE VIEWER =====
-        const height = 18;
-
         // Reload content if width changed or not loaded yet
         if (lastRenderWidth !== width || viewerContent.length === 0) {
           reloadViewerContent(width);
@@ -312,8 +315,8 @@ ${selectedText}
         lines.push(theme.fg("borderMuted", "─".repeat(width)));
 
         // Content - bat handles wrapping, just output lines
-        const visible = viewerContent.slice(viewerScroll, viewerScroll + height);
-        for (let i = 0; i < height; i++) {
+        const visible = viewerContent.slice(viewerScroll, viewerScroll + viewerHeight);
+        for (let i = 0; i < viewerHeight; i++) {
           if (i < visible.length) {
             const lineIdx = viewerScroll + i;
             let line = truncateToWidth(visible[i] || "", width);
@@ -329,16 +332,15 @@ ${selectedText}
         // Footer
         lines.push(theme.fg("borderMuted", "─".repeat(width)));
         const pct = viewerContent.length > 0 
-          ? Math.round((viewerScroll / Math.max(1, viewerContent.length - height)) * 100) 
+          ? Math.round((viewerScroll / Math.max(1, viewerContent.length - viewerHeight)) * 100) 
           : 0;
         const help = selectMode
           ? theme.fg("dim", "j/k: extend  c: comment  Esc: cancel")
-          : theme.fg("dim", `j/k: scroll  v: select  ${viewingFile.gitStatus ? "d: diff  " : ""}q: back  ${pct}%`);
+          : theme.fg("dim", `j/k/PgUp/Dn: scroll  +/-: height  v: select  ${viewingFile.gitStatus ? "d: diff  " : ""}q: back  ${pct}%`);
         lines.push(help);
 
       } else {
         // ===== FILE BROWSER =====
-        const height = 15;
 
         // Header
         const title = theme.bold("📁 Files");
@@ -353,8 +355,8 @@ ${selectedText}
           lines.push(theme.fg("dim", "  (no files" + (searchQuery ? " matching '" + searchQuery + "'" : "") + ")"));
         } else {
           // Calculate viewport
-          const start = Math.max(0, selectedIndex - Math.floor(height / 2));
-          const end = Math.min(displayList.length, start + height);
+          const start = Math.max(0, selectedIndex - Math.floor(browserHeight / 2));
+          const end = Math.min(displayList.length, start + browserHeight);
 
           for (let i = start; i < end; i++) {
             const { node, depth } = displayList[i];
@@ -397,7 +399,7 @@ ${selectedText}
           }
 
           // Scroll position indicator
-          if (displayList.length > height) {
+          if (displayList.length > browserHeight) {
             const pct = Math.round((selectedIndex / (displayList.length - 1)) * 100);
             lines.push(theme.fg("dim", `  ${selectedIndex + 1}/${displayList.length} (${pct}%)`));
           }
@@ -406,8 +408,8 @@ ${selectedText}
         // Footer
         lines.push(theme.fg("borderMuted", "─".repeat(width)));
         const help = searchMode
-          ? theme.fg("dim", "Type to search  Enter: confirm  Esc: cancel")
-          : theme.fg("dim", "j/k: nav  Enter: open  /: search  h/l: collapse/expand  q: close");
+          ? theme.fg("dim", "Type to search  ↑↓: nav  Enter: confirm  Esc: cancel")
+          : theme.fg("dim", "j/k: nav  Enter: open  /: search  h/l: collapse/expand  +/-: height  q: close");
         lines.push(truncateToWidth(help, width));
       }
 
@@ -445,12 +447,12 @@ ${selectedText}
           }
           return;
         }
-        if (matchesKey(data, Key.ctrl("d"))) {
-          viewerScroll = Math.min(Math.max(0, viewerContent.length - 10), viewerScroll + 10);
+        if (matchesKey(data, Key.ctrl("d")) || matchesKey(data, Key.pageDown)) {
+          viewerScroll = Math.min(Math.max(0, viewerContent.length - viewerHeight), viewerScroll + viewerHeight);
           return;
         }
-        if (matchesKey(data, Key.ctrl("u"))) {
-          viewerScroll = Math.max(0, viewerScroll - 10);
+        if (matchesKey(data, Key.ctrl("u")) || matchesKey(data, Key.pageUp)) {
+          viewerScroll = Math.max(0, viewerScroll - viewerHeight);
           return;
         }
         if (matchesKey(data, "g")) {
@@ -458,7 +460,16 @@ ${selectedText}
           return;
         }
         if (matchesKey(data, "G")) {
-          viewerScroll = Math.max(0, viewerContent.length - 10);
+          viewerScroll = Math.max(0, viewerContent.length - viewerHeight);
+          return;
+        }
+        // Height adjustment
+        if (matchesKey(data, "+") || matchesKey(data, "=")) {
+          viewerHeight = Math.min(50, viewerHeight + 5);
+          return;
+        }
+        if (matchesKey(data, "-") || matchesKey(data, "_")) {
+          viewerHeight = Math.max(5, viewerHeight - 5);
           return;
         }
         if (matchesKey(data, "d") && !selectMode && viewingFile.gitStatus) {
@@ -499,6 +510,15 @@ ${selectedText}
           searchQuery = "";
           return;
         }
+        // Navigation works even during search
+        if (matchesKey(data, "j") || matchesKey(data, Key.down)) {
+          selectedIndex = Math.min(displayList.length - 1, selectedIndex + 1);
+          return;
+        }
+        if (matchesKey(data, "k") || matchesKey(data, Key.up)) {
+          selectedIndex = Math.max(0, selectedIndex - 1);
+          return;
+        }
         if (searchMode) {
           if (matchesKey(data, Key.enter)) {
             searchMode = false;
@@ -511,14 +531,6 @@ ${selectedText}
             searchQuery += data;
             selectedIndex = 0;
           }
-          return;
-        }
-        if (matchesKey(data, "j") || matchesKey(data, Key.down)) {
-          selectedIndex = Math.min(displayList.length - 1, selectedIndex + 1);
-          return;
-        }
-        if (matchesKey(data, "k") || matchesKey(data, Key.up)) {
-          selectedIndex = Math.max(0, selectedIndex - 1);
           return;
         }
         if (matchesKey(data, Key.enter)) {
@@ -544,6 +556,24 @@ ${selectedText}
           if (item?.node.isDirectory && item.node.expanded) {
             toggleDir(item.node);
           }
+          return;
+        }
+        // Page navigation
+        if (matchesKey(data, Key.pageDown)) {
+          selectedIndex = Math.min(displayList.length - 1, selectedIndex + browserHeight);
+          return;
+        }
+        if (matchesKey(data, Key.pageUp)) {
+          selectedIndex = Math.max(0, selectedIndex - browserHeight);
+          return;
+        }
+        // Height adjustment
+        if (matchesKey(data, "+") || matchesKey(data, "=")) {
+          browserHeight = Math.min(40, browserHeight + 5);
+          return;
+        }
+        if (matchesKey(data, "-") || matchesKey(data, "_")) {
+          browserHeight = Math.max(5, browserHeight - 5);
           return;
         }
       }
