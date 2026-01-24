@@ -6,6 +6,7 @@ Personal extensions for the [Pi coding agent](https://github.com/badlogic/pi-mon
 
 | Extension | Description |
 |-----------|-------------|
+| [/files](files-widget/) | In-terminal file browser and viewer. Navigate files, view diffs, select code, send comments to agent - all without leaving Pi |
 | [tab-status](tab-status/) | Manage as many parallel sessions as your mind can handle. Terminal tab indicators for <br>✅ done / 🚧 stuck / 🛑 timed out |
 | [ralph-wiggum](ralph-wiggum/) | Run arbitrarily-long tasks without diluting model attention. Flat version without subagents like [ralph-loop](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/ralph-loop) |
 | [agent-guidance](agent-guidance/) | Switch between Claude/Codex/Gemini with model-specific guidance (CLAUDE.md, CODEX.md, GEMINI.md) |
@@ -22,6 +23,7 @@ Add extensions to your `~/.pi/agent/settings.json`:
 ```json
 {
   "extensions": [
+    "~/pi-extensions/files-widget",
     "~/pi-extensions/tab-status/tab-status.ts",
     "~/pi-extensions/arcade/spice-invaders.ts",
     "~/pi-extensions/arcade/ping.ts",
