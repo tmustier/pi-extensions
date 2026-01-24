@@ -318,15 +318,36 @@ function createFileBrowser(
   pi: ExtensionAPI,
   onClose: () => void
 ) {
-  const gitStatus = getGitStatus(cwd);
-  const diffStats = getGitDiffStats(cwd);
+  let gitStatus = getGitStatus(cwd);
+  let diffStats = getGitDiffStats(cwd);
   const gitBranch = getGitBranch(cwd);
   const ignored = getIgnoredNames();
-  const root = buildFileTree(cwd, cwd, gitStatus, diffStats, ignored, agentModifiedFiles);
+  let root = buildFileTree(cwd, cwd, gitStatus, diffStats, ignored, agentModifiedFiles);
   let flatList = root ? flattenTree(root) : [];
   let selectedIndex = 0;
   let searchQuery = "";
   let searchMode = false;
+  
+  // Polling for git status updates
+  let lastPollTime = Date.now();
+  const POLL_INTERVAL = 3000; // 3 seconds
+  
+  function refreshGitStatus(): void {
+    const currentPath = flatList[selectedIndex]?.node.path;
+    gitStatus = getGitStatus(cwd);
+    diffStats = getGitDiffStats(cwd);
+    root = buildFileTree(cwd, cwd, gitStatus, diffStats, ignored, agentModifiedFiles);
+    flatList = root ? flattenTree(root) : [];
+    
+    // Try to preserve selection
+    if (currentPath) {
+      const newIdx = flatList.findIndex(f => f.node.path === currentPath);
+      if (newIdx !== -1) {
+        selectedIndex = newIdx;
+      }
+    }
+    selectedIndex = Math.min(selectedIndex, flatList.length - 1);
+  }
 
   // Viewer state
   let viewingFile: FileNode | null = null;
@@ -504,6 +525,13 @@ ${selectedText}
 
   return {
     render(width: number): string[] {
+      // Poll for git status updates every 3 seconds
+      const now = Date.now();
+      if (now - lastPollTime > POLL_INTERVAL) {
+        lastPollTime = now;
+        refreshGitStatus();
+      }
+      
       const lines: string[] = [];
 
       if (viewingFile) {
@@ -945,3 +973,13 @@ export default function editorExtension(pi: ExtensionAPI): void {
     agentModifiedFiles.clear();
   });
 }
+
+// =============================================================================
+// TODO: Future improvements
+// =============================================================================
+// - Add mouse scroll support for navigation
+// - Add fuzzy search (fzf-style) instead of simple substring match
+// - Add file preview on hover/delay
+// - Add ability to stage/unstage files directly from browser
+// - Add keyboard shortcut to open file in external editor
+// - Consider adding split view for side-by-side diff
