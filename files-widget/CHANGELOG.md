@@ -2,6 +2,27 @@
 
 All notable changes to this extension will be documented in this file.
 
+## [0.1.5] - 2026-01-24
+
+### Added
+- Demo recording embedded in README
+
+### Changed
+- Comment sending now queues with follow-up delivery in streaming sessions
+- Split viewer logic into `viewer.ts` and shared helpers
+- Reduced browser render duplication with node format helpers
+
+## [0.1.4] - 2026-01-24
+
+### Changed
+- Split viewer logic into `viewer.ts` and shared helpers
+- Reduced browser render duplication with node format helpers
+
+## [0.1.3] - 2026-01-24
+
+### Changed
+- `c` in viewer now opens an inline comment prompt and sends a follow-up message
+
 ## [0.1.2] - 2026-01-24
 
 ### Changed

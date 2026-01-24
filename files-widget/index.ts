@@ -11,6 +11,7 @@ import { join } from "node:path";
 
 import { createFileBrowser } from "./browser";
 import { POLL_INTERVAL_MS } from "./constants";
+import { formatCommentMessage } from "./comment";
 import { hasCommand } from "./utils";
 
 export default function editorExtension(pi: ExtensionAPI): void {
@@ -31,13 +32,14 @@ export default function editorExtension(pi: ExtensionAPI): void {
           done();
         };
 
-        const appendToEditor = (text: string) => {
-          const current = ctx.ui.getEditorText();
-          const separator = current && !current.endsWith("\n") ? "\n" : "";
-          ctx.ui.setEditorText(`${current}${separator}${text}`);
+        const requestComment = (payload: { relPath: string; lineRange: string; ext: string; selectedText: string }, comment: string) => {
+          pi.sendUserMessage(formatCommentMessage(payload, comment), {
+            deliverAs: "followUp",
+            streamingBehavior: "followUp" as any,
+          } as any);
         };
 
-        const browser = createFileBrowser(cwd, agentModifiedFiles, theme, cleanup, appendToEditor);
+        const browser = createFileBrowser(cwd, agentModifiedFiles, theme, cleanup, requestComment);
 
         pollInterval = setInterval(() => {
           tui.requestRender();

@@ -2,6 +2,8 @@
 
 In-terminal file browser and viewer for Pi. Navigate files, view diffs, select code, and send comments to the agent without leaving the terminal.
 
+![Demo](demo.svg)
+
 ## Install
 
 ### Pi package manager
@@ -88,7 +90,7 @@ brew install bat git-delta glow
 - `/`: search (type to search)
 - `n` / `N`: next/prev match
 - `v`: select mode (line selection)
-- `c`: append selected lines to editor input
+- `c`: comment on selected lines (inline prompt)
 - `]` / `[`: next/prev changed file
 - `+` / `-`: increase/decrease viewer height
 - `q`: back to browser
