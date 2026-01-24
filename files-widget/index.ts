@@ -517,9 +517,7 @@ ${selectedText}
 
             // Build status indicator
             let status = "";
-            if (node.isDirectory && node.hasChangedChildren) {
-              status = theme.fg("warning", " ●"); // Directory has changed files
-            } else if (node.agentModified) {
+            if (node.agentModified) {
               status = theme.fg("accent", " 🤖");
             } else if (node.gitStatus === "M" || node.gitStatus === "MM") {
               status = theme.fg("warning", " M");
@@ -551,10 +549,14 @@ ${selectedText}
               }
             }
 
-            // Style the name
+            // Style the name - directories with changes are yellow
             let name = node.name;
             if (node.isDirectory) {
-              name = theme.fg("accent", name);
+              if (node.hasChangedChildren) {
+                name = theme.fg("warning", name);
+              } else {
+                name = theme.fg("accent", name);
+              }
             } else if (node.gitStatus) {
               name = theme.fg("warning", name);
             }
