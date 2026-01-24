@@ -6,13 +6,13 @@ In-terminal file browser and viewer for Pi. Navigate files, view diffs, select c
 
 ## Install
 
-### Pi package manager
+**Quick install (Pi package manager):**
 
 ```bash
 pi install git:github.com/tmustier/pi-extensions
 ```
 
-Then filter to just this extension in `~/.pi/agent/settings.json`:
+Then add to `~/.pi/agent/settings.json`:
 
 ```json
 {
@@ -25,7 +25,7 @@ Then filter to just this extension in `~/.pi/agent/settings.json`:
 }
 ```
 
-### Local clone
+**Local clone:**
 
 Add to your Pi extensions list:
 
@@ -63,11 +63,25 @@ brew install bat git-delta glow
 - `delta`: formatted diffs
 - `glow`: markdown rendering
 
+If any are missing, the extension will notify you at session start and gracefully fall back to plain rendering.
+
 ## Commands
 
 - `/files` - open the file browser
 - `/review` - open tuicr review flow
 - `/diff` - open critique (bunx critique)
+
+### Review/Diff Dependencies
+
+```bash
+brew install agavra/tap/tuicr
+brew install oven-sh/bun/bun
+```
+
+- `tuicr` is required for `/review`
+- `bun` is required for `/diff`
+
+If missing, `/review` or `/diff` will show a clear install prompt.
 
 ## Browser Keybindings
 
