@@ -51,11 +51,20 @@ function hasCommand(cmd: string): boolean {
   }
 }
 
+function isGitRepo(cwd: string): boolean {
+  try {
+    execSync("git rev-parse --is-inside-work-tree", { cwd, encoding: "utf-8", timeout: 2000, stdio: "pipe" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function getGitStatus(cwd: string): Map<string, string> {
   const status = new Map<string, string>();
   try {
     // Include ignored files with --ignored flag
-    const output = execSync("git status --porcelain --ignored", { cwd, encoding: "utf-8", timeout: 5000 });
+    const output = execSync("git status --porcelain --ignored", { cwd, encoding: "utf-8", timeout: 5000, stdio: "pipe" });
     for (const line of output.split("\n")) {
       if (line.length < 3) continue;
       const statusCode = line.slice(0, 2).trim() || "?";
@@ -68,7 +77,7 @@ function getGitStatus(cwd: string): Map<string, string> {
 
 function getGitBranch(cwd: string): string {
   try {
-    return execSync("git branch --show-current", { cwd, encoding: "utf-8", timeout: 2000 }).trim();
+    return execSync("git branch --show-current", { cwd, encoding: "utf-8", timeout: 2000, stdio: "pipe" }).trim();
   } catch {
     return "";
   }
@@ -83,7 +92,7 @@ function getGitDiffStats(cwd: string): Map<string, DiffStats> {
   const stats = new Map<string, DiffStats>();
   try {
     // Get diff stats for modified files
-    const output = execSync("git diff --numstat HEAD", { cwd, encoding: "utf-8", timeout: 5000 });
+    const output = execSync("git diff --numstat HEAD", { cwd, encoding: "utf-8", timeout: 5000, stdio: "pipe" });
     for (const line of output.split("\n")) {
       const parts = line.split("\t");
       if (parts.length >= 3) {
@@ -94,7 +103,7 @@ function getGitDiffStats(cwd: string): Map<string, DiffStats> {
       }
     }
     // Also get stats for staged files
-    const stagedOutput = execSync("git diff --numstat --cached", { cwd, encoding: "utf-8", timeout: 5000 });
+    const stagedOutput = execSync("git diff --numstat --cached", { cwd, encoding: "utf-8", timeout: 5000, stdio: "pipe" });
     for (const line of stagedOutput.split("\n")) {
       const parts = line.split("\t");
       if (parts.length >= 3) {
@@ -260,23 +269,23 @@ function loadFileContent(filePath: string, cwd: string, diffMode: boolean, hasCh
   const termWidth = width || process.stdout.columns || 80;
 
   try {
-    if (diffMode && hasChanges) {
+    if (diffMode && hasChanges && isGitRepo(cwd)) {
       try {
         // Try different diff strategies
         let diffOutput = "";
         
         // First try: unstaged changes
-        const unstaged = execSync(`git diff -- "${filePath}"`, { cwd, encoding: "utf-8", timeout: 10000 });
+        const unstaged = execSync(`git diff -- "${filePath}"`, { cwd, encoding: "utf-8", timeout: 10000, stdio: "pipe" });
         if (unstaged.trim()) {
           diffOutput = unstaged;
         } else {
           // Second try: staged changes
-          const staged = execSync(`git diff --cached -- "${filePath}"`, { cwd, encoding: "utf-8", timeout: 10000 });
+          const staged = execSync(`git diff --cached -- "${filePath}"`, { cwd, encoding: "utf-8", timeout: 10000, stdio: "pipe" });
           if (staged.trim()) {
             diffOutput = staged;
           } else {
             // Third try: diff against HEAD (for new files that are staged)
-            const headDiff = execSync(`git diff HEAD -- "${filePath}"`, { cwd, encoding: "utf-8", timeout: 10000 });
+            const headDiff = execSync(`git diff HEAD -- "${filePath}"`, { cwd, encoding: "utf-8", timeout: 10000, stdio: "pipe" });
             if (headDiff.trim()) {
               diffOutput = headDiff;
             }
@@ -297,6 +306,7 @@ function loadFileContent(filePath: string, cwd: string, diffMode: boolean, hasCh
                 encoding: "utf-8", 
                 timeout: 10000,
                 input: diffOutput,
+                stdio: ["pipe", "pipe", "pipe"],
               }
             );
             // Remove leading empty lines
