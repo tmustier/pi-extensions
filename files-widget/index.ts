@@ -364,17 +364,81 @@ function createFileBrowser(
     return list;
   }
   
-  function findNextChanged(fromIndex: number, direction: 1 | -1): number {
-    const displayList = getDisplayList();
-    let i = fromIndex + direction;
-    while (i >= 0 && i < displayList.length) {
-      const node = displayList[i].node;
-      if (!node.isDirectory && (node.gitStatus || node.agentModified)) {
-        return i;
-      }
-      i += direction;
+  // Collect all changed files from tree (regardless of expansion state)
+  function getAllChangedFiles(node: FileNode, path: FileNode[] = []): { file: FileNode; ancestors: FileNode[] }[] {
+    const results: { file: FileNode; ancestors: FileNode[] }[] = [];
+    
+    if (!node.isDirectory && (node.gitStatus || node.agentModified)) {
+      results.push({ file: node, ancestors: [...path] });
     }
-    return fromIndex; // No change found, stay put
+    
+    if (node.children) {
+      for (const child of node.children) {
+        results.push(...getAllChangedFiles(child, [...path, node]));
+      }
+    }
+    
+    return results;
+  }
+  
+  // Collapse all directories except those in the given set
+  function collapseAllExcept(node: FileNode, keep: Set<FileNode>): void {
+    if (node.isDirectory) {
+      node.expanded = keep.has(node);
+      if (node.children) {
+        for (const child of node.children) {
+          collapseAllExcept(child, keep);
+        }
+      }
+    }
+  }
+  
+  function navigateToChange(direction: 1 | -1): void {
+    if (!root) return;
+    
+    const changedFiles = getAllChangedFiles(root);
+    if (changedFiles.length === 0) return;
+    
+    // Find current file in changed list
+    const displayList = getDisplayList();
+    const currentNode = displayList[selectedIndex]?.node;
+    
+    let currentIdx = -1;
+    if (currentNode && !currentNode.isDirectory) {
+      currentIdx = changedFiles.findIndex(c => c.file.path === currentNode.path);
+    }
+    
+    // Calculate next index
+    let nextIdx: number;
+    if (currentIdx === -1) {
+      // Not on a changed file, go to first (or last if going backwards)
+      nextIdx = direction === 1 ? 0 : changedFiles.length - 1;
+    } else {
+      nextIdx = currentIdx + direction;
+      if (nextIdx < 0) nextIdx = changedFiles.length - 1; // Wrap around
+      if (nextIdx >= changedFiles.length) nextIdx = 0;
+    }
+    
+    const target = changedFiles[nextIdx];
+    
+    // Collapse all folders, then expand only ancestors of target
+    const ancestorSet = new Set(target.ancestors);
+    collapseAllExcept(root, ancestorSet);
+    
+    // Expand all ancestors
+    for (const ancestor of target.ancestors) {
+      ancestor.expanded = true;
+    }
+    
+    // Rebuild flat list
+    flatList = flattenTree(root);
+    
+    // Find target in new display list and select it
+    const newDisplayList = getDisplayList();
+    const targetIdx = newDisplayList.findIndex(f => f.node.path === target.file.path);
+    if (targetIdx !== -1) {
+      selectedIndex = targetIdx;
+    }
   }
 
   function toggleDir(node: FileNode): void {
@@ -764,13 +828,13 @@ ${selectedText}
           selectedIndex = 0;
           return;
         }
-        // Jump to next/prev changed file
+        // Jump to next/prev changed file (expands folders, collapses others)
         if (matchesKey(data, "]")) {
-          selectedIndex = findNextChanged(selectedIndex, 1);
+          navigateToChange(1);
           return;
         }
         if (matchesKey(data, "[")) {
-          selectedIndex = findNextChanged(selectedIndex, -1);
+          navigateToChange(-1);
           return;
         }
       }
