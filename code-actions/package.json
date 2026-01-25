@@ -1,0 +1,22 @@
+{
+  "name": "@tmustier/pi-code-actions",
+  "version": "0.1.0",
+  "description": "Pick code blocks or inline snippets from recent assistant messages to copy or insert.",
+  "license": "MIT",
+  "author": "Thomas Mustier",
+  "keywords": [
+    "pi-package"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tmustier/pi-extensions.git",
+    "directory": "code-actions"
+  },
+  "bugs": "https://github.com/tmustier/pi-extensions/issues",
+  "homepage": "https://github.com/tmustier/pi-extensions/tree/main/code-actions",
+  "pi": {
+    "extensions": [
+      "index.ts"
+    ]
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "@tmustier/pi-tab-status",
+  "version": "0.1.0",
+  "description": "Terminal tab status indicators for Pi sessions.",
+  "license": "MIT",
+  "author": "Thomas Mustier",
+  "keywords": [
+    "pi-package"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tmustier/pi-extensions.git",
+    "directory": "tab-status"
+  },
+  "bugs": "https://github.com/tmustier/pi-extensions/issues",
+  "homepage": "https://github.com/tmustier/pi-extensions/tree/main/tab-status",
+  "pi": {
+    "extensions": [
+      "tab-status.ts"
+    ]
+  }
+}

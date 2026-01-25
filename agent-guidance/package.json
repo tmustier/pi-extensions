@@ -1,0 +1,22 @@
+{
+  "name": "@tmustier/pi-agent-guidance",
+  "version": "0.1.0",
+  "description": "Loads provider-specific context files (CLAUDE.md, CODEX.md, GEMINI.md) based on current model.",
+  "license": "MIT",
+  "author": "Thomas Mustier",
+  "keywords": [
+    "pi-package"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tmustier/pi-extensions.git",
+    "directory": "agent-guidance"
+  },
+  "bugs": "https://github.com/tmustier/pi-extensions/issues",
+  "homepage": "https://github.com/tmustier/pi-extensions/tree/main/agent-guidance",
+  "pi": {
+    "extensions": [
+      "agent-guidance.ts"
+    ]
+  }
+}

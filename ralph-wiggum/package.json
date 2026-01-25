@@ -1,0 +1,25 @@
+{
+  "name": "@tmustier/pi-ralph-wiggum",
+  "version": "0.1.0",
+  "description": "Long-running agent loops for iterative development in Pi.",
+  "license": "MIT",
+  "author": "Thomas Mustier",
+  "keywords": [
+    "pi-package"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tmustier/pi-extensions.git",
+    "directory": "ralph-wiggum"
+  },
+  "bugs": "https://github.com/tmustier/pi-extensions/issues",
+  "homepage": "https://github.com/tmustier/pi-extensions/tree/main/ralph-wiggum",
+  "pi": {
+    "extensions": [
+      "index.ts"
+    ],
+    "skills": [
+      "SKILL.md"
+    ]
+  }
+}

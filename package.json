@@ -1,6 +1,9 @@
 {
   "name": "pi-extensions",
   "private": true,
+  "keywords": [
+    "pi-package"
+  ],
   "pi": {
     "extensions": [
       "./agent-guidance/agent-guidance.ts",
