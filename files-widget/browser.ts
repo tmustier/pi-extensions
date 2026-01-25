@@ -466,6 +466,8 @@ export function createFileBrowser(
       const item = displayList[browser.selectedIndex];
       if (item?.node.isDirectory && !item.node.expanded) {
         toggleDir(item.node);
+      } else if (item && !item.node.isDirectory) {
+        openFile(item.node);
       }
       return;
     }
