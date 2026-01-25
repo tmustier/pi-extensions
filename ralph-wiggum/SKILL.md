@@ -19,7 +19,7 @@ ralph_start({
 
 ## Loop Behavior
 
-1. Save task content to `.ralph/<name>.md`.
+1. **Write the task file**: Create `.ralph/<name>.md` with the task content. The tool does NOT create this file—you must write it yourself using the Write tool.
 2. Work on the task and update the file each iteration.
 3. Record verification evidence (commands run, file paths, outputs) in the task file.
 4. Call `ralph_done` to proceed to the next iteration.
