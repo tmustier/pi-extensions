@@ -10,6 +10,10 @@
 ## Install
 
 ```bash
+pi install npm:@tmustier/pi-code-actions
+```
+
+```bash
 pi install git:github.com/tmustier/pi-extensions
 ```
 

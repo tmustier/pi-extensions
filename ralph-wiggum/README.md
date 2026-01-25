@@ -12,6 +12,10 @@ This one is cool because:
 ## Install
 
 ```bash
+pi install npm:@tmustier/pi-ralph-wiggum
+```
+
+```bash
 pi install git:github.com/tmustier/pi-extensions
 ```
 

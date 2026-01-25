@@ -24,6 +24,10 @@
 ### Pi package manager
 
 ```bash
+pi install npm:@tmustier/pi-arcade
+```
+
+```bash
 pi install git:github.com/tmustier/pi-extensions
 ```
 

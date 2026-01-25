@@ -14,6 +14,10 @@ A Pi extension that displays aggregated usage statistics across all sessions.
 ### Pi package manager
 
 ```bash
+pi install npm:@tmustier/pi-usage-extension
+```
+
+```bash
 pi install git:github.com/tmustier/pi-extensions
 ```
 

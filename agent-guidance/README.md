@@ -46,6 +46,10 @@ For each directory, loads the provider-specific file if:
 ### Pi package manager
 
 ```bash
+pi install npm:@tmustier/pi-agent-guidance
+```
+
+```bash
 pi install git:github.com/tmustier/pi-extensions
 ```
 

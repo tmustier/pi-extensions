@@ -17,6 +17,10 @@ The more tabs you have open, the better it is.
 ### Pi package manager
 
 ```bash
+pi install npm:@tmustier/pi-tab-status
+```
+
+```bash
 pi install git:github.com/tmustier/pi-extensions
 ```
 

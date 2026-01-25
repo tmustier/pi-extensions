@@ -9,6 +9,10 @@ In-terminal file browser and viewer for Pi. Navigate files, view diffs, select c
 **Quick install (Pi package manager):**
 
 ```bash
+pi install npm:@tmustier/pi-files-widget
+```
+
+```bash
 pi install git:github.com/tmustier/pi-extensions
 ```
 

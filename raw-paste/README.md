@@ -13,6 +13,10 @@ Useful for template prompts that need slight edits or when you need to refer to 
 ## Install
 
 ```bash
+pi install npm:@tmustier/pi-raw-paste
+```
+
+```bash
 pi install git:github.com/tmustier/pi-extensions
 ```
 
