@@ -1,6 +1,6 @@
 {
   "name": "@tmustier/pi-arcade",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Arcade minigames for the Pi coding agent.",
   "license": "MIT",
   "author": "Thomas Mustier",
