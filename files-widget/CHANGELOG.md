@@ -2,6 +2,11 @@
 
 All notable changes to this extension will be documented in this file.
 
+## [0.1.9] - 2026-01-26
+
+### Changed
+- Bind render requests to avoid undefined context with the latest pi-tui
+
 ## [0.1.8] - 2026-01-26
 
 ### Changed

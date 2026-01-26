@@ -1,6 +1,7 @@
 {
   "name": "pi-extensions",
-  "private": true,
+  "version": "0.1.9",
+  "private": false,
   "keywords": [
     "pi-package"
   ],

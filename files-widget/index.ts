@@ -39,17 +39,18 @@ export default function editorExtension(pi: ExtensionAPI): void {
           } as any);
         };
 
-        const browser = createFileBrowser(cwd, agentModifiedFiles, theme, cleanup, requestComment, tui.requestRender);
+        const requestRender = () => tui.requestRender();
+        const browser = createFileBrowser(cwd, agentModifiedFiles, theme, cleanup, requestComment, requestRender);
 
         pollInterval = setInterval(() => {
-          tui.requestRender();
+          requestRender();
         }, POLL_INTERVAL_MS);
 
         return {
           render: (w) => browser.render(w),
           handleInput: (data) => {
             browser.handleInput(data);
-            tui.requestRender();
+            requestRender();
           },
           invalidate: () => browser.invalidate(),
         };
