@@ -12,6 +12,16 @@ In-terminal file browser and diff viewer widget for Pi. Navigate files, view dif
 pi install npm:@tmustier/pi-files-widget
 ```
 
+Required deps (needed for /files):
+
+```bash
+# macOS (Homebrew)
+brew install bat git-delta glow
+
+# Ubuntu/Debian
+sudo apt-get install -y bat git-delta glow
+```
+
 ```bash
 pi install git:github.com/tmustier/pi-extensions
 ```
@@ -57,17 +67,13 @@ Then reference it in your settings:
 }
 ```
 
-## Dependencies (recommended)
-
-```bash
-brew install bat git-delta glow
-```
+## Dependencies (required)
 
 - `bat`: syntax highlighting
 - `delta`: formatted diffs
 - `glow`: markdown rendering
 
-If any are missing, the extension will notify you at session start and gracefully fall back to plain rendering.
+The `/files` browser requires these tools and will refuse to open until they are installed.
 
 ## Commands
 

@@ -17,10 +17,18 @@ import { hasCommand } from "./utils";
 export default function editorExtension(pi: ExtensionAPI): void {
   const cwd = process.cwd();
   const agentModifiedFiles = new Set<string>();
+  const requiredDeps = ["bat", "delta", "glow"] as const;
+  const getMissingDeps = () => requiredDeps.filter((dep) => !hasCommand(dep));
 
   pi.registerCommand("files", {
     description: "Open file browser",
     handler: async (_args, ctx) => {
+      const missing = getMissingDeps();
+      if (missing.length > 0) {
+        ctx.ui.notify(`files-widget requires ${missing.join(", ")}. Install: brew install bat git-delta glow`, "error");
+        return;
+      }
+
       await ctx.ui.custom<void>((tui, theme, _kb, done) => {
         let pollInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -122,13 +130,9 @@ export default function editorExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("session_start", async (_event, ctx) => {
-    const missing: string[] = [];
-    if (!hasCommand("bat")) missing.push("bat");
-    if (!hasCommand("delta")) missing.push("delta");
-    if (!hasCommand("glow")) missing.push("glow");
-
+    const missing = getMissingDeps();
     if (missing.length > 0) {
-      ctx.ui.notify(`Editor: install ${missing.join(", ")} for better experience`, "info");
+      ctx.ui.notify(`files-widget requires ${missing.join(", ")}. Install: brew install bat git-delta glow`, "error");
     }
 
     agentModifiedFiles.clear();

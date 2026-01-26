@@ -2,6 +2,13 @@
 
 All notable changes to this extension will be documented in this file.
 
+## [0.1.11] - 2026-01-26
+
+### Changed
+- Require `bat`, `delta`, and `glow` before opening `/files`
+- Add a postinstall reminder for required system tools
+- Document install commands next to the Pi install steps
+
 ## [0.1.10] - 2026-01-26
 
 ### Fixed
