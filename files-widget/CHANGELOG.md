@@ -2,6 +2,14 @@
 
 All notable changes to this extension will be documented in this file.
 
+## [0.1.8] - 2026-01-26
+
+### Changed
+- Compute line counts asynchronously with loading indicators
+- Build git repo trees from git file lists to avoid filesystem scans
+- Add progressive filesystem scanning with safe mode for large folders
+- Reduce refresh work to git metadata updates
+
 ## [0.1.7] - 2026-01-26
 
 ### Changed

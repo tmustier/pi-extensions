@@ -1,16 +1,25 @@
 import type { Theme } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
-import { basename } from "node:path";
+import { readdir, readFile, stat } from "node:fs/promises";
+import { homedir } from "node:os";
+import { basename, join, relative, resolve, sep } from "node:path";
 
 import {
   DEFAULT_BROWSER_HEIGHT,
+  LINE_COUNT_BATCH_DELAY_MS,
+  LINE_COUNT_BATCH_SIZE,
   MAX_BROWSER_HEIGHT,
+  MAX_LINE_COUNT_BYTES,
+  MAX_TREE_DEPTH,
   MIN_PANEL_HEIGHT,
   POLL_INTERVAL_MS,
+  SCAN_BATCH_DELAY_MS,
+  SCAN_BATCH_SIZE,
+  SAFE_MODE_ENTRY_THRESHOLD,
 } from "./constants";
-import { getGitBranch, getGitDiffStats, getGitStatus } from "./git";
-import { buildFileTree, flattenTree, getIgnoredNames } from "./file-tree";
-import type { FileNode, FlatNode } from "./types";
+import { getGitBranch, getGitDiffStats, getGitFileList, getGitStatus, isGitRepo } from "./git";
+import { buildFileTreeFromPaths, flattenTree, getIgnoredNames, sortChildren, updateTreeStats } from "./file-tree";
+import type { DiffStats, FileNode, FlatNode } from "./types";
 import { isIgnoredStatus, isUntrackedStatus } from "./utils";
 import { createViewer, type CommentPayload, type ViewerAction } from "./viewer";
 import { isPrintableChar } from "./input-utils";
@@ -27,11 +36,23 @@ interface BrowserStats {
   deletions: number;
 }
 
+type ScanMode = "full" | "safe" | "none";
+
+interface ScanState {
+  mode: ScanMode;
+  isScanning: boolean;
+  isPartial: boolean;
+  pending: number;
+  spinnerIndex: number;
+}
+
 interface BrowserState {
   root: FileNode | null;
   flatList: FlatNode[];
   fullList: FlatNode[];
   stats: BrowserStats;
+  nodeByPath: Map<string, FileNode>;
+  scanState: ScanState;
   selectedIndex: number;
   searchQuery: string;
   searchMode: boolean;
@@ -45,38 +66,7 @@ interface ChangedFile {
   ancestors: FileNode[];
 }
 
-function captureExpandedPaths(root: FileNode | null): Set<string> {
-  const expandedPaths = new Set<string>();
-
-  function traverse(node: FileNode): void {
-    if (node.isDirectory && node.expanded) {
-      expandedPaths.add(node.path);
-    }
-    if (node.children) {
-      for (const child of node.children) {
-        traverse(child);
-      }
-    }
-  }
-
-  if (root) traverse(root);
-  return expandedPaths;
-}
-
-function restoreExpandedPaths(root: FileNode | null, expandedPaths: Set<string>): void {
-  function traverse(node: FileNode): void {
-    if (node.isDirectory) {
-      node.expanded = expandedPaths.has(node.path);
-    }
-    if (node.children) {
-      for (const child of node.children) {
-        traverse(child);
-      }
-    }
-  }
-
-  if (root) traverse(root);
-}
+const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 function findNodeByPath(root: FileNode | null, path: string): FileNode | null {
   if (!root) return null;
@@ -89,6 +79,36 @@ function findNodeByPath(root: FileNode | null, path: string): FileNode | null {
   }
 
   return null;
+}
+
+function indexNodes(root: FileNode | null, map: Map<string, FileNode>): void {
+  map.clear();
+  if (!root) return;
+  const stack: FileNode[] = [root];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (!node) continue;
+    map.set(node.path, node);
+    if (node.children) {
+      for (const child of node.children) {
+        stack.push(child);
+      }
+    }
+  }
+}
+
+function getNodeDepth(node: FileNode, cwd: string): number {
+  if (node.path === cwd) return 0;
+  const rel = relative(cwd, node.path);
+  if (!rel) return 0;
+  return rel.split(sep).length;
+}
+
+function shouldSafeMode(cwd: string): boolean {
+  const resolved = resolve(cwd);
+  const home = resolve(homedir());
+  const root = resolve(sep);
+  return resolved === home || resolved === root;
 }
 
 function collectChangedFiles(node: FileNode, ancestors: FileNode[] = []): ChangedFile[] {
@@ -166,7 +186,8 @@ function formatNodeMeta(node: FileNode, theme: Theme): string {
 function formatNodeName(node: FileNode, theme: Theme): string {
   if (isIgnoredStatus(node.gitStatus)) return theme.fg("dim", node.name);
   if (node.isDirectory) {
-    return node.hasChangedChildren ? theme.fg("warning", node.name) : theme.fg("accent", node.name);
+    const label = node.hasChangedChildren ? theme.fg("warning", node.name) : theme.fg("accent", node.name);
+    return node.loading ? `${label}${theme.fg("dim", " ⏳")}` : label;
   }
   if (node.gitStatus) return theme.fg("warning", node.name);
   return node.name;
@@ -188,22 +209,44 @@ export function createFileBrowser(
   agentModifiedFiles: Set<string>,
   theme: Theme,
   onClose: () => void,
-  requestComment: (payload: CommentPayload, comment: string) => void
+  requestComment: (payload: CommentPayload, comment: string) => void,
+  requestRender: () => void
 ): BrowserController {
-  let gitStatus = getGitStatus(cwd);
-  let diffStats = getGitDiffStats(cwd);
-  const gitBranch = getGitBranch(cwd);
   const ignored = getIgnoredNames();
+  const repo = isGitRepo(cwd);
+  let gitStatus = repo ? getGitStatus(cwd) : new Map<string, string>();
+  let diffStats = repo ? getGitDiffStats(cwd) : new Map<string, DiffStats>();
+  const gitBranch = repo ? getGitBranch(cwd) : "";
 
   const viewer = createViewer(cwd, theme, requestComment);
 
-  const root = buildFileTree(cwd, cwd, gitStatus, diffStats, ignored, agentModifiedFiles);
+  const root = repo
+    ? buildFileTreeFromPaths(cwd, getGitFileList(cwd), gitStatus, diffStats, ignored, agentModifiedFiles)
+    : {
+      name: ".",
+      path: cwd,
+      isDirectory: true,
+      children: undefined,
+      expanded: true,
+      hasChangedChildren: false,
+    };
+
+  const safeMode = !repo && shouldSafeMode(cwd);
+  const scanState: ScanState = {
+    mode: repo ? "none" : safeMode ? "safe" : "full",
+    isScanning: false,
+    isPartial: safeMode,
+    pending: 0,
+    spinnerIndex: 0,
+  };
 
   const browser: BrowserState = {
     root,
     flatList: [],
     fullList: [],
     stats: getTreeStats(root),
+    nodeByPath: new Map<string, FileNode>(),
+    scanState,
     selectedIndex: 0,
     searchQuery: "",
     searchMode: false,
@@ -212,26 +255,332 @@ export function createFileBrowser(
     lastPollTime: Date.now(),
   };
 
+  indexNodes(browser.root, browser.nodeByPath);
   browser.flatList = browser.root ? flattenTree(browser.root) : [];
   browser.fullList = browser.root ? flattenTree(browser.root, 0, true, true) : [];
 
-  function refreshGitStatus(): void {
+  const lineCountCache = new Map<string, { size: number; mtimeMs: number; count: number }>();
+  const lineCountQueue: FileNode[] = [];
+  const lineCountPending = new Set<string>();
+  let lineCountTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const scanQueue: Array<{ node: FileNode; depth: number }> = [];
+  const scanQueued = new Set<string>();
+  let scanTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const normalizeGitPath = (path: string): string => path.split(sep).join("/");
+
+  function refreshLists(): void {
+    browser.flatList = browser.root ? flattenTree(browser.root) : [];
+    browser.fullList = browser.root ? flattenTree(browser.root, 0, true, true) : [];
+  }
+
+  function queueLineCount(node: FileNode, force = false): void {
+    if (node.isDirectory) return;
+    if (!force && node.lineCount !== undefined) return;
+    if (lineCountPending.has(node.path)) return;
+    lineCountPending.add(node.path);
+    lineCountQueue.push(node);
+    if (!lineCountTimer) {
+      lineCountTimer = setTimeout(processLineCountBatch, LINE_COUNT_BATCH_DELAY_MS);
+    }
+  }
+
+  function queueLineCountsForTree(rootNode: FileNode | null): void {
+    if (!rootNode) return;
+    const stack: FileNode[] = [rootNode];
+    while (stack.length > 0) {
+      const node = stack.pop();
+      if (!node) continue;
+      if (node.isDirectory) {
+        if (node.children) {
+          for (const child of node.children) {
+            stack.push(child);
+          }
+        }
+      } else {
+        queueLineCount(node);
+      }
+    }
+  }
+
+  async function updateLineCount(node: FileNode): Promise<void> {
+    try {
+      const fileStat = await stat(node.path);
+      if (fileStat.size > MAX_LINE_COUNT_BYTES) {
+        node.lineCount = undefined;
+        return;
+      }
+      const cached = lineCountCache.get(node.path);
+      if (cached && cached.size === fileStat.size && cached.mtimeMs === fileStat.mtimeMs) {
+        node.lineCount = cached.count;
+        return;
+      }
+      const content = await readFile(node.path, "utf-8");
+      const count = content.split("\n").length;
+      node.lineCount = count;
+      lineCountCache.set(node.path, { size: fileStat.size, mtimeMs: fileStat.mtimeMs, count });
+    } catch {
+      node.lineCount = undefined;
+    }
+  }
+
+  async function processLineCountBatch(): Promise<void> {
+    lineCountTimer = null;
+    if (!browser.root) return;
+    const batch = lineCountQueue.splice(0, LINE_COUNT_BATCH_SIZE);
+    if (batch.length === 0) return;
+
+    await Promise.all(
+      batch.map(async node => {
+        await updateLineCount(node);
+        lineCountPending.delete(node.path);
+      })
+    );
+
+    updateTreeStats(browser.root);
+    browser.stats = getTreeStats(browser.root);
+    refreshLists();
+    requestRender();
+
+    if (lineCountQueue.length > 0) {
+      lineCountTimer = setTimeout(processLineCountBatch, LINE_COUNT_BATCH_DELAY_MS);
+    }
+  }
+
+  function shouldAutoScan(depth: number): boolean {
+    if (browser.scanState.mode === "safe") {
+      return depth <= 0;
+    }
+    return depth <= MAX_TREE_DEPTH;
+  }
+
+  function getScanBatchSize(): number {
+    return browser.scanState.mode === "safe" ? 1 : SCAN_BATCH_SIZE;
+  }
+
+  function getScanDelay(): number {
+    return browser.scanState.mode === "safe" ? SCAN_BATCH_DELAY_MS * 4 : SCAN_BATCH_DELAY_MS;
+  }
+
+  function enqueueScan(node: FileNode, depth: number, force = false): void {
+    if (depth > MAX_TREE_DEPTH) return;
+    if (!force && browser.scanState.mode === "safe" && depth > 0) return;
+    if (node.children !== undefined || node.loading) return;
+    if (scanQueued.has(node.path)) return;
+
+    node.loading = true;
+    scanQueued.add(node.path);
+    scanQueue.push({ node, depth });
+    browser.scanState.pending = scanQueue.length;
+    browser.scanState.isScanning = true;
+
+    if (!scanTimer) {
+      scanTimer = setTimeout(processScanBatch, getScanDelay());
+    }
+  }
+
+  async function scanDirectory(node: FileNode, depth: number): Promise<void> {
+    try {
+      const entries = await readdir(node.path, { withFileTypes: true });
+      const sorted = [...entries].sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+
+      if (node.path === cwd && browser.scanState.mode === "full" && sorted.length >= SAFE_MODE_ENTRY_THRESHOLD) {
+        browser.scanState.mode = "safe";
+        browser.scanState.isPartial = true;
+        scanQueue.length = 0;
+        scanQueued.clear();
+      }
+
+      const dirs: FileNode[] = [];
+      const files: FileNode[] = [];
+
+      for (const entry of sorted) {
+        if (ignored.has(entry.name) || entry.name.startsWith(".")) continue;
+        const fullPath = join(node.path, entry.name);
+        if (entry.isDirectory()) {
+          const dirNode: FileNode = {
+            name: entry.name,
+            path: fullPath,
+            isDirectory: true,
+            children: undefined,
+            expanded: depth + 1 < 1,
+            hasChangedChildren: false,
+          };
+          dirs.push(dirNode);
+          browser.nodeByPath.set(fullPath, dirNode);
+          if (shouldAutoScan(depth + 1)) {
+            enqueueScan(dirNode, depth + 1);
+          }
+        } else {
+          const fileNode: FileNode = {
+            name: entry.name,
+            path: fullPath,
+            isDirectory: false,
+            agentModified: agentModifiedFiles.has(fullPath),
+          };
+          files.push(fileNode);
+          browser.nodeByPath.set(fullPath, fileNode);
+          queueLineCount(fileNode);
+        }
+      }
+
+      node.children = [...dirs, ...files];
+    } catch {
+      node.children = [];
+    } finally {
+      node.loading = false;
+      scanQueued.delete(node.path);
+    }
+  }
+
+  async function processScanBatch(): Promise<void> {
+    scanTimer = null;
+    if (!browser.root) return;
+    const batch = scanQueue.splice(0, getScanBatchSize());
+    if (batch.length === 0) {
+      browser.scanState.isScanning = false;
+      browser.scanState.pending = 0;
+      return;
+    }
+
+    for (const item of batch) {
+      await scanDirectory(item.node, item.depth);
+    }
+
+    browser.scanState.pending = scanQueue.length;
+    browser.scanState.isScanning = scanQueue.length > 0;
+
+    updateTreeStats(browser.root);
+    browser.stats = getTreeStats(browser.root);
+    refreshLists();
+    requestRender();
+
+    if (scanQueue.length > 0) {
+      scanTimer = setTimeout(processScanBatch, getScanDelay());
+    }
+  }
+
+  function stopBackgroundTasks(): void {
+    if (lineCountTimer) {
+      clearTimeout(lineCountTimer);
+      lineCountTimer = null;
+    }
+    if (scanTimer) {
+      clearTimeout(scanTimer);
+      scanTimer = null;
+    }
+  }
+
+  function applyAgentModified(): void {
+    for (const node of browser.nodeByPath.values()) {
+      if (!node.isDirectory) {
+        node.agentModified = agentModifiedFiles.has(node.path);
+      }
+    }
+  }
+
+  function applyGitUpdates(): void {
+    for (const node of browser.nodeByPath.values()) {
+      if (node.isDirectory) continue;
+      const relPath = normalizeGitPath(relative(cwd, node.path));
+      node.gitStatus = gitStatus.get(relPath);
+      node.diffStats = diffStats.get(relPath);
+    }
+  }
+
+  function ensureFileNode(relPath: string): FileNode | null {
+    if (!browser.root) return null;
+    let normalized = relPath.trim();
+    if (!normalized) return null;
+    if (normalized.startsWith("./")) {
+      normalized = normalized.slice(2);
+    }
+    normalized = normalizeGitPath(normalized);
+    const parts = normalized.split("/").filter(Boolean);
+    if (parts.length === 0) return null;
+    if (parts.length - 1 > MAX_TREE_DEPTH) return null;
+
+    let current = browser.root;
+    let currentRel = "";
+
+    for (let i = 0; i < parts.length - 1; i++) {
+      const part = parts[i];
+      if (ignored.has(part) || part.startsWith(".")) return null;
+      currentRel = currentRel ? `${currentRel}/${part}` : part;
+      const dirPath = join(cwd, currentRel);
+      let dirNode = browser.nodeByPath.get(dirPath);
+      if (!dirNode) {
+        const depth = i + 1;
+        dirNode = {
+          name: part,
+          path: dirPath,
+          isDirectory: true,
+          children: [],
+          expanded: depth < 1,
+          hasChangedChildren: false,
+        };
+        current.children ??= [];
+        current.children.push(dirNode);
+        sortChildren(current);
+        browser.nodeByPath.set(dirPath, dirNode);
+      }
+      current = dirNode;
+    }
+
+    const fileName = parts[parts.length - 1];
+    if (ignored.has(fileName) || fileName.startsWith(".")) return null;
+
+    const filePath = join(cwd, normalized);
+    const existing = browser.nodeByPath.get(filePath);
+    if (existing) return existing;
+
+    const fileNode: FileNode = {
+      name: fileName,
+      path: filePath,
+      isDirectory: false,
+      gitStatus: gitStatus.get(normalized),
+      agentModified: agentModifiedFiles.has(filePath),
+      diffStats: diffStats.get(normalized),
+    };
+
+    current.children ??= [];
+    current.children.push(fileNode);
+    sortChildren(current);
+    browser.nodeByPath.set(filePath, fileNode);
+    return fileNode;
+  }
+
+  function addUntrackedNodes(): void {
+    for (const [relPath, status] of gitStatus.entries()) {
+      if (!isUntrackedStatus(status)) continue;
+      const node = ensureFileNode(relPath);
+      if (node) {
+        node.gitStatus = status;
+        node.diffStats = diffStats.get(relPath);
+        queueLineCount(node, true);
+      }
+    }
+  }
+
+  function refreshMetadata(): void {
+    if (!browser.root) return;
     const previousDisplayList = getDisplayList();
     const currentPath = previousDisplayList[browser.selectedIndex]?.node.path;
     const viewingFile = viewer.getFile();
     const viewingFilePath = viewingFile?.path;
 
-    const expandedPaths = captureExpandedPaths(browser.root);
+    if (repo) {
+      gitStatus = getGitStatus(cwd);
+      diffStats = getGitDiffStats(cwd);
+      applyGitUpdates();
+      addUntrackedNodes();
+    }
 
-    gitStatus = getGitStatus(cwd);
-    diffStats = getGitDiffStats(cwd);
-    browser.root = buildFileTree(cwd, cwd, gitStatus, diffStats, ignored, agentModifiedFiles);
+    applyAgentModified();
+    updateTreeStats(browser.root);
     browser.stats = getTreeStats(browser.root);
-
-    restoreExpandedPaths(browser.root, expandedPaths);
-
-    browser.flatList = browser.root ? flattenTree(browser.root) : [];
-    browser.fullList = browser.root ? flattenTree(browser.root, 0, true, true) : [];
+    refreshLists();
 
     const updatedDisplayList = getDisplayList();
     if (currentPath) {
@@ -244,7 +593,7 @@ export function createFileBrowser(
     browser.selectedIndex = Math.min(browser.selectedIndex, Math.max(0, updatedDisplayList.length - 1));
 
     if (viewingFilePath && browser.root) {
-      const newNode = findNodeByPath(browser.root, viewingFilePath);
+      const newNode = browser.nodeByPath.get(viewingFilePath) ?? findNodeByPath(browser.root, viewingFilePath);
       if (newNode) {
         if (newNode.lineCount === undefined && viewingFile?.lineCount !== undefined) {
           newNode.lineCount = viewingFile.lineCount;
@@ -252,6 +601,12 @@ export function createFileBrowser(
         viewer.updateFileRef(newNode);
       }
     }
+  }
+
+  if (repo) {
+    queueLineCountsForTree(browser.root);
+  } else if (browser.root) {
+    enqueueScan(browser.root, 0, true);
   }
 
   function getDisplayList(): FlatNode[] {
@@ -317,7 +672,10 @@ export function createFileBrowser(
   function toggleDir(node: FileNode): void {
     if (node.isDirectory) {
       node.expanded = !node.expanded;
-      browser.flatList = browser.root ? flattenTree(browser.root) : [];
+      if (!repo && node.expanded && node.children === undefined) {
+        enqueueScan(node, getNodeDepth(node, cwd), true);
+      }
+      refreshLists();
     }
   }
 
@@ -338,16 +696,32 @@ export function createFileBrowser(
     if (stats.additions > 0) statsDisplay += theme.fg("success", ` +${stats.additions}`);
     if (stats.deletions > 0) statsDisplay += theme.fg("error", ` -${stats.deletions}`);
 
+    const hasActivity = browser.scanState.isScanning || lineCountPending.size > 0;
+    if (hasActivity) {
+      browser.scanState.spinnerIndex = (browser.scanState.spinnerIndex + 1) % SPINNER_FRAMES.length;
+    }
+    const spinner = SPINNER_FRAMES[browser.scanState.spinnerIndex];
+    const activityParts: string[] = [];
+    if (browser.scanState.isScanning) activityParts.push(`${spinner} scanning`);
+    if (lineCountPending.size > 0) activityParts.push(`${spinner} counts`);
+    const activityIndicator = activityParts.length > 0 ? theme.fg("dim", ` ${activityParts.join(" ")}`) : "";
+    const partialIndicator = browser.scanState.isPartial ? theme.fg("warning", " [partial]") : "";
+
     const searchIndicator = browser.searchMode
       ? theme.fg("accent", `  /${browser.searchQuery}█`)
       : "";
 
-    lines.push(truncateToWidth(theme.bold(pathDisplay) + branchDisplay + statsDisplay + searchIndicator, width));
+    lines.push(
+      truncateToWidth(theme.bold(pathDisplay) + branchDisplay + statsDisplay + activityIndicator + partialIndicator + searchIndicator, width)
+    );
     lines.push(theme.fg("borderMuted", "─".repeat(width)));
 
     const displayList = getDisplayList();
     if (displayList.length === 0) {
-      lines.push(theme.fg("dim", "  (no files" + (browser.searchQuery ? " matching '" + browser.searchQuery + "'" : "") + ")"));
+      const emptyLabel = browser.scanState.isScanning
+        ? "  (loading...)"
+        : "  (no files" + (browser.searchQuery ? " matching '" + browser.searchQuery + "'" : "") + ")";
+      lines.push(theme.fg("dim", emptyLabel));
       for (let i = 1; i < browser.browserHeight; i++) {
         lines.push("");
       }
@@ -422,6 +796,7 @@ export function createFileBrowser(
     const displayList = getDisplayList();
 
     if (matchesKey(data, "q") && !browser.searchMode) {
+      stopBackgroundTasks();
       onClose();
       return;
     }
@@ -430,6 +805,7 @@ export function createFileBrowser(
         browser.searchMode = false;
         browser.searchQuery = "";
       } else {
+        stopBackgroundTasks();
         onClose();
       }
       return;
@@ -521,9 +897,9 @@ export function createFileBrowser(
   return {
     render(width: number): string[] {
       const now = Date.now();
-      if (now - browser.lastPollTime > POLL_INTERVAL_MS) {
+      if (repo && now - browser.lastPollTime > POLL_INTERVAL_MS) {
         browser.lastPollTime = now;
-        refreshGitStatus();
+        refreshMetadata();
       }
 
       if (viewer.isOpen()) {

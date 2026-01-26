@@ -117,4 +117,6 @@ If missing, `/review` or `/diff` will show a clear install prompt.
 
 - Untracked files show as `[UNTRACKED]` and open in normal view.
 - Folder LOCs are shown only when the folder is collapsed (expanded folders would duplicate counts).
+- Line counts load asynchronously; the header shows activity while counts are computed.
+- Large non-git folders load progressively and may show `[partial]` while loading in safe mode.
 - Git status refreshes every 3 seconds while `/files` is open.

@@ -19,6 +19,7 @@ export interface FileNode {
   totalAdditions?: number;
   totalDeletions?: number;
   lineCountComplete?: boolean;
+  loading?: boolean;
 }
 
 export interface FlatNode {

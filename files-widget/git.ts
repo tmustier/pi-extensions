@@ -11,11 +11,14 @@ export function isGitRepo(cwd: string): boolean {
   }
 }
 
-export function getGitStatus(cwd: string): Map<string, string> {
+export function getGitStatus(cwd: string, options: { includeIgnored?: boolean } = {}): Map<string, string> {
   const status = new Map<string, string>();
   try {
-    // Include ignored files with --ignored flag
-    const output = execSync("git status --porcelain --ignored", { cwd, encoding: "utf-8", timeout: 5000, stdio: "pipe" });
+    const flags = ["--porcelain"];
+    if (options.includeIgnored !== false) {
+      flags.push("--ignored");
+    }
+    const output = execSync(`git status ${flags.join(" ")}`, { cwd, encoding: "utf-8", timeout: 5000, stdio: "pipe" });
     for (const line of output.split("\n")) {
       if (line.length < 3) continue;
       const statusCode = line.slice(0, 2).trim() || "?";
@@ -24,6 +27,38 @@ export function getGitStatus(cwd: string): Map<string, string> {
     }
   } catch {}
   return status;
+}
+
+export function getGitFileList(cwd: string): string[] {
+  const files = new Set<string>();
+  try {
+    const tracked = execSync("git ls-files -z", { cwd, encoding: "utf-8", timeout: 5000, stdio: "pipe" });
+    for (const entry of tracked.split("\0")) {
+      if (entry) files.add(entry);
+    }
+  } catch {}
+
+  try {
+    const statusOutput = execSync("git status --porcelain -uall -z", { cwd, encoding: "utf-8", timeout: 5000, stdio: "pipe" });
+    const entries = statusOutput.split("\0");
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i];
+      if (!entry) continue;
+      const statusCode = entry.slice(0, 2).trim();
+      let filePath = entry.slice(3);
+      if ((statusCode.startsWith("R") || statusCode.startsWith("C")) && entries[i + 1]) {
+        i += 1;
+        filePath = entries[i];
+      } else if (filePath.includes(" -> ")) {
+        filePath = filePath.split(" -> ").pop() || filePath;
+      }
+      if (filePath) {
+        files.add(filePath);
+      }
+    }
+  } catch {}
+
+  return Array.from(files);
 }
 
 export function getGitBranch(cwd: string): string {
