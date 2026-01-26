@@ -1,6 +1,6 @@
 {
   "name": "pi-extensions",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "private": false,
   "keywords": [
     "pi-package"
@@ -14,9 +14,11 @@
       "./arcade/tetris.ts",
       "./arcade/mario-not/mario-not.ts",
       "./code-actions/index.ts",
+      "./control/control.ts",
       "./files-widget/index.ts",
       "./raw-paste/index.ts",
       "./ralph-wiggum/index.ts",
+      "./review/review.ts",
       "./relaunch/index.ts",
       "./tab-status/tab-status.ts",
       "./usage-extension/index.ts",

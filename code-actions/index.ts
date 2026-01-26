@@ -1,9 +1,9 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
-import { extractSnippets, extractText } from "./snippets";
-import type { Snippet } from "./snippets";
-import { pickAction, pickSnippet } from "./ui";
-import type { PickResult } from "./ui";
-import { copyToClipboard, insertIntoEditor, runSnippet } from "./actions";
+import { extractSnippets, extractText } from "./src/snippets";
+import type { Snippet } from "./src/snippets";
+import { pickAction, pickSnippet } from "./src/ui";
+import type { PickResult } from "./src/ui";
+import { copyToClipboard, insertIntoEditor, runSnippet } from "./src/actions";
 
 type ParsedArgs = {
 	scope: "last" | "all";
