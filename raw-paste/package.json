@@ -1,6 +1,6 @@
 {
   "name": "@tmustier/pi-raw-paste",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "One-shot raw paste support for Pi (/paste).",
   "license": "MIT",
   "author": "Thomas Mustier",
