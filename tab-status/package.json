@@ -1,6 +1,6 @@
 {
   "name": "@tmustier/pi-tab-status",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Terminal tab status indicators for Pi sessions.",
   "license": "MIT",
   "author": "Thomas Mustier",

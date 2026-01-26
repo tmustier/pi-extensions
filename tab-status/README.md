@@ -8,7 +8,7 @@ Adds little modifiable indicators to tab titles:
 - 🛑 means the agent is blocked (no messages or tool calls for 180s while running) or stopped due to an error
 - `running...` means agent turn in progress - you can check back later
 
-The more tabs you have open, the better it is.
+The more tabs you have open, the better it is. **Currently tracks one active session per tab.**
 
 ![tab-status](assets/tab-status.png)
 
