@@ -1,5 +1,7 @@
 # arcade
 
+[**▶️ Watch demo**](assets/demo.mp4)
+
 [Snake](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/examples/extensions/snake.ts) is cool, but have you tried:
 
 - **sPIce-invaders** (`/spice-invaders`) - type `clawd` for a special challenge that gets harder every level
