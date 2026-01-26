@@ -8,6 +8,7 @@ import { matchesKey, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui"
 const BOARD_WIDTH = 10;
 const BOARD_HEIGHT = 20;
 const TICK_MS = 50;
+const LOCK_DELAY_TICKS = 10; // 0.5s at 50ms per tick
 const CELL_WIDTH = 2;
 const PREVIEW_COUNT = 3;
 
@@ -236,16 +237,24 @@ class TetrisComponent {
 
 		this.state.tickCounter++;
 		const dropSpeed = getDropSpeed(this.state.level);
+		const canFall = isValidPosition(this.state.board, { ...this.state.current, row: this.state.current.row + 1 });
+
+		if (!canFall) {
+			this.state.lockDelay++;
+			if (this.state.lockDelay >= LOCK_DELAY_TICKS) {
+				this.lockPiece();
+				this.version++;
+				this.tui.requestRender();
+				return;
+			}
+		} else {
+			this.state.lockDelay = 0;
+		}
 
 		if (this.state.tickCounter >= dropSpeed) {
 			this.state.tickCounter = 0;
-			if (!this.tryMove(1, 0)) {
-				this.state.lockDelay++;
-				if (this.state.lockDelay >= 10) {
-					this.lockPiece();
-				}
-			} else {
-				this.state.lockDelay = 0;
+			if (canFall) {
+				this.tryMove(1, 0);
 			}
 		}
 
@@ -257,6 +266,7 @@ class TetrisComponent {
 		const newPiece = { ...this.state.current, row: this.state.current.row + dr, col: this.state.current.col + dc };
 		if (isValidPosition(this.state.board, newPiece)) {
 			this.state.current = newPiece;
+			this.state.lockDelay = 0;
 			return true;
 		}
 		return false;
@@ -446,7 +456,6 @@ class TetrisComponent {
 		else if (matchesKey(data, "down") || data === "s" || data === "S" || data === "j" || data === "J") {
 			if (this.tryMove(1, 0)) {
 				this.state.score += 1;
-				this.state.lockDelay = 0;
 			}
 		}
 		// Rotate clockwise
