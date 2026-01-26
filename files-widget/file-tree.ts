@@ -1,9 +1,18 @@
+import { statSync } from "node:fs";
 import { join } from "node:path";
 
 import { MAX_TREE_DEPTH } from "./constants";
 import type { DiffStats, FileNode, FlatNode } from "./types";
 
 const collator = new Intl.Collator(undefined, { sensitivity: "base" });
+
+function isDirectoryPath(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
 
 function compareNodes(a: FileNode, b: FileNode): number {
   if (a.isDirectory !== b.isDirectory) {
@@ -153,11 +162,41 @@ export function buildFileTreeFromPaths(
 
     const fileRelPath = parts.join("/");
     if (seenFiles.has(fileRelPath)) continue;
-    seenFiles.add(fileRelPath);
 
     const filePath = join(cwd, fileRelPath);
-    const fileGitStatus = gitStatus.get(fileRelPath);
+    const fileGitStatus = gitStatus.get(fileRelPath) ?? gitStatus.get(`${fileRelPath}/`);
     const fileDiffStats = diffStats.get(fileRelPath);
+    const existingDir = directoryMap.get(fileRelPath);
+
+    if (existingDir) {
+      if (fileGitStatus) {
+        existingDir.gitStatus = fileGitStatus;
+      }
+      if (fileDiffStats) {
+        existingDir.diffStats = fileDiffStats;
+      }
+      continue;
+    }
+
+    const isDirEntry = normalized.endsWith("/") || isDirectoryPath(filePath);
+    if (isDirEntry) {
+      const depth = parts.length;
+      const dirNode: FileNode = {
+        name: fileName,
+        path: filePath,
+        isDirectory: true,
+        children: [],
+        expanded: depth < 1,
+        hasChangedChildren: false,
+        gitStatus: fileGitStatus,
+        diffStats: fileDiffStats,
+      };
+      directoryMap.set(fileRelPath, dirNode);
+      current.children?.push(dirNode);
+      continue;
+    }
+
+    seenFiles.add(fileRelPath);
 
     current.children?.push({
       name: fileName,
