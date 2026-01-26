@@ -1,6 +1,6 @@
 # files-widget
 
-In-terminal file browser and viewer for Pi. Navigate files, view diffs, select code, and send comments to the agent without leaving the terminal.
+In-terminal file browser and diff viewer widget for Pi. Navigate files, view diffs, select code, and send comments to the agent without leaving the terminal and without interrupting your agent.
 
 ![Demo](demo.svg)
 
