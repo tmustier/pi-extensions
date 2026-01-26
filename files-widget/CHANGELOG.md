@@ -2,6 +2,14 @@
 
 All notable changes to this extension will be documented in this file.
 
+## [0.1.10] - 2026-01-26
+
+### Fixed
+- Treat git-reported directory entries as directories to avoid viewer errors
+- Guard the viewer against opening directories directly
+- Wrap delta diff output without breaking gutters and avoid truncation
+- Add a safe fallback when `bat` fails to render with wrapping
+
 ## [0.1.9] - 2026-01-26
 
 ### Changed
