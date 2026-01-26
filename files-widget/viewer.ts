@@ -178,11 +178,11 @@ export function createViewer(
       if (state.file.diffStats.deletions > 0) {
         header += theme.fg("error", ` -${state.file.diffStats.deletions}`);
       }
-    } else if (isUntracked && state.file.lineCount) {
+    } else if (isUntracked && state.file.lineCount !== undefined) {
       header += theme.fg("success", ` +${state.file.lineCount}`);
     }
 
-    if (state.file.lineCount) {
+    if (state.file.lineCount !== undefined) {
       header += theme.fg("dim", ` ${state.file.lineCount}L`);
     }
 
@@ -245,8 +245,10 @@ export function createViewer(
 
       try {
         state.rawContent = readFileSync(file.path, "utf-8");
+        file.lineCount = state.rawContent.split("\n").length;
       } catch {
         state.rawContent = "";
+        file.lineCount = undefined;
       }
     },
 

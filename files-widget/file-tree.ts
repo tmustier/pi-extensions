@@ -1,15 +1,28 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join, relative } from "node:path";
 
-import { MAX_TREE_DEPTH } from "./constants";
+import { MAX_LINE_COUNT_BYTES, MAX_TREE_DEPTH } from "./constants";
 import type { DiffStats, FileNode, FlatNode } from "./types";
 
-export function getFileLineCount(filePath: string): number {
+const lineCountCache = new Map<string, { mtimeMs: number; size: number; count: number }>();
+
+export function getFileLineCount(filePath: string, size: number, mtimeMs: number): number | undefined {
+  const cached = lineCountCache.get(filePath);
+  if (cached && cached.size === size && cached.mtimeMs === mtimeMs) {
+    return cached.count;
+  }
+
+  if (size > MAX_LINE_COUNT_BYTES) {
+    return undefined;
+  }
+
   try {
     const content = readFileSync(filePath, "utf-8");
-    return content.split("\n").length;
+    const count = content.split("\n").length;
+    lineCountCache.set(filePath, { mtimeMs, size, count });
+    return count;
   } catch {
-    return 0;
+    return undefined;
   }
 }
 
@@ -98,7 +111,7 @@ export function buildFileTree(
           isDirectory: false,
           gitStatus: fileGitStatus,
           agentModified: agentModified.has(fullPath),
-          lineCount: getFileLineCount(fullPath),
+          lineCount: getFileLineCount(fullPath, stat.size, stat.mtimeMs),
           diffStats: fileDiffStats,
         });
       }
@@ -110,14 +123,22 @@ export function buildFileTree(
     let totalLines = 0;
     let totalAdditions = 0;
     let totalDeletions = 0;
+    let lineCountComplete = true;
 
     for (const child of node.children) {
       if (child.isDirectory) {
-        totalLines += child.totalLines || 0;
-        totalAdditions += child.totalAdditions || 0;
-        totalDeletions += child.totalDeletions || 0;
+        totalLines += child.totalLines ?? 0;
+        totalAdditions += child.totalAdditions ?? 0;
+        totalDeletions += child.totalDeletions ?? 0;
+        if (child.lineCountComplete === false) {
+          lineCountComplete = false;
+        }
       } else {
-        totalLines += child.lineCount || 0;
+        if (child.lineCount === undefined) {
+          lineCountComplete = false;
+        } else {
+          totalLines += child.lineCount;
+        }
         if (child.diffStats) {
           totalAdditions += child.diffStats.additions;
           totalDeletions += child.diffStats.deletions;
@@ -128,27 +149,33 @@ export function buildFileTree(
     node.totalLines = totalLines;
     node.totalAdditions = totalAdditions;
     node.totalDeletions = totalDeletions;
+    node.lineCountComplete = lineCountComplete;
   } catch {}
 
   return node;
 }
 
-export function flattenTree(node: FileNode, depth = 0, isRoot = true): FlatNode[] {
+export function flattenTree(
+  node: FileNode,
+  depth = 0,
+  isRoot = true,
+  includeCollapsed = false
+): FlatNode[] {
   const result: FlatNode[] = [];
 
   // Skip the root "." node itself, just process its children
   if (isRoot && node.name === ".") {
     for (const child of node.children || []) {
-      result.push(...flattenTree(child, 0, false));
+      result.push(...flattenTree(child, 0, false, includeCollapsed));
     }
     return result;
   }
 
   result.push({ node, depth });
 
-  if (node.isDirectory && node.expanded && node.children) {
+  if (node.isDirectory && node.children && (includeCollapsed || node.expanded)) {
     for (const child of node.children) {
-      result.push(...flattenTree(child, depth + 1, false));
+      result.push(...flattenTree(child, depth + 1, false, includeCollapsed));
     }
   }
 

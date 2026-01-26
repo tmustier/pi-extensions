@@ -21,10 +21,17 @@ export interface BrowserController {
   invalidate(): void;
 }
 
+interface BrowserStats {
+  totalLines?: number;
+  additions: number;
+  deletions: number;
+}
 
 interface BrowserState {
   root: FileNode | null;
   flatList: FlatNode[];
+  fullList: FlatNode[];
+  stats: BrowserStats;
   selectedIndex: number;
   searchQuery: string;
   searchMode: boolean;
@@ -100,28 +107,16 @@ function collectChangedFiles(node: FileNode, ancestors: FileNode[] = []): Change
   return results;
 }
 
-function computeTotalStats(root: FileNode | null): { totalLines: number; additions: number; deletions: number } {
-  let totalLines = 0;
-  let additions = 0;
-  let deletions = 0;
-
-  function traverse(node: FileNode): void {
-    if (!node.isDirectory) {
-      totalLines += node.lineCount || 0;
-      if (node.diffStats) {
-        additions += node.diffStats.additions;
-        deletions += node.diffStats.deletions;
-      }
-    }
-    if (node.children) {
-      for (const child of node.children) {
-        traverse(child);
-      }
-    }
+function getTreeStats(root: FileNode | null): BrowserStats {
+  if (!root) {
+    return { totalLines: undefined, additions: 0, deletions: 0 };
   }
 
-  if (root) traverse(root);
-  return { totalLines, additions, deletions };
+  return {
+    totalLines: root.lineCountComplete ? root.totalLines ?? 0 : undefined,
+    additions: root.totalAdditions ?? 0,
+    deletions: root.totalDeletions ?? 0,
+  };
 }
 
 function formatNodeStatus(node: FileNode, theme: Theme): string {
@@ -146,7 +141,7 @@ function formatNodeMeta(node: FileNode, theme: Theme): string {
     if (node.totalDeletions && node.totalDeletions > 0) {
       parts.push(theme.fg("error", `-${node.totalDeletions}`));
     }
-    if (node.totalLines) {
+    if (node.totalLines && node.lineCountComplete !== false) {
       parts.push(theme.fg("dim", `${node.totalLines}L`));
     }
   } else if (!node.isDirectory) {
@@ -157,10 +152,10 @@ function formatNodeMeta(node: FileNode, theme: Theme): string {
       if (node.diffStats.deletions > 0) {
         parts.push(theme.fg("error", `-${node.diffStats.deletions}`));
       }
-    } else if (isUntrackedStatus(node.gitStatus) && node.lineCount) {
+    } else if (isUntrackedStatus(node.gitStatus) && node.lineCount !== undefined) {
       parts.push(theme.fg("success", `+${node.lineCount}`));
     }
-    if (node.lineCount) {
+    if (node.lineCount !== undefined) {
       parts.push(theme.fg("dim", `${node.lineCount}L`));
     }
   }
@@ -202,9 +197,13 @@ export function createFileBrowser(
 
   const viewer = createViewer(cwd, theme, requestComment);
 
+  const root = buildFileTree(cwd, cwd, gitStatus, diffStats, ignored, agentModifiedFiles);
+
   const browser: BrowserState = {
-    root: buildFileTree(cwd, cwd, gitStatus, diffStats, ignored, agentModifiedFiles),
+    root,
     flatList: [],
+    fullList: [],
+    stats: getTreeStats(root),
     selectedIndex: 0,
     searchQuery: "",
     searchMode: false,
@@ -214,40 +213,49 @@ export function createFileBrowser(
   };
 
   browser.flatList = browser.root ? flattenTree(browser.root) : [];
+  browser.fullList = browser.root ? flattenTree(browser.root, 0, true, true) : [];
 
   function refreshGitStatus(): void {
-    const currentPath = browser.flatList[browser.selectedIndex]?.node.path;
-    const viewingFilePath = viewer.getFile()?.path;
+    const previousDisplayList = getDisplayList();
+    const currentPath = previousDisplayList[browser.selectedIndex]?.node.path;
+    const viewingFile = viewer.getFile();
+    const viewingFilePath = viewingFile?.path;
 
     const expandedPaths = captureExpandedPaths(browser.root);
 
     gitStatus = getGitStatus(cwd);
     diffStats = getGitDiffStats(cwd);
     browser.root = buildFileTree(cwd, cwd, gitStatus, diffStats, ignored, agentModifiedFiles);
+    browser.stats = getTreeStats(browser.root);
 
     restoreExpandedPaths(browser.root, expandedPaths);
 
     browser.flatList = browser.root ? flattenTree(browser.root) : [];
+    browser.fullList = browser.root ? flattenTree(browser.root, 0, true, true) : [];
 
+    const updatedDisplayList = getDisplayList();
     if (currentPath) {
-      const newIdx = browser.flatList.findIndex(f => f.node.path === currentPath);
+      const newIdx = updatedDisplayList.findIndex(f => f.node.path === currentPath);
       if (newIdx !== -1) {
         browser.selectedIndex = newIdx;
       }
     }
 
-    browser.selectedIndex = Math.min(browser.selectedIndex, Math.max(0, browser.flatList.length - 1));
+    browser.selectedIndex = Math.min(browser.selectedIndex, Math.max(0, updatedDisplayList.length - 1));
 
     if (viewingFilePath && browser.root) {
       const newNode = findNodeByPath(browser.root, viewingFilePath);
       if (newNode) {
+        if (newNode.lineCount === undefined && viewingFile?.lineCount !== undefined) {
+          newNode.lineCount = viewingFile.lineCount;
+        }
         viewer.updateFileRef(newNode);
       }
     }
   }
 
   function getDisplayList(): FlatNode[] {
-    let list = browser.flatList;
+    let list = browser.searchQuery ? browser.fullList : browser.flatList;
 
     if (browser.showOnlyChanged) {
       list = list.filter(f =>
@@ -321,13 +329,14 @@ export function createFileBrowser(
     const lines: string[] = [];
     const pathDisplay = basename(cwd);
     const branchDisplay = gitBranch ? theme.fg("accent", ` (${gitBranch})`) : "";
-    const stats = computeTotalStats(browser.root);
+    const stats = browser.stats;
 
-    let statsDisplay = theme.fg("dim", ` ${stats.totalLines}L`);
-    if (stats.additions > 0 || stats.deletions > 0) {
-      if (stats.additions > 0) statsDisplay += theme.fg("success", ` +${stats.additions}`);
-      if (stats.deletions > 0) statsDisplay += theme.fg("error", ` -${stats.deletions}`);
+    let statsDisplay = "";
+    if (stats.totalLines !== undefined) {
+      statsDisplay += theme.fg("dim", ` ${stats.totalLines}L`);
     }
+    if (stats.additions > 0) statsDisplay += theme.fg("success", ` +${stats.additions}`);
+    if (stats.deletions > 0) statsDisplay += theme.fg("error", ` -${stats.deletions}`);
 
     const searchIndicator = browser.searchMode
       ? theme.fg("accent", `  /${browser.searchQuery}█`)

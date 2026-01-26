@@ -2,6 +2,13 @@
 
 All notable changes to this extension will be documented in this file.
 
+## [0.1.7] - 2026-01-26
+
+### Changed
+- Cache line counts and skip large files to avoid freezes in big folders
+- Avoid recomputing tree stats on every render
+- Preserve line counts for open files across refreshes
+
 ## [0.1.6] - 2026-01-24
 
 ### Added

@@ -1,5 +1,6 @@
 export const MAX_TREE_DEPTH = 6;
 export const POLL_INTERVAL_MS = 3000;
+export const MAX_LINE_COUNT_BYTES = 256 * 1024;
 
 export const DEFAULT_VIEWER_HEIGHT = 18;
 export const DEFAULT_BROWSER_HEIGHT = 15;
