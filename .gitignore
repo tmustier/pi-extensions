@@ -1,2 +1,4 @@
 .long-task-harness/
 .build/
+control/
+review/

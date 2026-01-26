@@ -1,0 +1,8 @@
+# Local harness/agent artifacts
+.ralph/
+.long-task-harness/
+.build/
+
+# Unrelated extensions for npm root package
+control/
+review/
