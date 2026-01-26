@@ -2,7 +2,9 @@
 
 In-terminal file browser and diff viewer widget for Pi. Navigate files, view diffs, select code, and send comments to the agent without leaving the terminal and without interrupting your agent.
 
-![Demo](demo.svg)
+<video controls autoplay loop muted playsinline>
+  <source src="demo.mp4" type="video/mp4" />
+</video>
 
 ## Install
 
