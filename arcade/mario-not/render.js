@@ -148,7 +148,7 @@ function renderFrame(state) {
 function renderHud(state, width) {
 	const time = Math.max(0, Math.ceil(state.time));
 	const levelIndex = state.levelIndex || 1;
-	const line1 = fitLine(`BADLOGIC L${levelIndex} TIME ${time}`, width);
+	const line1 = fitLine(`NOT MARIO L${levelIndex} TIME ${time}`, width);
 	const line2 = fitLine(
 		`SCORE ${padNum(state.score, 6)} COIN ${padNum(state.coins, 2)} LIVES ${state.lives}`,
 		width
