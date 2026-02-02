@@ -14,7 +14,7 @@ In-terminal file browser and diff viewer widget for Pi. Navigate files, view dif
 pi install npm:@tmustier/pi-files-widget
 ```
 
-Required deps (needed for /files):
+Required deps (needed for /readfiles):
 
 ```bash
 # macOS (Homebrew)
@@ -75,11 +75,11 @@ Then reference it in your settings:
 - `delta`: formatted diffs
 - `glow`: markdown rendering
 
-The `/files` browser requires these tools and will refuse to open until they are installed.
+The `/readfiles` browser requires these tools and will refuse to open until they are installed.
 
 ## Commands
 
-- `/files` - open the file browser
+- `/readfiles` - open the file browser
 - `/review` - open tuicr review flow
 - `/diff` - open critique (bunx critique)
 
@@ -127,4 +127,4 @@ If missing, `/review` or `/diff` will show a clear install prompt.
 - Folder LOCs are shown only when the folder is collapsed (expanded folders would duplicate counts).
 - Line counts load asynchronously; the header shows activity while counts are computed.
 - Large non-git folders load progressively and may show `[partial]` while loading in safe mode.
-- Git status refreshes every 3 seconds while `/files` is open.
+- Git status refreshes every 3 seconds while `/readfiles` is open.

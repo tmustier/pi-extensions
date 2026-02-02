@@ -6,7 +6,7 @@ Personal extensions for the [Pi coding agent](https://github.com/badlogic/pi-mon
 
 | Extension | Description |
 |-----------|-------------|
-| [/files](files-widget/) | In-terminal file browser and viewer widget. Navigate files, view diffs, select code, send comments to agent - without leaving Pi, and without interrupting your agent |
+| [/readfiles](files-widget/) | In-terminal file browser and viewer widget. Navigate files, view diffs, select code, send comments to agent - without leaving Pi, and without interrupting your agent |
 | [tab-status](tab-status/) | Manage as many parallel sessions as your mind can handle. Terminal tab indicators for <br>✅ done / 🚧 stuck / 🛑 timed out |
 | [ralph-wiggum](ralph-wiggum/) | Run arbitrarily-long tasks without diluting model attention. Flat version without subagents like [ralph-loop](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/ralph-loop) |
 | [agent-guidance](agent-guidance/) | Switch between Claude/Codex/Gemini with model-specific guidance (CLAUDE.md, CODEX.md, GEMINI.md) |
