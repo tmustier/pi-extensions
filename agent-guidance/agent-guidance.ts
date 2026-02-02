@@ -113,7 +113,7 @@ export default function agentGuidance(pi: ExtensionAPI) {
 	const agentDir = path.join(process.env.HOME || "", ".pi", "agent");
 	const config = loadConfig(agentDir);
 
-	pi.on("before_agent_start", async (_event, ctx) => {
+	pi.on("before_agent_start", async (event, ctx) => {
 		const provider = ctx.model?.provider;
 		if (!provider) return;
 
@@ -142,6 +142,6 @@ export default function agentGuidance(pi: ExtensionAPI) {
 			append += `## ${p}\n\n${content}\n\n`;
 		}
 
-		return { systemPromptAppend: append };
+		return { systemPrompt: event.systemPrompt + append };
 	});
 }

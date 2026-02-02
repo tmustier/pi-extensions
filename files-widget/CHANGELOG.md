@@ -2,6 +2,11 @@
 
 All notable changes to this extension will be documented in this file.
 
+## [0.1.13] - 2026-02-02
+
+### Changed
+- **BREAKING:** Renamed `/files` command to `/readfiles` to avoid conflict with Pi's new built-in `/files` command (Pi v0.50.2+)
+
 ## [0.1.11] - 2026-01-26
 
 ### Changed

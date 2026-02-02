@@ -609,7 +609,7 @@ Examples:
 			reflectEvery: Type.Optional(Type.Number({ description: "Reflect every N iterations" })),
 			maxIterations: Type.Optional(Type.Number({ description: "Max iterations (default: 50)", default: 50 })),
 		}),
-		async execute(_toolCallId, params, _onUpdate, ctx) {
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const loopName = sanitize(params.name);
 			const taskFile = path.join(RALPH_DIR, `${loopName}.md`);
 
@@ -654,7 +654,7 @@ Examples:
 		label: "Ralph Iteration Done",
 		description: "Signal that you've completed this iteration of the Ralph loop. Call this after making progress to get the next iteration prompt. Do NOT call this if you've output the completion marker.",
 		parameters: Type.Object({}),
-		async execute(_toolCallId, _params, _onUpdate, ctx) {
+		async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
 			if (!currentLoop) {
 				return { content: [{ type: "text", text: "No active Ralph loop." }], details: {} };
 			}
@@ -726,7 +726,7 @@ Examples:
 		instructions += `- Otherwise, call ralph_done tool to proceed to next iteration`;
 
 		return {
-			systemPromptAppend: `\n[RALPH LOOP - ${state.name} - Iteration ${iterStr}]\n\n${instructions}`,
+			systemPrompt: event.systemPrompt + `\n[RALPH LOOP - ${state.name} - Iteration ${iterStr}]\n\n${instructions}`,
 		};
 	});
 

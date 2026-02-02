@@ -20,7 +20,7 @@ export default function editorExtension(pi: ExtensionAPI): void {
   const requiredDeps = ["bat", "delta", "glow"] as const;
   const getMissingDeps = () => requiredDeps.filter((dep) => !hasCommand(dep));
 
-  pi.registerCommand("files", {
+  pi.registerCommand("readfiles", {
     description: "Open file browser",
     handler: async (_args, ctx) => {
       const missing = getMissingDeps();

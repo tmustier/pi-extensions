@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.4 - 2026-02-02
+
+### Changed
+- **BREAKING:** Updated tool execute signatures for Pi v0.51.0 compatibility (`signal` parameter now comes before `onUpdate`)
+- **BREAKING:** Changed `before_agent_start` handler to use `systemPrompt` instead of deprecated `systemPromptAppend` (Pi v0.39.0+)
+
 ## 0.1.3 - 2026-01-26
 - Added note clarifying this is a flat version without subagents.
 
