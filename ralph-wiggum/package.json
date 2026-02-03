@@ -1,6 +1,6 @@
 {
   "name": "@tmustier/pi-ralph-wiggum",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Long-running agent loops for iterative development in Pi.",
   "license": "MIT",
   "author": "Thomas Mustier",
@@ -20,6 +20,7 @@
     ],
     "skills": [
       "SKILL.md"
-    ]
+    ],
+    "image": "https://github.com/user-attachments/assets/68cdab11-76c6-4aed-9ea1-558cbb267ea6"
   }
 }

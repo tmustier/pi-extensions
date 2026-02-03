@@ -2,6 +2,11 @@
 
 All notable changes to this extension will be documented in this file.
 
+## [0.1.14] - 2026-02-03
+
+### Added
+- Add preview video metadata for the extension listing.
+
 ## [0.1.13] - 2026-02-02
 
 ### Changed

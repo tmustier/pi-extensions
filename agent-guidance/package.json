@@ -1,6 +1,6 @@
 {
   "name": "@tmustier/pi-agent-guidance",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Loads provider-specific context files (CLAUDE.md, CODEX.md, GEMINI.md) based on current model.",
   "license": "MIT",
   "author": "Thomas Mustier",

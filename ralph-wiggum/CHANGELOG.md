@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.5 - 2026-02-03
+
+### Added
+- Add preview image metadata for the extension listing.
+
 ## 0.1.4 - 2026-02-02
 
 ### Changed

@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.1.4 - 2026-02-03
+- Add preview image metadata for the extension listing.
+
 ## 0.1.2 - 2026-01-26
 - Add a src entry point so loading `code-actions/src` works with pi extension discovery.
 

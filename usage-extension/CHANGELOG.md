@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.1.3 - 2026-02-03
+- Add preview image metadata for the extension listing.
+
 ## 0.1.2 - 2026-01-13
 - Add loading spinner while parsing session files (Esc to cancel)
 - Make data loading async to keep UI responsive
