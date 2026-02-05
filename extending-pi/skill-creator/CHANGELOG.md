@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.0 - 2026-02-05
+- Moved under `extending-pi/skill-creator/` (nested skill structure).
+- Renamed skill from `pi-skill-creator` to `skill-creator` to match new directory.
+
 ## 0.2.0 - 2026-02-05
 - Consolidate into standalone SKILL.md: remove references/ directory (design-patterns, workflows, output-patterns).
 - Reframe directives as context throughout — add "Context over directives" principle.

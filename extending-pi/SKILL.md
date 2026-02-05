@@ -1,9 +1,9 @@
 ---
-name: pi-creator
+name: extending-pi
 description: Guide for extending Pi — decide between skills, extensions, prompt templates, themes, context files, or custom models, then create and package them. Use when someone wants to extend Pi, add capabilities, create a skill, build an extension, or make a Pi package.
 ---
 
-# Pi Creator
+# Extending Pi
 
 Help the user decide what to build and where to find guidance.
 

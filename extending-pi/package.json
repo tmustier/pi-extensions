@@ -1,5 +1,5 @@
 {
-  "name": "@tmustier/pi-creator",
+  "name": "@tmustier/extending-pi",
   "version": "0.1.0",
   "description": "Guide for extending Pi — skills, extensions, prompt templates, themes, and packaging.",
   "license": "MIT",
@@ -10,10 +10,10 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/tmustier/pi-extensions.git",
-    "directory": "pi-creator"
+    "directory": "extending-pi"
   },
   "bugs": "https://github.com/tmustier/pi-extensions/issues",
-  "homepage": "https://github.com/tmustier/pi-extensions/tree/main/pi-creator",
+  "homepage": "https://github.com/tmustier/pi-extensions/tree/main/extending-pi",
   "pi": {
     "skills": [
       "SKILL.md",
