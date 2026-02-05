@@ -1,6 +1,6 @@
 {
   "name": "pi-extensions",
-  "version": "0.1.18",
+  "version": "0.1.19",
   "license": "MIT",
   "private": false,
   "keywords": [
@@ -26,6 +26,7 @@
       "./ready-status/ready-status.ts"
     ],
     "skills": [
+      "./pi-skill-creator/SKILL.md",
       "./ralph-wiggum/SKILL.md"
     ]
   }

@@ -15,6 +15,13 @@ Personal extensions for the [Pi coding agent](https://github.com/badlogic/pi-mon
 | [/code](code-actions/) | Pick code blocks or inline snippets from assistant messages to copy, insert, or run with `/code` |
 | [arcade](arcade/) | Play minigames while your tests run: 👾 sPIce-invaders, 👻 picman, 🏓 ping, 🧩 tetris, 🍄 mario-not |
 
+## Skills
+
+| Skill | Description |
+|-------|-------------|
+| [pi-skill-creator](pi-skill-creator/) | Guidelines and templates for creating Pi skills. |
+| [ralph-wiggum](ralph-wiggum/) | Skill instructions for long-running development loops. |
+
 ## Install (pi package manager)
 
 ```bash

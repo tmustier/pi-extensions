@@ -2,6 +2,7 @@
 .ralph/
 .long-task-harness/
 .build/
+.research/
 
 # Unrelated extensions for npm root package
 control/

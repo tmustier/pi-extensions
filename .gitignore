@@ -1,5 +1,6 @@
 .long-task-harness/
 .build/
 .ralph/
+.research/
 control/
 review/
