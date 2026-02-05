@@ -92,17 +92,12 @@ disable-model-invocation: true
 - ~500 lines is a practical ceiling for SKILL.md; beyond that, split content into references.
 - The agent won't know a reference file exists unless SKILL.md says when to read it.
 
-Optional design guides:
-- See [references/design-patterns.md](references/design-patterns.md) for degrees of freedom, progressive disclosure patterns, and requirements gathering.
-- See [references/workflows.md](references/workflows.md) for workflow patterns.
-- See [references/output-patterns.md](references/output-patterns.md) for output templates/examples.
-
 ### 7) Add resources
 
 SKILL.md is the agent's interface to the skill — usage examples and input/output descriptions let it call scripts without needing to understand internals.
 
 - **scripts/**: usage examples in SKILL.md inform the agent how to call them; scripts should be executable.
-- **references/**: a table of contents helps the agent navigate files longer than ~100 lines.
+- **references/**: a table of contents helps the agent navigate files longer than ~100 lines. References work best one level deep from SKILL.md, and each fact should live in one place (SKILL.md or a reference, not both).
 - **assets/**: templates, boilerplate, or data used in final output — typically not loaded into context.
 
 ### 8) Validate and test
