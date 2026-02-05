@@ -1,9 +1,9 @@
 ---
-name: pi-skill-creator
+name: skill-creator
 description: Create or update Pi skills (SKILL.md plus optional scripts, references, or assets). Use when someone asks to design a new Pi skill, refine an existing one, or structure skills for Pi discovery or packaging.
 ---
 
-# Pi Skill Creator
+# Skill Creator
 
 Provide guidance for creating effective Pi skills.
 

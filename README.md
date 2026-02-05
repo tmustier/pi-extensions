@@ -19,7 +19,8 @@ Personal extensions for the [Pi coding agent](https://github.com/badlogic/pi-mon
 
 | Skill | Description |
 |-------|-------------|
-| [pi-skill-creator](pi-skill-creator/) | Guidelines and templates for creating Pi skills. |
+| [pi-creator](pi-creator/) | Guide for extending Pi — decide between skills, extensions, prompt templates, themes, or packages. |
+| ↳ [skill-creator](pi-creator/skill-creator/) | Detailed guidance for creating Pi skills. |
 | [ralph-wiggum](ralph-wiggum/) | Skill instructions for long-running development loops. |
 
 ## Install (pi package manager)

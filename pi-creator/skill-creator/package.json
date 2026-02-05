@@ -1,7 +1,7 @@
 {
   "name": "@tmustier/pi-skill-creator",
-  "version": "0.2.0",
-  "description": "Skill-creation guidelines for Pi (Agent Skills format).",
+  "version": "0.3.0",
+  "description": "Detailed guidance for creating Pi skills (Agent Skills format).",
   "license": "MIT",
   "author": "Thomas Mustier",
   "keywords": [
@@ -10,10 +10,10 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/tmustier/pi-extensions.git",
-    "directory": "pi-skill-creator"
+    "directory": "pi-creator/skill-creator"
   },
   "bugs": "https://github.com/tmustier/pi-extensions/issues",
-  "homepage": "https://github.com/tmustier/pi-extensions/tree/main/pi-skill-creator",
+  "homepage": "https://github.com/tmustier/pi-extensions/tree/main/pi-creator/skill-creator",
   "pi": {
     "skills": [
       "SKILL.md"

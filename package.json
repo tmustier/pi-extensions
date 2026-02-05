@@ -26,7 +26,8 @@
       "./ready-status/ready-status.ts"
     ],
     "skills": [
-      "./pi-skill-creator/SKILL.md",
+      "./pi-creator/SKILL.md",
+      "./pi-creator/skill-creator/SKILL.md",
       "./ralph-wiggum/SKILL.md"
     ]
   }
