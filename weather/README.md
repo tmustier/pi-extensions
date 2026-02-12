@@ -8,9 +8,11 @@ The extension prefers a Rust N-API bridge (`native/weathr-bridge`) and falls bac
 
 ## Demo
 
-https://raw.githubusercontent.com/tmustier/pi-extensions/main/weather/assets/weather-demo.mp4
+[![Weather widget demo](https://raw.githubusercontent.com/tmustier/pi-extensions/main/weather/assets/weather-demo.gif)](https://raw.githubusercontent.com/tmustier/pi-extensions/main/weather/assets/weather-demo.mp4)
 
-_Demo media is kept out of npm installs (package `files` whitelist + repo `.npmignore`)._
+[Open MP4 demo directly](https://raw.githubusercontent.com/tmustier/pi-extensions/main/weather/assets/weather-demo.mp4)
+
+_Demo media is loaded from GitHub links and kept out of npm installs (package `files` whitelist + repo `.npmignore`)._
 
 ## Install
 

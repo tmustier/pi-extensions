@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1 - 2026-02-12
+- Added an embedded demo GIF in the README that links to the MP4 demo hosted on GitHub.
+- Kept demo media out of npm installs while improving README preview on GitHub/npm.
+
 ## 0.1.0 - 2026-02-12
 - Initial release of `/weather` weather widget extension.
 - Added native Rust bridge (`native/weathr-bridge`) with automatic shell fallback.
