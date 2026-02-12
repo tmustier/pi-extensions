@@ -29,7 +29,7 @@
     "build:native:debug": "cd native/weathr-bridge && npm install --no-package-lock && npm run build:debug",
     "native:prepare-packages": "cd native/weathr-bridge && npm install --no-package-lock && npm run create-npm-dir",
     "native:sync-artifacts": "cd native/weathr-bridge && npm install --no-package-lock && npm run artifacts",
-    "native:publish-packages": "cd native/weathr-bridge && for pkg in npm/*; do if ls \"$pkg\"/*.node >/dev/null 2>&1; then npm publish \"$pkg\" --access public --provenance; else echo \"Skipping $pkg (no binary)\"; fi; done"
+    "native:publish-packages": "cd native/weathr-bridge && for pkg in npm/*; do if ls \"$pkg\"/*.node >/dev/null 2>&1; then npm publish \"./$pkg\" --access public --provenance; else echo \"Skipping $pkg (no binary)\"; fi; done"
   },
   "files": [
     "index.ts",
