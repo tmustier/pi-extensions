@@ -1,0 +1,24 @@
+{
+  "name": "@tmustier/pi-weather-bridge-win32-x64-msvc",
+  "version": "0.1.0",
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "main": "pi_weather_bridge.win32-x64-msvc.node",
+  "files": [
+    "pi_weather_bridge.win32-x64-msvc.node"
+  ],
+  "description": "Prebuilt native bridge for @tmustier/pi-weather",
+  "author": "Thomas Mustier",
+  "homepage": "https://github.com/tmustier/pi-extensions/tree/main/weather",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tmustier/pi-extensions.git",
+    "directory": "weather/native/weathr-bridge"
+  },
+  "bugs": "https://github.com/tmustier/pi-extensions/issues"
+}

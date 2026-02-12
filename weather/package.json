@@ -1,0 +1,52 @@
+{
+  "name": "@tmustier/pi-weather",
+  "version": "0.1.0",
+  "description": "Weather widget for Pi (/weather)",
+  "license": "MIT",
+  "author": "Thomas Mustier",
+  "keywords": [
+    "pi-package"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tmustier/pi-extensions.git",
+    "directory": "weather"
+  },
+  "bugs": "https://github.com/tmustier/pi-extensions/issues",
+  "homepage": "https://github.com/tmustier/pi-extensions/tree/main/weather",
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*",
+    "@mariozechner/pi-tui": "*"
+  },
+  "optionalDependencies": {
+    "@tmustier/pi-weather-bridge-darwin-arm64": "0.1.0",
+    "@tmustier/pi-weather-bridge-darwin-x64": "0.1.0",
+    "@tmustier/pi-weather-bridge-linux-x64-gnu": "0.1.0",
+    "@tmustier/pi-weather-bridge-win32-x64-msvc": "0.1.0"
+  },
+  "scripts": {
+    "build:native": "cd native/weathr-bridge && npm install --no-package-lock && npm run build",
+    "build:native:debug": "cd native/weathr-bridge && npm install --no-package-lock && npm run build:debug",
+    "native:prepare-packages": "cd native/weathr-bridge && npm install --no-package-lock && npm run create-npm-dir",
+    "native:sync-artifacts": "cd native/weathr-bridge && npm install --no-package-lock && npm run artifacts",
+    "native:publish-packages": "cd native/weathr-bridge && for pkg in npm/*; do if ls \"$pkg\"/*.node >/dev/null 2>&1; then npm publish \"$pkg\" --access public --provenance; else echo \"Skipping $pkg (no binary)\"; fi; done"
+  },
+  "files": [
+    "index.ts",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "native/weathr-bridge/build.rs",
+    "native/weathr-bridge/Cargo.toml",
+    "native/weathr-bridge/index.d.ts",
+    "native/weathr-bridge/index.js",
+    "native/weathr-bridge/package.json",
+    "native/weathr-bridge/src/lib.rs"
+  ],
+  "pi": {
+    "extensions": [
+      "index.ts"
+    ],
+    "video": "https://raw.githubusercontent.com/tmustier/pi-extensions/main/weather/assets/weather-demo.mp4"
+  }
+}

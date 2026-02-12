@@ -1,0 +1,7 @@
+node_modules/
+target/
+artifacts/
+tmp/
+*.node
+native.d.ts
+Cargo.lock

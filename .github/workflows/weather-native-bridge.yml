@@ -1,0 +1,86 @@
+name: weather-native-bridge
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build-prebuilt:
+    name: build (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            target: aarch64-apple-darwin
+          - runner: macos-13
+            target: x86_64-apple-darwin
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install bridge dependencies
+        working-directory: weather/native/weathr-bridge
+        run: npm install --no-package-lock
+
+      - name: Build prebuilt binary
+        working-directory: weather/native/weathr-bridge
+        run: npx napi build --platform --release --dts native.d.ts --target ${{ matrix.target }}
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bindings-${{ matrix.target }}
+          path: weather/native/weathr-bridge/pi_weather_bridge.*.node
+          if-no-files-found: error
+
+  publish-platform-packages:
+    name: publish prebuilt packages
+    runs-on: ubuntu-latest
+    needs: build-prebuilt
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: weather/native/weathr-bridge/artifacts
+
+      - name: Prepare npm package folders
+        working-directory: weather
+        run: npm run native:prepare-packages
+
+      - name: Sync artifacts into npm package folders
+        working-directory: weather
+        run: npm run native:sync-artifacts
+
+      - name: Publish platform packages
+        working-directory: weather
+        run: npm run native:publish-packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

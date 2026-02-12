@@ -1,0 +1,24 @@
+{
+  "name": "@tmustier/pi-weather-bridge-darwin-x64",
+  "version": "0.1.0",
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "main": "pi_weather_bridge.darwin-x64.node",
+  "files": [
+    "pi_weather_bridge.darwin-x64.node"
+  ],
+  "description": "Prebuilt native bridge for @tmustier/pi-weather",
+  "author": "Thomas Mustier",
+  "homepage": "https://github.com/tmustier/pi-extensions/tree/main/weather",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tmustier/pi-extensions.git",
+    "directory": "weather/native/weathr-bridge"
+  },
+  "bugs": "https://github.com/tmustier/pi-extensions/issues"
+}

@@ -1,0 +1,41 @@
+{
+  "name": "@tmustier/pi-weather-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Prebuilt native bridge for @tmustier/pi-weather",
+  "license": "MIT",
+  "author": "Thomas Mustier",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tmustier/pi-extensions.git",
+    "directory": "weather/native/weathr-bridge"
+  },
+  "bugs": "https://github.com/tmustier/pi-extensions/issues",
+  "homepage": "https://github.com/tmustier/pi-extensions/tree/main/weather",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "napi": {
+    "name": "pi_weather_bridge",
+    "triples": {
+      "defaults": false,
+      "additional": [
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin",
+        "x86_64-unknown-linux-gnu",
+        "x86_64-pc-windows-msvc"
+      ]
+    }
+  },
+  "scripts": {
+    "build": "napi build --platform --release --dts native.d.ts",
+    "build:debug": "napi build --platform --dts native.d.ts",
+    "build:platform": "napi build --platform --release --dts native.d.ts",
+    "build:platform:debug": "napi build --platform --dts native.d.ts",
+    "create-npm-dir": "napi create-npm-dir -t .",
+    "artifacts": "napi artifacts",
+    "napi": "napi"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^2.18.2"
+  }
+}

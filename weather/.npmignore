@@ -1,0 +1,10 @@
+# Keep demo media out of npm installs
+assets/
+
+# Native bridge build artifacts
+native/weathr-bridge/node_modules/
+native/weathr-bridge/target/
+native/weathr-bridge/npm/
+native/weathr-bridge/*.node
+native/weathr-bridge/native.d.ts
+native/weathr-bridge/Cargo.lock
