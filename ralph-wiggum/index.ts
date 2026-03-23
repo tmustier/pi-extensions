@@ -602,6 +602,11 @@ Examples:
 		name: "ralph_start",
 		label: "Start Ralph Loop",
 		description: "Start a long-running development loop. Use for complex multi-iteration tasks.",
+		promptSnippet: "Start a persistent multi-iteration development loop with pacing and reflection controls.",
+		promptGuidelines: [
+			"Use this tool when the user explicitly wants an iterative loop, autonomous repeated passes, or paced multi-step execution.",
+			"After starting a loop, continue each finished iteration with ralph_done unless the completion marker has already been emitted.",
+		],
 		parameters: Type.Object({
 			name: Type.String({ description: "Loop name (e.g., 'refactor-auth')" }),
 			taskContent: Type.String({ description: "Task in markdown with goals and checklist" }),
@@ -653,6 +658,11 @@ Examples:
 		name: "ralph_done",
 		label: "Ralph Iteration Done",
 		description: "Signal that you've completed this iteration of the Ralph loop. Call this after making progress to get the next iteration prompt. Do NOT call this if you've output the completion marker.",
+		promptSnippet: "Advance an active Ralph loop after completing the current iteration.",
+		promptGuidelines: [
+			"Call this after making real iteration progress so Ralph can queue the next prompt.",
+			"Do not call this if there is no active loop, if pending messages are already queued, or if the completion marker has already been emitted.",
+		],
 		parameters: Type.Object({}),
 		async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
 			if (!currentLoop) {
