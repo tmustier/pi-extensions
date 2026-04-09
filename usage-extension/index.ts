@@ -22,8 +22,7 @@ interface TokenStats {
 	total: number;
 	input: number;
 	output: number;
-	cacheRead: number;
-	cacheWrite: number;
+	cache: number;
 }
 
 interface BaseStats {
@@ -113,11 +112,7 @@ const INPUT_COLUMN: DataColumn = {
 	label: "↑In",
 	width: 8,
 	dimmed: true,
-	// Show input + cacheWrite: tokens sent to the model (excluding cache hits).
-	// Anthropic's prompt caching reports non-cached input as ~1-3 tokens/msg
-	// with the rest in cacheWrite, while OpenAI puts them all in input.
-	// Adding cacheWrite makes the column comparable across providers.
-	getValue: (s) => formatTokens(s.tokens.input + s.tokens.cacheWrite),
+	getValue: (s) => formatTokens(s.tokens.input),
 };
 
 const OUTPUT_COLUMN: DataColumn = {
@@ -131,7 +126,7 @@ const CACHE_COLUMN: DataColumn = {
 	label: "Cache",
 	width: 8,
 	dimmed: true,
-	getValue: (s) => formatTokens(s.tokens.cacheRead + s.tokens.cacheWrite),
+	getValue: (s) => formatTokens(s.tokens.cache),
 };
 
 const FULL_DATA_COLUMNS: DataColumn[] = [
@@ -270,19 +265,18 @@ async function parseSessionFile(
 function accumulateStats(
 	target: BaseStats,
 	cost: number,
-	tokens: { total: number; input: number; output: number; cacheRead: number; cacheWrite: number }
+	tokens: { total: number; input: number; output: number; cache: number }
 ): void {
 	target.messages++;
 	target.cost += cost;
 	target.tokens.total += tokens.total;
 	target.tokens.input += tokens.input;
 	target.tokens.output += tokens.output;
-	target.tokens.cacheRead += tokens.cacheRead;
-	target.tokens.cacheWrite += tokens.cacheWrite;
+	target.tokens.cache += tokens.cache;
 }
 
 function emptyTokens(): TokenStats {
-	return { total: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+	return { total: 0, input: 0, output: 0, cache: 0 };
 }
 
 function emptyModelStats(): ModelStats {
@@ -339,8 +333,7 @@ function addMessagesToUsageData(
 			total: msg.input + msg.output,
 			input: msg.input,
 			output: msg.output,
-			cacheRead: msg.cacheRead,
-			cacheWrite: msg.cacheWrite,
+			cache: msg.cacheRead + msg.cacheWrite,
 		};
 
 		for (const period of periods) {
