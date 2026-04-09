@@ -9,7 +9,7 @@
 
 import type { ExtensionAPI, ExtensionCommandContext, Theme } from "@mariozechner/pi-coding-agent";
 import { DynamicBorder } from "@mariozechner/pi-coding-agent";
-import { CancellableLoader, Container, Spacer, matchesKey, visibleWidth, truncateToWidth } from "@mariozechner/pi-tui";
+import { CancellableLoader, Container, Spacer, matchesKey, visibleWidth, truncateToWidth, wrapTextWithAnsi } from "@mariozechner/pi-tui";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -69,23 +69,83 @@ interface DataColumn {
 	getValue: (stats: BaseStats & { sessions: Set<string> | number }) => string;
 }
 
-const NAME_COL_WIDTH = 26;
+interface TableLayoutCandidate {
+	columns: DataColumn[];
+	minNameWidth: number;
+	compact?: boolean;
+}
 
-const DATA_COLUMNS: DataColumn[] = [
-	{
-		label: "Sessions",
-		width: 9,
-		getValue: (s) => formatNumber(typeof s.sessions === "number" ? s.sessions : s.sessions.size),
-	},
-	{ label: "Msgs", width: 9, getValue: (s) => formatNumber(s.messages) },
-	{ label: "Cost", width: 9, getValue: (s) => formatCost(s.cost) },
-	{ label: "Tokens", width: 9, getValue: (s) => formatTokens(s.tokens.total) },
-	{ label: "↑In", width: 8, dimmed: true, getValue: (s) => formatTokens(s.tokens.input) },
-	{ label: "↓Out", width: 8, dimmed: true, getValue: (s) => formatTokens(s.tokens.output) },
-	{ label: "Cache", width: 8, dimmed: true, getValue: (s) => formatTokens(s.tokens.cache) },
+interface TableLayout {
+	columns: DataColumn[];
+	nameWidth: number;
+	tableWidth: number;
+	compact: boolean;
+}
+
+const MAX_NAME_COL_WIDTH = 26;
+
+const SESSIONS_COLUMN: DataColumn = {
+	label: "Sessions",
+	width: 9,
+	getValue: (s) => formatNumber(typeof s.sessions === "number" ? s.sessions : s.sessions.size),
+};
+
+const MSGS_COLUMN: DataColumn = {
+	label: "Msgs",
+	width: 9,
+	getValue: (s) => formatNumber(s.messages),
+};
+
+const COST_COLUMN: DataColumn = {
+	label: "Cost",
+	width: 9,
+	getValue: (s) => formatCost(s.cost),
+};
+
+const TOKENS_COLUMN: DataColumn = {
+	label: "Tokens",
+	width: 9,
+	getValue: (s) => formatTokens(s.tokens.total),
+};
+
+const INPUT_COLUMN: DataColumn = {
+	label: "↑In",
+	width: 8,
+	dimmed: true,
+	getValue: (s) => formatTokens(s.tokens.input),
+};
+
+const OUTPUT_COLUMN: DataColumn = {
+	label: "↓Out",
+	width: 8,
+	dimmed: true,
+	getValue: (s) => formatTokens(s.tokens.output),
+};
+
+const CACHE_COLUMN: DataColumn = {
+	label: "Cache",
+	width: 8,
+	dimmed: true,
+	getValue: (s) => formatTokens(s.tokens.cache),
+};
+
+const FULL_DATA_COLUMNS: DataColumn[] = [
+	SESSIONS_COLUMN,
+	MSGS_COLUMN,
+	COST_COLUMN,
+	TOKENS_COLUMN,
+	INPUT_COLUMN,
+	OUTPUT_COLUMN,
+	CACHE_COLUMN,
 ];
 
-const TABLE_WIDTH = NAME_COL_WIDTH + DATA_COLUMNS.reduce((sum, col) => sum + col.width, 0);
+const TABLE_LAYOUTS: TableLayoutCandidate[] = [
+	{ columns: FULL_DATA_COLUMNS, minNameWidth: MAX_NAME_COL_WIDTH },
+	{ columns: [SESSIONS_COLUMN, MSGS_COLUMN, COST_COLUMN, TOKENS_COLUMN], minNameWidth: 14, compact: true },
+	{ columns: [SESSIONS_COLUMN, COST_COLUMN, TOKENS_COLUMN], minNameWidth: 12, compact: true },
+	{ columns: [COST_COLUMN, TOKENS_COLUMN], minNameWidth: 10, compact: true },
+	{ columns: [COST_COLUMN], minNameWidth: 8, compact: true },
+];
 
 // =============================================================================
 // Data Collection
@@ -385,6 +445,54 @@ function padRight(s: string, len: number): string {
 	return s + " ".repeat(len - vis);
 }
 
+function sumColumnWidths(columns: DataColumn[]): number {
+	return columns.reduce((sum, col) => sum + col.width, 0);
+}
+
+function fitCell(s: string, len: number, align: "left" | "right" = "left"): string {
+	if (len <= 0) return "";
+	const truncated = truncateToWidth(s, len);
+	return align === "right" ? padLeft(truncated, len) : padRight(truncated, len);
+}
+
+function clampLines(lines: string[], width: number): string[] {
+	return lines.map((line) => truncateToWidth(line, Math.max(width, 0)));
+}
+
+function pickFittingText(width: number, variants: string[]): string {
+	for (const variant of variants) {
+		if (visibleWidth(variant) <= width) return variant;
+	}
+	return variants[variants.length - 1] || "";
+}
+
+function getTableLayout(width: number): TableLayout {
+	const safeWidth = Math.max(width, 0);
+
+	for (const candidate of TABLE_LAYOUTS) {
+		const columnsWidth = sumColumnWidths(candidate.columns);
+		const nameWidth = Math.min(MAX_NAME_COL_WIDTH, Math.max(safeWidth - columnsWidth, 0));
+		if (nameWidth >= candidate.minNameWidth) {
+			return {
+				columns: candidate.columns,
+				nameWidth,
+				tableWidth: nameWidth + columnsWidth,
+				compact: candidate.compact ?? false,
+			};
+		}
+	}
+
+	const fallback = TABLE_LAYOUTS[TABLE_LAYOUTS.length - 1]!;
+	const fallbackColumnsWidth = sumColumnWidths(fallback.columns);
+	const fallbackNameWidth = Math.min(MAX_NAME_COL_WIDTH, Math.max(safeWidth - fallbackColumnsWidth, 0));
+	return {
+		columns: fallback.columns,
+		nameWidth: fallbackNameWidth,
+		tableWidth: fallbackNameWidth + fallbackColumnsWidth,
+		compact: fallback.compact ?? false,
+	};
+}
+
 // =============================================================================
 // Component
 // =============================================================================
@@ -467,15 +575,19 @@ class UsageComponent {
 	// Render Methods
 	// -------------------------------------------------------------------------
 
-	render(_width: number): string[] {
-		return [
-			...this.renderTitle(),
-			...this.renderTabs(),
-			...this.renderHeader(),
-			...this.renderRows(),
-			...this.renderTotals(),
-			...this.renderHelp(),
-		];
+	render(width: number): string[] {
+		const layout = getTableLayout(width);
+		return clampLines(
+			[
+				...this.renderTitle(),
+				...this.renderTabs(width, layout),
+				...this.renderHeader(layout),
+				...this.renderRows(layout),
+				...this.renderTotals(layout),
+				...this.renderHelp(width),
+			],
+			width
+		);
 	}
 
 	private renderTitle(): string[] {
@@ -483,52 +595,68 @@ class UsageComponent {
 		return [th.fg("accent", th.bold("Usage Statistics")), ""];
 	}
 
-	private renderTabs(): string[] {
+	private renderTabs(width: number, layout: TableLayout): string[] {
 		const th = this.theme;
-		const tabs = TAB_ORDER.map((tab) => {
+		const fullTabs = TAB_ORDER.map((tab) => {
 			const label = TAB_LABELS[tab];
 			return tab === this.activeTab ? th.fg("accent", `[${label}]`) : th.fg("dim", ` ${label} `);
 		}).join("  ");
-		return [tabs, th.fg("dim", "Dedupes copied branched-history messages. Recursive subagent sessions included."), ""];
+
+		const activeTabOnly = th.fg("accent", `[${TAB_LABELS[this.activeTab]}]`);
+		const tabLine = pickFittingText(width, [
+			fullTabs,
+			`${activeTabOnly}  ${th.fg("dim", "[Tab/←→]")}`,
+			activeTabOnly,
+		]);
+
+		const infoText = layout.compact
+			? th.fg("dim", "Compact view. Widen the terminal for more columns.")
+			: th.fg("dim", "Dedupes copied branched-history messages. Recursive subagent sessions included.");
+		const infoLines = wrapTextWithAnsi(infoText, Math.max(width, 1));
+
+		return [tabLine, ...infoLines, ""];
 	}
 
-	private renderHeader(): string[] {
+	private renderHeader(layout: TableLayout): string[] {
 		const th = this.theme;
 
-		let headerLine = padRight("Provider / Model", NAME_COL_WIDTH);
-		for (const col of DATA_COLUMNS) {
-			const label = padLeft(col.label, col.width);
+		let headerLine = fitCell("Provider / Model", layout.nameWidth);
+		for (const col of layout.columns) {
+			const label = fitCell(col.label, col.width, "right");
 			headerLine += col.dimmed ? th.fg("dim", label) : label;
 		}
 
-		return [th.fg("muted", headerLine), th.fg("border", "─".repeat(TABLE_WIDTH))];
+		return [th.fg("muted", headerLine), th.fg("border", "─".repeat(layout.tableWidth))];
 	}
 
 	private renderDataRow(
 		name: string,
 		stats: BaseStats & { sessions: Set<string> | number },
-		options: { indent?: number; selected?: boolean; dimAll?: boolean } = {}
+		layout: TableLayout,
+		options: { indent?: number; selected?: boolean; dimAll?: boolean; prefix?: string } = {}
 	): string {
 		const th = this.theme;
-		const { indent = 0, selected = false, dimAll = false } = options;
+		const { indent = 0, selected = false, dimAll = false, prefix } = options;
 
-		const indentStr = " ".repeat(indent);
-		const nameWidth = NAME_COL_WIDTH - indent;
-		const truncName = truncateToWidth(name, nameWidth - 1);
+		const rawPrefix = prefix ?? " ".repeat(indent);
+		const safePrefix = layout.nameWidth > 0 ? truncateToWidth(rawPrefix, layout.nameWidth, "") : "";
+		const prefixWidth = visibleWidth(safePrefix);
+		const innerNameWidth = Math.max(layout.nameWidth - prefixWidth, 0);
+		const truncName = innerNameWidth > 0 ? truncateToWidth(name, innerNameWidth) : "";
 		const styledName = selected ? th.fg("accent", truncName) : dimAll ? th.fg("dim", truncName) : truncName;
 
-		let row = indentStr + padRight(styledName, nameWidth);
+		let row = safePrefix + (innerNameWidth > 0 ? padRight(styledName, innerNameWidth) : "");
 
-		for (const col of DATA_COLUMNS) {
-			const value = col.getValue(stats);
+		for (const col of layout.columns) {
+			const value = fitCell(col.getValue(stats), col.width, "right");
 			const shouldDim = col.dimmed || dimAll;
-			row += shouldDim ? th.fg("dim", padLeft(value, col.width)) : padLeft(value, col.width);
+			row += shouldDim ? th.fg("dim", value) : value;
 		}
 
 		return row;
 	}
 
-	private renderRows(): string[] {
+	private renderRows(layout: TableLayout): string[] {
 		const th = this.theme;
 		const stats = this.data[this.activeTab];
 		const lines: string[] = [];
@@ -543,22 +671,21 @@ class UsageComponent {
 			const providerStats = stats.providers.get(providerName)!;
 			const isSelected = i === this.selectedIndex;
 			const isExpanded = this.expanded.has(providerName);
-
-			// Provider row with expand/collapse arrow
 			const arrow = isExpanded ? "▾" : "▸";
-			const prefix = isSelected ? th.fg("accent", arrow + " ") : th.fg("dim", arrow + " ");
-			const dataRow = this.renderDataRow(providerName, providerStats, {
-				indent: 2,
-				selected: isSelected,
-			});
-			lines.push(prefix + dataRow.slice(2)); // Replace indent with arrow prefix
+			const prefix = isSelected ? th.fg("accent", `${arrow} `) : th.fg("dim", `${arrow} `);
 
-			// Model rows (if expanded)
+			lines.push(
+				this.renderDataRow(providerName, providerStats, layout, {
+					selected: isSelected,
+					prefix,
+				})
+			);
+
 			if (isExpanded) {
 				const models = Array.from(providerStats.models.entries()).sort((a, b) => b[1].cost - a[1].cost);
 
 				for (const [modelName, modelStats] of models) {
-					lines.push(this.renderDataRow(modelName, modelStats, { indent: 4, dimAll: true }));
+					lines.push(this.renderDataRow(modelName, modelStats, layout, { indent: 4, dimAll: true }));
 				}
 			}
 		}
@@ -566,21 +693,28 @@ class UsageComponent {
 		return lines;
 	}
 
-	private renderTotals(): string[] {
+	private renderTotals(layout: TableLayout): string[] {
 		const th = this.theme;
 		const stats = this.data[this.activeTab];
 
-		let totalRow = padRight(th.bold("Total"), NAME_COL_WIDTH);
-		for (const col of DATA_COLUMNS) {
-			const value = col.getValue(stats.totals);
-			totalRow += col.dimmed ? th.fg("dim", padLeft(value, col.width)) : padLeft(value, col.width);
+		let totalRow = fitCell(th.bold("Total"), layout.nameWidth);
+		for (const col of layout.columns) {
+			const value = fitCell(col.getValue(stats.totals), col.width, "right");
+			totalRow += col.dimmed ? th.fg("dim", value) : value;
 		}
 
-		return [th.fg("border", "─".repeat(TABLE_WIDTH)), totalRow, ""];
+		return [th.fg("border", "─".repeat(layout.tableWidth)), totalRow, ""];
 	}
 
-	private renderHelp(): string[] {
-		return [this.theme.fg("dim", "[Tab/←→] period  [↑↓] select  [Enter] expand  [q] close")];
+	private renderHelp(width: number): string[] {
+		const line = pickFittingText(width, [
+			"[Tab/←→] period  [↑↓] select  [Enter] expand  [q] close",
+			"[Tab] period  [↑↓] select  [Enter] expand  [q] close",
+			"[↑↓] select  [Enter] expand  [q] close",
+			"[↑↓] select  [q] close",
+			"[q] close",
+		]);
+		return [this.theme.fg("dim", line)];
 	}
 
 	invalidate(): void {}
@@ -639,10 +773,10 @@ export default function (pi: ExtensionAPI) {
 
 				return {
 					render: (w: number) => {
-						const borderLines = container.render(w);
+						const borderLines = clampLines(container.render(w), w);
 						const usageLines = usage.render(w);
 						const bottomBorder = theme.fg("border", "─".repeat(w));
-						return [...borderLines, ...usageLines, "", bottomBorder];
+						return clampLines([...borderLines, ...usageLines, "", bottomBorder], w);
 					},
 					invalidate: () => container.invalidate(),
 					handleInput: (input: string) => usage.handleInput(input),

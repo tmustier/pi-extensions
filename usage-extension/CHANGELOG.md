@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.7 - 2026-04-09
+- Prevent `/usage` from crashing in narrow terminals by switching to a compact responsive table and truncating every rendered line to the terminal width
+- Thanks @markokocic
+
 ## 0.1.6 - 2026-04-09
 - Add a "Last Week" time period tab
 - Thanks @ttttmr

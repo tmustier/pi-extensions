@@ -83,6 +83,8 @@ Time periods are calculated in the local timezone where Pi runs. If you want to 
 | **↓Out** | Output tokens *(dimmed)* |
 | **Cache** | Cache read + write tokens *(dimmed)* |
 
+On narrow terminals, `/usage` automatically switches to a compact table instead of overflowing the terminal. Hidden columns reappear as soon as you widen the terminal.
+
 ### Navigation
 
 | Key | Action |
