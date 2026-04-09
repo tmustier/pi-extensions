@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.5 - 2026-04-09
+- Keep recursive subagent session scanning in `/usage`
+- Remove the deduped/raw mode toggle and keep the deduped view as the default behavior
+
 ## 0.1.4 - 2026-04-09
 - Scan session files recursively so nested subagent runs are included in `/usage`
 - Add deduped vs raw counting modes to compare copied branch history against raw file totals

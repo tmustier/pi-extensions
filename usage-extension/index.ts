@@ -3,7 +3,6 @@
  *
  * Shows an inline view with usage stats grouped by provider.
  * - Tab cycles: Today → This Week → All Time
- * - D toggles deduped view, R toggles raw view, M cycles both
  * - Arrow keys navigate providers
  * - Enter expands/collapses to show models
  */
@@ -57,8 +56,6 @@ interface UsageData {
 }
 
 type TabName = "today" | "thisWeek" | "allTime";
-type UsageCountMode = "deduped" | "raw";
-type UsageDataByMode = Record<UsageCountMode, UsageData>;
 
 // =============================================================================
 // Column Configuration
@@ -136,8 +133,7 @@ interface SessionMessage {
 
 interface ParsedSessionFile {
 	sessionId: string;
-	rawMessages: SessionMessage[];
-	dedupedMessages: SessionMessage[];
+	messages: SessionMessage[];
 }
 
 async function parseSessionFile(
@@ -149,8 +145,7 @@ async function parseSessionFile(
 		const content = await readFile(filePath, "utf8");
 		if (signal?.aborted) return null;
 		const lines = content.trim().split("\n");
-		const rawMessages: SessionMessage[] = [];
-		const dedupedMessages: SessionMessage[] = [];
+		const messages: SessionMessage[] = [];
 		let sessionId = "";
 
 		for (let i = 0; i < lines.length; i++) {
@@ -175,7 +170,14 @@ async function parseSessionFile(
 						const fallbackTs = entry.timestamp ? new Date(entry.timestamp).getTime() : 0;
 						const timestamp = msg.timestamp || (Number.isNaN(fallbackTs) ? 0 : fallbackTs);
 
-						const sessionMessage: SessionMessage = {
+						// Deduplicate copied history across branched session files.
+						// Keep the existing ccusage-style hash so current totals remain comparable.
+						const totalTokens = input + output + cacheRead + cacheWrite;
+						const hash = `${timestamp}:${totalTokens}`;
+						if (seenHashes.has(hash)) continue;
+						seenHashes.add(hash);
+
+						messages.push({
 							provider: msg.provider,
 							model: msg.model,
 							cost: msg.usage.cost?.total || 0,
@@ -184,16 +186,7 @@ async function parseSessionFile(
 							cacheRead,
 							cacheWrite,
 							timestamp,
-						};
-						rawMessages.push(sessionMessage);
-
-						// Deduplicate copied history across branched session files.
-						// Keep the existing ccusage-style hash so current totals remain comparable.
-						const totalTokens = input + output + cacheRead + cacheWrite;
-						const hash = `${timestamp}:${totalTokens}`;
-						if (seenHashes.has(hash)) continue;
-						seenHashes.add(hash);
-						dedupedMessages.push(sessionMessage);
+						});
 					}
 				}
 			} catch {
@@ -201,7 +194,7 @@ async function parseSessionFile(
 			}
 		}
 
-		return sessionId ? { sessionId, rawMessages, dedupedMessages } : null;
+		return sessionId ? { sessionId, messages } : null;
 	} catch {
 		return null;
 	}
@@ -307,7 +300,7 @@ function addMessagesToUsageData(
 	if (sessionContributed.allTime) data.allTime.totals.sessions++;
 }
 
-async function collectUsageData(signal?: AbortSignal): Promise<UsageDataByMode | null> {
+async function collectUsageData(signal?: AbortSignal): Promise<UsageData | null> {
 	const startOfToday = new Date();
 	startOfToday.setHours(0, 0, 0, 0);
 	const todayMs = startOfToday.getTime();
@@ -320,10 +313,7 @@ async function collectUsageData(signal?: AbortSignal): Promise<UsageDataByMode |
 	startOfWeek.setHours(0, 0, 0, 0);
 	const weekStartMs = startOfWeek.getTime();
 
-	const data: UsageDataByMode = {
-		deduped: emptyUsageData(),
-		raw: emptyUsageData(),
-	};
+	const data = emptyUsageData();
 
 	const sessionFiles = await getAllSessionFiles(signal);
 	if (signal?.aborted) return null;
@@ -335,8 +325,7 @@ async function collectUsageData(signal?: AbortSignal): Promise<UsageDataByMode |
 		if (signal?.aborted) return null;
 		if (!parsed) continue;
 
-		addMessagesToUsageData(data.raw, parsed.sessionId, parsed.rawMessages, todayMs, weekStartMs);
-		addMessagesToUsageData(data.deduped, parsed.sessionId, parsed.dedupedMessages, todayMs, weekStartMs);
+		addMessagesToUsageData(data, parsed.sessionId, parsed.messages, todayMs, weekStartMs);
 
 		await new Promise<void>((resolve) => setImmediate(resolve));
 	}
@@ -395,17 +384,9 @@ const TAB_LABELS: Record<TabName, string> = {
 
 const TAB_ORDER: TabName[] = ["today", "thisWeek", "allTime"];
 
-const MODE_LABELS: Record<UsageCountMode, string> = {
-	deduped: "Deduped",
-	raw: "Raw",
-};
-
-const MODE_ORDER: UsageCountMode[] = ["deduped", "raw"];
-
 class UsageComponent {
 	private activeTab: TabName = "allTime";
-	private activeMode: UsageCountMode = "deduped";
-	private data: UsageDataByMode;
+	private data: UsageData;
 	private selectedIndex = 0;
 	private expanded = new Set<string>();
 	private providerOrder: string[] = [];
@@ -413,7 +394,7 @@ class UsageComponent {
 	private requestRender: () => void;
 	private done: () => void;
 
-	constructor(theme: Theme, data: UsageDataByMode, requestRender: () => void, done: () => void) {
+	constructor(theme: Theme, data: UsageData, requestRender: () => void, done: () => void) {
 		this.theme = theme;
 		this.requestRender = requestRender;
 		this.done = done;
@@ -421,23 +402,12 @@ class UsageComponent {
 		this.updateProviderOrder();
 	}
 
-	private getActiveStats(): TimeFilteredStats {
-		return this.data[this.activeMode][this.activeTab];
-	}
-
 	private updateProviderOrder(): void {
-		const stats = this.getActiveStats();
+		const stats = this.data[this.activeTab];
 		this.providerOrder = Array.from(stats.providers.entries())
 			.sort((a, b) => b[1].cost - a[1].cost)
 			.map(([name]) => name);
 		this.selectedIndex = Math.min(this.selectedIndex, Math.max(0, this.providerOrder.length - 1));
-	}
-
-	private cycleMode(step: 1 | -1): void {
-		const idx = MODE_ORDER.indexOf(this.activeMode);
-		this.activeMode = MODE_ORDER[(idx + step + MODE_ORDER.length) % MODE_ORDER.length]!;
-		this.updateProviderOrder();
-		this.requestRender();
 	}
 
 	handleInput(data: string): void {
@@ -456,20 +426,6 @@ class UsageComponent {
 			this.activeTab = TAB_ORDER[(idx - 1 + TAB_ORDER.length) % TAB_ORDER.length]!;
 			this.updateProviderOrder();
 			this.requestRender();
-		} else if (matchesKey(data, "m")) {
-			this.cycleMode(1);
-		} else if (matchesKey(data, "d")) {
-			if (this.activeMode !== "deduped") {
-				this.activeMode = "deduped";
-				this.updateProviderOrder();
-				this.requestRender();
-			}
-		} else if (matchesKey(data, "r")) {
-			if (this.activeMode !== "raw") {
-				this.activeMode = "raw";
-				this.updateProviderOrder();
-				this.requestRender();
-			}
 		} else if (matchesKey(data, "up")) {
 			if (this.selectedIndex > 0) {
 				this.selectedIndex--;
@@ -501,7 +457,6 @@ class UsageComponent {
 		return [
 			...this.renderTitle(),
 			...this.renderTabs(),
-			...this.renderModes(),
 			...this.renderHeader(),
 			...this.renderRows(),
 			...this.renderTotals(),
@@ -520,19 +475,7 @@ class UsageComponent {
 			const label = TAB_LABELS[tab];
 			return tab === this.activeTab ? th.fg("accent", `[${label}]`) : th.fg("dim", ` ${label} `);
 		}).join("  ");
-		return [tabs];
-	}
-
-	private renderModes(): string[] {
-		const th = this.theme;
-		const modes = MODE_ORDER.map((mode) => {
-			const label = MODE_LABELS[mode];
-			return mode === this.activeMode ? th.fg("accent", `[${label}]`) : th.fg("dim", ` ${label} `);
-		}).join("  ");
-		const note = this.activeMode === "deduped"
-			? "Dedupes copied branched-history messages. Recursive subagent sessions included."
-			: "Counts raw message totals from all session files. Recursive subagent sessions included.";
-		return [modes, th.fg("dim", note), ""];
+		return [tabs, th.fg("dim", "Dedupes copied branched-history messages. Recursive subagent sessions included."), ""];
 	}
 
 	private renderHeader(): string[] {
@@ -573,7 +516,7 @@ class UsageComponent {
 
 	private renderRows(): string[] {
 		const th = this.theme;
-		const stats = this.getActiveStats();
+		const stats = this.data[this.activeTab];
 		const lines: string[] = [];
 
 		if (this.providerOrder.length === 0) {
@@ -611,7 +554,7 @@ class UsageComponent {
 
 	private renderTotals(): string[] {
 		const th = this.theme;
-		const stats = this.getActiveStats();
+		const stats = this.data[this.activeTab];
 
 		let totalRow = padRight(th.bold("Total"), NAME_COL_WIDTH);
 		for (const col of DATA_COLUMNS) {
@@ -623,7 +566,7 @@ class UsageComponent {
 	}
 
 	private renderHelp(): string[] {
-		return [this.theme.fg("dim", "[Tab/←→] period  [m/d/r] count mode  [↑↓] select  [Enter] expand  [q] close")];
+		return [this.theme.fg("dim", "[Tab/←→] period  [↑↓] select  [Enter] expand  [q] close")];
 	}
 
 	invalidate(): void {}
@@ -642,7 +585,7 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
-			const data = await ctx.ui.custom<UsageDataByMode | null>((tui, theme, _kb, done) => {
+			const data = await ctx.ui.custom<UsageData | null>((tui, theme, _kb, done) => {
 				const loader = new CancellableLoader(
 					tui,
 					(s: string) => theme.fg("accent", s),
@@ -650,7 +593,7 @@ export default function (pi: ExtensionAPI) {
 					"Loading Usage..."
 				);
 				let finished = false;
-				const finish = (value: UsageDataByMode | null) => {
+				const finish = (value: UsageData | null) => {
 					if (finished) return;
 					finished = true;
 					loader.dispose();
