@@ -2,6 +2,7 @@
 
 ## 0.1.6 - 2026-04-09
 - Add a "Last Week" time period tab
+- Thanks @ttttmr
 
 ## 0.1.5 - 2026-04-09
 - Keep recursive subagent session scanning in `/usage`
