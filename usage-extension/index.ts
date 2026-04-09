@@ -2,7 +2,7 @@
  * /usage - Usage statistics dashboard
  *
  * Shows an inline view with usage stats grouped by provider.
- * - Tab cycles: Today → This Week → All Time
+ * - Tab cycles: Today → This Week → Last Week → All Time
  * - Arrow keys navigate providers
  * - Enter expands/collapses to show models
  */
@@ -52,10 +52,11 @@ interface TimeFilteredStats {
 interface UsageData {
 	today: TimeFilteredStats;
 	thisWeek: TimeFilteredStats;
+	lastWeek: TimeFilteredStats;
 	allTime: TimeFilteredStats;
 }
 
-type TabName = "today" | "thisWeek" | "allTime";
+type TabName = "today" | "thisWeek" | "lastWeek" | "allTime";
 
 // =============================================================================
 // Column Configuration
@@ -237,14 +238,19 @@ function emptyUsageData(): UsageData {
 	return {
 		today: emptyTimeFilteredStats(),
 		thisWeek: emptyTimeFilteredStats(),
+		lastWeek: emptyTimeFilteredStats(),
 		allTime: emptyTimeFilteredStats(),
 	};
 }
 
-function getPeriodsForTimestamp(timestamp: number, todayMs: number, weekStartMs: number): TabName[] {
+function getPeriodsForTimestamp(timestamp: number, todayMs: number, weekStartMs: number, lastWeekStartMs: number): TabName[] {
 	const periods: TabName[] = ["allTime"];
 	if (timestamp >= todayMs) periods.push("today");
-	if (timestamp >= weekStartMs) periods.push("thisWeek");
+	if (timestamp >= weekStartMs) {
+		periods.push("thisWeek");
+	} else if (timestamp >= lastWeekStartMs) {
+		periods.push("lastWeek");
+	}
 	return periods;
 }
 
@@ -253,12 +259,13 @@ function addMessagesToUsageData(
 	sessionId: string,
 	messages: SessionMessage[],
 	todayMs: number,
-	weekStartMs: number
+	weekStartMs: number,
+	lastWeekStartMs: number
 ): void {
-	const sessionContributed = { today: false, thisWeek: false, allTime: false };
+	const sessionContributed = { today: false, thisWeek: false, lastWeek: false, allTime: false };
 
 	for (const msg of messages) {
-		const periods = getPeriodsForTimestamp(msg.timestamp, todayMs, weekStartMs);
+		const periods = getPeriodsForTimestamp(msg.timestamp, todayMs, weekStartMs, lastWeekStartMs);
 		const tokens = {
 			// Total = input + output only. cacheRead/cacheWrite are tracked separately.
 			// cacheRead tokens were already counted when first sent, so including them
@@ -297,6 +304,7 @@ function addMessagesToUsageData(
 
 	if (sessionContributed.today) data.today.totals.sessions++;
 	if (sessionContributed.thisWeek) data.thisWeek.totals.sessions++;
+	if (sessionContributed.lastWeek) data.lastWeek.totals.sessions++;
 	if (sessionContributed.allTime) data.allTime.totals.sessions++;
 }
 
@@ -313,6 +321,11 @@ async function collectUsageData(signal?: AbortSignal): Promise<UsageData | null>
 	startOfWeek.setHours(0, 0, 0, 0);
 	const weekStartMs = startOfWeek.getTime();
 
+	// Start of last week (previous Monday 00:00)
+	const startOfLastWeek = new Date(startOfWeek);
+	startOfLastWeek.setDate(startOfLastWeek.getDate() - 7);
+	const lastWeekStartMs = startOfLastWeek.getTime();
+
 	const data = emptyUsageData();
 
 	const sessionFiles = await getAllSessionFiles(signal);
@@ -325,7 +338,7 @@ async function collectUsageData(signal?: AbortSignal): Promise<UsageData | null>
 		if (signal?.aborted) return null;
 		if (!parsed) continue;
 
-		addMessagesToUsageData(data, parsed.sessionId, parsed.messages, todayMs, weekStartMs);
+		addMessagesToUsageData(data, parsed.sessionId, parsed.messages, todayMs, weekStartMs, lastWeekStartMs);
 
 		await new Promise<void>((resolve) => setImmediate(resolve));
 	}
@@ -379,10 +392,11 @@ function padRight(s: string, len: number): string {
 const TAB_LABELS: Record<TabName, string> = {
 	today: "Today",
 	thisWeek: "This Week",
+	lastWeek: "Last Week",
 	allTime: "All Time",
 };
 
-const TAB_ORDER: TabName[] = ["today", "thisWeek", "allTime"];
+const TAB_ORDER: TabName[] = ["today", "thisWeek", "lastWeek", "allTime"];
 
 class UsageComponent {
 	private activeTab: TabName = "allTime";

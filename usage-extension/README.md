@@ -61,6 +61,7 @@ In Pi, run:
 |--------|------------|
 | **Today** | From midnight (00:00) today |
 | **This Week** | From Monday 00:00 of the current week |
+| **Last Week** | Previous week (Monday 00:00 → this Monday 00:00) |
 | **All Time** | All recorded sessions |
 
 Use `Tab` or `←`/`→` to switch between periods.
