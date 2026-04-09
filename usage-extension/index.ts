@@ -97,31 +97,27 @@ function getSessionsDir(): string {
 	return join(agentDir, "sessions");
 }
 
-async function getAllSessionFiles(signal?: AbortSignal): Promise<string[]> {
-	const sessionsDir = getSessionsDir();
-	const files: string[] = [];
-
+async function collectSessionFilesRecursively(dir: string, files: string[], signal?: AbortSignal): Promise<void> {
 	try {
-		const cwdDirs = await readdir(sessionsDir, { withFileTypes: true });
-		for (const dir of cwdDirs) {
-			if (signal?.aborted) return files;
-			if (!dir.isDirectory()) continue;
-			const cwdPath = join(sessionsDir, dir.name);
-			try {
-				const sessionFiles = await readdir(cwdPath);
-				for (const file of sessionFiles) {
-					if (file.endsWith(".jsonl")) {
-						files.push(join(cwdPath, file));
-					}
-				}
-			} catch {
-				// Skip directories we can't read
+		const entries = await readdir(dir, { withFileTypes: true });
+		for (const entry of entries) {
+			if (signal?.aborted) return;
+			const entryPath = join(dir, entry.name);
+			if (entry.isDirectory()) {
+				await collectSessionFilesRecursively(entryPath, files, signal);
+			} else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
+				files.push(entryPath);
 			}
 		}
 	} catch {
-		// Return empty if we can't read sessions dir
+		// Skip directories we can't read
 	}
+}
 
+async function getAllSessionFiles(signal?: AbortSignal): Promise<string[]> {
+	const files: string[] = [];
+	await collectSessionFilesRecursively(getSessionsDir(), files, signal);
+	files.sort();
 	return files;
 }
 
@@ -136,11 +132,16 @@ interface SessionMessage {
 	timestamp: number;
 }
 
+interface ParsedSessionFile {
+	sessionId: string;
+	messages: SessionMessage[];
+}
+
 async function parseSessionFile(
 	filePath: string,
 	seenHashes: Set<string>,
 	signal?: AbortSignal
-): Promise<{ sessionId: string; messages: SessionMessage[] } | null> {
+): Promise<ParsedSessionFile | null> {
 	try {
 		const content = await readFile(filePath, "utf8");
 		if (signal?.aborted) return null;
@@ -170,8 +171,8 @@ async function parseSessionFile(
 						const fallbackTs = entry.timestamp ? new Date(entry.timestamp).getTime() : 0;
 						const timestamp = msg.timestamp || (Number.isNaN(fallbackTs) ? 0 : fallbackTs);
 
-						// Deduplicate by timestamp + total tokens (same as ccusage)
-						// Session files contain many duplicate entries
+						// Deduplicate copied history across branched session files.
+						// Keep the existing ccusage-style hash so current totals remain comparable.
 						const totalTokens = input + output + cacheRead + cacheWrite;
 						const hash = `${timestamp}:${totalTokens}`;
 						if (seenHashes.has(hash)) continue;
@@ -233,6 +234,80 @@ function emptyTimeFilteredStats(): TimeFilteredStats {
 	};
 }
 
+function emptyUsageData(): UsageData {
+	return {
+		today: emptyTimeFilteredStats(),
+		thisWeek: emptyTimeFilteredStats(),
+		lastWeek: emptyTimeFilteredStats(),
+		allTime: emptyTimeFilteredStats(),
+	};
+}
+
+function getPeriodsForTimestamp(timestamp: number, todayMs: number, weekStartMs: number, lastWeekStartMs: number): TabName[] {
+	const periods: TabName[] = ["allTime"];
+	if (timestamp >= todayMs) periods.push("today");
+	if (timestamp >= weekStartMs) {
+		periods.push("thisWeek");
+	} else if (timestamp >= lastWeekStartMs) {
+		periods.push("lastWeek");
+	}
+	return periods;
+}
+
+function addMessagesToUsageData(
+	data: UsageData,
+	sessionId: string,
+	messages: SessionMessage[],
+	todayMs: number,
+	weekStartMs: number,
+	lastWeekStartMs: number
+): void {
+	const sessionContributed = { today: false, thisWeek: false, lastWeek: false, allTime: false };
+
+	for (const msg of messages) {
+		const periods = getPeriodsForTimestamp(msg.timestamp, todayMs, weekStartMs, lastWeekStartMs);
+		const tokens = {
+			// Total = input + output only. cacheRead/cacheWrite are tracked separately.
+			// cacheRead tokens were already counted when first sent, so including them
+			// would double-count and massively inflate totals (cache hits repeat every message).
+			total: msg.input + msg.output,
+			input: msg.input,
+			output: msg.output,
+			cache: msg.cacheRead + msg.cacheWrite,
+		};
+
+		for (const period of periods) {
+			const stats = data[period];
+
+			let providerStats = stats.providers.get(msg.provider);
+			if (!providerStats) {
+				providerStats = emptyProviderStats();
+				stats.providers.set(msg.provider, providerStats);
+			}
+
+			let modelStats = providerStats.models.get(msg.model);
+			if (!modelStats) {
+				modelStats = emptyModelStats();
+				providerStats.models.set(msg.model, modelStats);
+			}
+
+			modelStats.sessions.add(sessionId);
+			accumulateStats(modelStats, msg.cost, tokens);
+
+			providerStats.sessions.add(sessionId);
+			accumulateStats(providerStats, msg.cost, tokens);
+
+			accumulateStats(stats.totals, msg.cost, tokens);
+			sessionContributed[period] = true;
+		}
+	}
+
+	if (sessionContributed.today) data.today.totals.sessions++;
+	if (sessionContributed.thisWeek) data.thisWeek.totals.sessions++;
+	if (sessionContributed.lastWeek) data.lastWeek.totals.sessions++;
+	if (sessionContributed.allTime) data.allTime.totals.sessions++;
+}
+
 async function collectUsageData(signal?: AbortSignal): Promise<UsageData | null> {
 	const startOfToday = new Date();
 	startOfToday.setHours(0, 0, 0, 0);
@@ -251,16 +326,11 @@ async function collectUsageData(signal?: AbortSignal): Promise<UsageData | null>
 	startOfLastWeek.setDate(startOfLastWeek.getDate() - 7);
 	const lastWeekStartMs = startOfLastWeek.getTime();
 
-	const data: UsageData = {
-		today: emptyTimeFilteredStats(),
-		thisWeek: emptyTimeFilteredStats(),
-		lastWeek: emptyTimeFilteredStats(),
-		allTime: emptyTimeFilteredStats(),
-	};
+	const data = emptyUsageData();
 
 	const sessionFiles = await getAllSessionFiles(signal);
 	if (signal?.aborted) return null;
-	const seenHashes = new Set<string>(); // Deduplicate across all files
+	const seenHashes = new Set<string>();
 
 	for (const filePath of sessionFiles) {
 		if (signal?.aborted) return null;
@@ -268,64 +338,7 @@ async function collectUsageData(signal?: AbortSignal): Promise<UsageData | null>
 		if (signal?.aborted) return null;
 		if (!parsed) continue;
 
-		const { sessionId, messages } = parsed;
-		const sessionContributed = { today: false, thisWeek: false, lastWeek: false, allTime: false };
-
-		for (const msg of messages) {
-			if (signal?.aborted) return null;
-			const periods: TabName[] = ["allTime"];
-			if (msg.timestamp >= todayMs) periods.push("today");
-			if (msg.timestamp >= weekStartMs) {
-				periods.push("thisWeek");
-			} else if (msg.timestamp >= lastWeekStartMs) {
-				periods.push("lastWeek");
-			}
-
-			const tokens = {
-				// Total = input + output only. cacheRead/cacheWrite are tracked separately.
-				// cacheRead tokens were already counted when first sent, so including them
-				// would double-count and massively inflate totals (cache hits repeat every message).
-				total: msg.input + msg.output,
-				input: msg.input,
-				output: msg.output,
-				cache: msg.cacheRead + msg.cacheWrite,
-			};
-
-			for (const period of periods) {
-				const stats = data[period];
-
-				// Get or create provider stats
-				let providerStats = stats.providers.get(msg.provider);
-				if (!providerStats) {
-					providerStats = emptyProviderStats();
-					stats.providers.set(msg.provider, providerStats);
-				}
-
-				// Get or create model stats
-				let modelStats = providerStats.models.get(msg.model);
-				if (!modelStats) {
-					modelStats = emptyModelStats();
-					providerStats.models.set(msg.model, modelStats);
-				}
-
-				// Accumulate stats at all levels
-				modelStats.sessions.add(sessionId);
-				accumulateStats(modelStats, msg.cost, tokens);
-
-				providerStats.sessions.add(sessionId);
-				accumulateStats(providerStats, msg.cost, tokens);
-
-				accumulateStats(stats.totals, msg.cost, tokens);
-
-				sessionContributed[period] = true;
-			}
-		}
-
-		// Count unique sessions per period
-		if (sessionContributed.today) data.today.totals.sessions++;
-		if (sessionContributed.thisWeek) data.thisWeek.totals.sessions++;
-		if (sessionContributed.lastWeek) data.lastWeek.totals.sessions++;
-		if (sessionContributed.allTime) data.allTime.totals.sessions++;
+		addMessagesToUsageData(data, parsed.sessionId, parsed.messages, todayMs, weekStartMs, lastWeekStartMs);
 
 		await new Promise<void>((resolve) => setImmediate(resolve));
 	}
@@ -476,7 +489,7 @@ class UsageComponent {
 			const label = TAB_LABELS[tab];
 			return tab === this.activeTab ? th.fg("accent", `[${label}]`) : th.fg("dim", ` ${label} `);
 		}).join("  ");
-		return [tabs, ""];
+		return [tabs, th.fg("dim", "Dedupes copied branched-history messages. Recursive subagent sessions included."), ""];
 	}
 
 	private renderHeader(): string[] {

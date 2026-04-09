@@ -1,7 +1,15 @@
 # Changelog
 
-## 0.1.4 - 2026-04-08
-- Add a "Last Week" time period tab.
+## 0.1.6 - 2026-04-09
+- Add a "Last Week" time period tab
+
+## 0.1.5 - 2026-04-09
+- Keep recursive subagent session scanning in `/usage`
+- Remove the deduped/raw mode toggle and keep the deduped view as the default behavior
+
+## 0.1.4 - 2026-04-09
+- Scan session files recursively so nested subagent runs are included in `/usage`
+- Add deduped vs raw counting modes to compare copied branch history against raw file totals
 
 ## 0.1.3 - 2026-02-03
 - Add preview image metadata for the extension listing.

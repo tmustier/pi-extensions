@@ -7,7 +7,7 @@ A Pi extension that displays aggregated usage statistics across all sessions.
 ## Compatibility
 
 - **Pi version:** 0.42.4+
-- **Last updated:** 2026-01-13
+- **Last updated:** 2026-04-09
 
 ## Installation
 
@@ -112,7 +112,9 @@ The "Cache" column combines both read and write tokens.
 
 ## Data Source
 
-Statistics are parsed from session files in `~/.pi/agent/sessions/`. Each session is a JSONL file containing message entries with usage data. Assistant messages duplicated across branched session files are deduplicated by timestamp + total tokens (matching ccusage).
+Statistics are parsed recursively from session files in `~/.pi/agent/sessions/`, including nested subagent runs such as `run-0/` directories. Each session is a JSONL file containing message entries with usage data.
+
+Assistant messages duplicated across branched session files are deduplicated by timestamp + total tokens, matching the extension's previous behavior while still including recursive subagent sessions.
 
 Respects the `PI_CODING_AGENT_DIR` environment variable if set.
 
