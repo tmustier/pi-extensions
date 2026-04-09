@@ -7,7 +7,7 @@ A Pi extension that displays aggregated usage statistics across all sessions.
 ## Compatibility
 
 - **Pi version:** 0.42.4+
-- **Last updated:** 2026-01-13
+- **Last updated:** 2026-04-09
 
 ## Installation
 
@@ -65,6 +65,15 @@ In Pi, run:
 
 Use `Tab` or `←`/`→` to switch between periods.
 
+### Count Modes
+
+| Mode | Definition |
+|------|------------|
+| **Deduped** | Default. Deduplicates copied assistant history across branched session files |
+| **Raw** | Counts every assistant message found in every session file |
+
+Both modes scan nested session files recursively, so subagent runs are included.
+
 ### Timezone
 
 Time periods are calculated in the local timezone where Pi runs. If you want to override it, set the `TZ` environment variable (IANA timezone, e.g. `TZ=UTC` or `TZ=America/New_York`) before launching Pi.
@@ -87,6 +96,9 @@ Time periods are calculated in the local timezone where Pi runs. If you want to 
 | Key | Action |
 |-----|--------|
 | `Tab` / `←` `→` | Switch time period |
+| `m` | Cycle count mode |
+| `d` | Switch to deduped mode |
+| `r` | Switch to raw mode |
 | `↑` `↓` | Select provider |
 | `Enter` / `Space` | Expand/collapse provider to show models |
 | `q` / `Esc` | Close |
@@ -111,7 +123,11 @@ The "Cache" column combines both read and write tokens.
 
 ## Data Source
 
-Statistics are parsed from session files in `~/.pi/agent/sessions/`. Each session is a JSONL file containing message entries with usage data. Assistant messages duplicated across branched session files are deduplicated by timestamp + total tokens (matching ccusage).
+Statistics are parsed recursively from session files in `~/.pi/agent/sessions/`, including nested subagent runs such as `run-0/` directories. Each session is a JSONL file containing message entries with usage data.
+
+In **Deduped** mode, assistant messages duplicated across branched session files are deduplicated by timestamp + total tokens (matching the extension's previous behavior and keeping totals comparable with earlier releases).
+
+In **Raw** mode, every assistant message found in every session file is counted.
 
 Respects the `PI_CODING_AGENT_DIR` environment variable if set.
 
