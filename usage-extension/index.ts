@@ -609,10 +609,9 @@ class UsageComponent {
 			activeTabOnly,
 		]);
 
-		const infoText = layout.compact
-			? th.fg("dim", "Compact view. Widen the terminal for more columns.")
-			: th.fg("dim", "Dedupes copied branched-history messages. Recursive subagent sessions included.");
-		const infoLines = wrapTextWithAnsi(infoText, Math.max(width, 1));
+		const infoLines = layout.compact
+			? wrapTextWithAnsi(th.fg("dim", "Compact view. Widen the terminal for more columns."), Math.max(width, 1))
+			: [];
 
 		return [tabLine, ...infoLines, ""];
 	}
