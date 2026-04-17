@@ -1,6 +1,6 @@
 {
   "name": "@tmustier/pi-usage-extension",
-  "version": "0.1.8",
+  "version": "0.2.0",
   "description": "Usage statistics dashboard for Pi sessions.",
   "license": "MIT",
   "author": "Thomas Mustier",
