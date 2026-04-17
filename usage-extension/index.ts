@@ -22,7 +22,8 @@ interface TokenStats {
 	total: number;
 	input: number;
 	output: number;
-	cache: number;
+	cacheRead: number;
+	cacheWrite: number;
 }
 
 interface BaseStats {
@@ -112,7 +113,10 @@ const INPUT_COLUMN: DataColumn = {
 	label: "↑In",
 	width: 8,
 	dimmed: true,
-	getValue: (s) => formatTokens(s.tokens.input),
+	// Include cacheWrite so this reflects fresh input tokens sent this turn,
+	// even for providers like Anthropic that split cached prompt creation out
+	// from the regular input token count.
+	getValue: (s) => formatTokens(s.tokens.input + s.tokens.cacheWrite),
 };
 
 const OUTPUT_COLUMN: DataColumn = {
@@ -126,7 +130,7 @@ const CACHE_COLUMN: DataColumn = {
 	label: "Cache",
 	width: 8,
 	dimmed: true,
-	getValue: (s) => formatTokens(s.tokens.cache),
+	getValue: (s) => formatTokens(s.tokens.cacheRead + s.tokens.cacheWrite),
 };
 
 const FULL_DATA_COLUMNS: DataColumn[] = [
@@ -265,18 +269,19 @@ async function parseSessionFile(
 function accumulateStats(
 	target: BaseStats,
 	cost: number,
-	tokens: { total: number; input: number; output: number; cache: number }
+	tokens: { total: number; input: number; output: number; cacheRead: number; cacheWrite: number }
 ): void {
 	target.messages++;
 	target.cost += cost;
 	target.tokens.total += tokens.total;
 	target.tokens.input += tokens.input;
 	target.tokens.output += tokens.output;
-	target.tokens.cache += tokens.cache;
+	target.tokens.cacheRead += tokens.cacheRead;
+	target.tokens.cacheWrite += tokens.cacheWrite;
 }
 
 function emptyTokens(): TokenStats {
-	return { total: 0, input: 0, output: 0, cache: 0 };
+	return { total: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 }
 
 function emptyModelStats(): ModelStats {
@@ -327,13 +332,14 @@ function addMessagesToUsageData(
 	for (const msg of messages) {
 		const periods = getPeriodsForTimestamp(msg.timestamp, todayMs, weekStartMs, lastWeekStartMs);
 		const tokens = {
-			// Total = input + output only. cacheRead/cacheWrite are tracked separately.
-			// cacheRead tokens were already counted when first sent, so including them
-			// would double-count and massively inflate totals (cache hits repeat every message).
-			total: msg.input + msg.output,
+			// Count fresh tokens processed this turn.
+			// Include cacheWrite because those prompt tokens were newly written and billed.
+			// Exclude cacheRead because repeated cache hits would otherwise dominate totals.
+			total: msg.input + msg.output + msg.cacheWrite,
 			input: msg.input,
 			output: msg.output,
-			cache: msg.cacheRead + msg.cacheWrite,
+			cacheRead: msg.cacheRead,
+			cacheWrite: msg.cacheWrite,
 		};
 
 		for (const period of periods) {

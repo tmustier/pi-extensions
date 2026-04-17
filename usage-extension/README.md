@@ -7,7 +7,7 @@ A Pi extension that displays aggregated usage statistics across all sessions.
 ## Compatibility
 
 - **Pi version:** 0.42.4+
-- **Last updated:** 2026-04-09
+- **Last updated:** 2026-04-17
 
 ## Installation
 
@@ -78,10 +78,10 @@ Time periods are calculated in the local timezone where Pi runs. If you want to 
 | **Sessions** | Number of unique sessions |
 | **Msgs** | Number of assistant messages |
 | **Cost** | Total cost in USD (from API response) |
-| **Tokens** | Total tokens (input + output) |
-| **↑In** | Input tokens *(dimmed)* |
+| **Tokens** | Fresh tokens for the turn: input + output + cache write |
+| **↑In** | Fresh input tokens: input + cache write *(dimmed)* |
 | **↓Out** | Output tokens *(dimmed)* |
-| **Cache** | Cache read + write tokens *(dimmed)* |
+| **Cache** | Cache read + write tokens *(dimmed; informational)* |
 
 On narrow terminals, `/usage` automatically switches to a compact table instead of overflowing the terminal. Hidden columns reappear as soon as you widen the terminal.
 
@@ -111,6 +111,8 @@ Cache token support varies by provider:
 | OpenAI Codex | ✓ | ✗ |
 
 The "Cache" column combines both read and write tokens.
+
+`Tokens` and `↑In` include cache writes but intentionally exclude cache reads. That keeps totals aligned with fresh/billed prompt work without letting repeated cache hits swamp the dashboard.
 
 ## Data Source
 
