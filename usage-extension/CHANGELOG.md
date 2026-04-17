@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1 - 2026-04-17
+- Add a one-line formula footer to the `/usage` dashboard (`Tokens = Input + Output + CacheWrite  ·  ↑In = Input + CacheWrite`)
+- README now calls out the 0.2.0 formula change explicitly under the columns table
+
 ## 0.2.0 - 2026-04-17
 - Include `cacheWrite` in the main `Tokens` total and in the `↑In` column so providers like Anthropic that report fresh prompt work under `cacheWrite` are no longer undercounted
 - Keep `cacheRead` out of `Tokens` so repeated cache hits do not swamp the dashboard

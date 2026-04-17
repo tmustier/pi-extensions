@@ -590,6 +590,7 @@ class UsageComponent {
 				...this.renderHeader(layout),
 				...this.renderRows(layout),
 				...this.renderTotals(layout),
+				...this.renderFormulaNote(width),
 				...this.renderHelp(width),
 			],
 			width
@@ -709,6 +710,16 @@ class UsageComponent {
 		}
 
 		return [th.fg("border", "─".repeat(layout.tableWidth)), totalRow, ""];
+	}
+
+	private renderFormulaNote(width: number): string[] {
+		const line = pickFittingText(width, [
+			"Tokens = Input + Output + CacheWrite  ·  ↑In = Input + CacheWrite  (as of 0.2.0)",
+			"Tokens = In + Out + CacheWrite  ·  ↑In = In + CacheWrite  (v0.2.0+)",
+			"Tokens & ↑In include CacheWrite (v0.2.0+)",
+			"Incl. CacheWrite (v0.2.0+)",
+		]);
+		return [this.theme.fg("dim", line), ""];
 	}
 
 	private renderHelp(width: number): string[] {
