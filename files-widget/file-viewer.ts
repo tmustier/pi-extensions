@@ -157,7 +157,8 @@ export function loadFileContent(
   cwd: string,
   diffMode: boolean,
   hasChanges: boolean,
-  width?: number
+  width?: number,
+  renderMarkdown = true
 ): string[] {
   const isMarkdown = filePath.endsWith(".md");
   const termWidth = width || process.stdout.columns || 80;
@@ -223,7 +224,7 @@ export function loadFileContent(
       }
     }
 
-    if (isMarkdown && hasCommand("glow")) {
+    if (isMarkdown && renderMarkdown && hasCommand("glow")) {
       try {
         const output = execSync(`glow -s dark -w ${termWidth} "${filePath}"`, { encoding: "utf-8", timeout: 10000 });
         if (output.trim()) {
