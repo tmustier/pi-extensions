@@ -1,6 +1,6 @@
 {
   "name": "@tmustier/pi-skill-creator",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Detailed guidance for creating Pi skills (Agent Skills format).",
   "license": "MIT",
   "author": "Thomas Mustier",
