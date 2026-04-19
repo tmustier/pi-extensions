@@ -3,10 +3,8 @@
 ## 0.2.0 - 2026-04-19
 
 ### Changed
-- **BREAKING (git-source users only):** Repo directory renamed `ralph-wiggum/` → `pi-ralph-wiggum/` so the SKILL.md `name` field matches its parent directory (both in the repo and after `pi install npm:@tmustier/pi-ralph-wiggum`). This removes the `[Skill conflicts]` warning pi emitted on every startup. Thanks to @ishanmalik for reporting ([#12](https://github.com/tmustier/pi-extensions/issues/12)).
-  - npm users: no action needed — package name `@tmustier/pi-ralph-wiggum` is unchanged.
-  - Git-source users referencing `~/pi-extensions/ralph-wiggum/…` in their pi config should update the path to `~/pi-extensions/pi-ralph-wiggum/…`.
-- SKILL.md `name` is now `pi-ralph-wiggum` (was `ralph-wiggum`).
+- **BREAKING:** SKILL.md `name` renamed `ralph-wiggum` → `pi-ralph-wiggum` to match the parent directory (both in the repo and after `pi install npm:@tmustier/pi-ralph-wiggum`). This removes the `[Skill conflicts]` warning pi emitted on every startup, but it also changes the skill's public identifier — explicit invocations must now use `/skill:pi-ralph-wiggum` instead of `/skill:ralph-wiggum`. Thanks to @ishanmalik for reporting ([#12](https://github.com/tmustier/pi-extensions/issues/12)).
+- Repo directory renamed `ralph-wiggum/` → `pi-ralph-wiggum/` as part of the same fix. Git-source users referencing `~/pi-extensions/ralph-wiggum/…` in their pi config should update the path to `~/pi-extensions/pi-ralph-wiggum/…`. The npm package name (`@tmustier/pi-ralph-wiggum`) is unchanged.
 - Renamed the README's `Install` section to `Installation` so it matches the skill validator's expectations.
 
 ## 0.1.7 - 2026-04-19
