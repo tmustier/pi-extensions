@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.7 - 2026-04-19
+
+### Fixed
+- Ralph loops no longer silently stop after auto-compaction or `/compact`. On session reload, `currentLoop` is now rehydrated from the on-disk state (most-recently-updated active loop wins on ties), so `ralph_done`, `agent_end`, and `before_agent_start` continue to function. Thanks to @elecnix for the detailed report and proposed fix ([#11](https://github.com/tmustier/pi-extensions/issues/11)).
+
 ## 0.1.5 - 2026-02-03
 
 ### Added

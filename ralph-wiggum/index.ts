@@ -92,6 +92,14 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
 
+	function safeMtimeMs(filePath: string): number {
+		try {
+			return fs.statSync(filePath).mtimeMs;
+		} catch {
+			return 0;
+		}
+	}
+
 	function tryRemoveDir(dirPath: string): boolean {
 		try {
 			if (fs.existsSync(dirPath)) {
@@ -784,6 +792,21 @@ Examples:
 
 	pi.on("session_start", async (_event, ctx) => {
 		const active = listLoops(ctx).filter((l) => l.status === "active");
+
+		// Rehydrate currentLoop from disk. The module is re-initialized on
+		// session reload (including auto-compaction and /compact), which would
+		// otherwise leave `currentLoop` null and silently break ralph_done,
+		// agent_end, and before_agent_start. Pick the most-recently-updated
+		// active loop when there are multiple, using the state file mtime.
+		if (!currentLoop && active.length > 0) {
+			const mostRecent = active.reduce((best, candidate) => {
+				const bestMtime = safeMtimeMs(getPath(ctx, best.name, ".state.json"));
+				const candidateMtime = safeMtimeMs(getPath(ctx, candidate.name, ".state.json"));
+				return candidateMtime > bestMtime ? candidate : best;
+			});
+			currentLoop = mostRecent.name;
+		}
+
 		if (active.length > 0 && ctx.hasUI) {
 			const lines = active.map(
 				(l) => `  • ${l.name} (iteration ${l.iteration}${l.maxIterations > 0 ? `/${l.maxIterations}` : ""})`,
