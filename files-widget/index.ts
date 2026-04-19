@@ -41,11 +41,14 @@ export default function editorExtension(pi: ExtensionAPI): void {
         };
 
         const requestComment = (payload: { relPath: string; lineRange: string; ext: string; selectedText: string }, comment: string) => {
-          pi.sendUserMessage(formatCommentMessage(payload, comment), {
-            deliverAs: "followUp",
-            streamingBehavior: "followUp" as any,
-          } as any);
-          ctx.ui.notify(`Comment sent to agent for ${payload.relPath} (${payload.lineRange})`, "success");
+          const message = formatCommentMessage(payload, comment);
+          if (ctx.isIdle()) {
+            pi.sendUserMessage(message);
+            ctx.ui.notify(`Comment sent to agent for ${payload.relPath} (${payload.lineRange})`, "success");
+          } else {
+            pi.sendUserMessage(message, { deliverAs: "followUp" });
+            ctx.ui.notify(`Comment queued for agent for ${payload.relPath} (${payload.lineRange})`, "info");
+          }
         };
 
         const requestRender = () => tui.requestRender();
