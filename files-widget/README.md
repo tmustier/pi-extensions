@@ -117,6 +117,8 @@ If missing, `/review` or `/diff` will show a clear install prompt.
 - `n` / `N`: next/prev match
 - `v`: select mode (line selection)
 - `c`: comment on selected lines (inline prompt)
+- `Enter`: new line in the comment editor
+- `Ctrl+Enter`: send the comment
 - `]` / `[`: next/prev changed file
 - `+` / `-`: increase/decrease viewer height
 - `q`: back to browser

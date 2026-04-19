@@ -66,8 +66,8 @@
 
 ### Comment Dialog
 - [x] `c` to open comment input
-- [ ] Multi-line text input
-- [x] `Enter` or `Ctrl+Enter` to confirm
+- [x] Multi-line text input
+- [x] `Enter` for newline and `Ctrl+Enter` to confirm
 - [x] `Esc` to cancel
 
 ### Send to Agent

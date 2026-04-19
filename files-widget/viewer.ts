@@ -1,5 +1,5 @@
 import type { Theme } from "@mariozechner/pi-coding-agent";
-import { Key, matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
+import { Key, matchesKey, truncateToWidth, wrapTextWithAnsi } from "@mariozechner/pi-tui";
 import { readFileSync, statSync } from "node:fs";
 import { relative } from "node:path";
 
@@ -13,6 +13,8 @@ import { loadFileContent } from "./file-viewer";
 import type { FileNode } from "./types";
 import { isUntrackedStatus } from "./utils";
 import { createTextInputBuffer } from "./input-utils";
+
+const COMMENT_EDITOR_MAX_VISIBLE_LINES = 4;
 
 export interface CommentPayload {
   relPath: string;
@@ -61,7 +63,8 @@ export function createViewer(
   theme: Theme,
   requestComment: (payload: CommentPayload, comment: string) => void
 ): ViewerController {
-  const textInput = createTextInputBuffer();
+  const searchInput = createTextInputBuffer();
+  const commentInput = createTextInputBuffer({ preserveNewlines: true });
 
   const state: ViewerState = {
     file: null,
@@ -98,7 +101,8 @@ export function createViewer(
 
   function setMode(mode: ViewerMode): void {
     if (mode !== state.mode) {
-      textInput.reset();
+      searchInput.reset();
+      commentInput.reset();
     }
 
     state.mode = mode;
@@ -264,6 +268,38 @@ export function createViewer(
     return truncateToWidth(header, width);
   }
 
+  function renderCommentEditor(width: number): string[] {
+    const contentWidth = Math.max(1, width - 2);
+    const wrappedLines: string[] = [];
+    const logicalLines = state.commentText.split("\n");
+
+    for (const line of logicalLines) {
+      if (line.length === 0) {
+        wrappedLines.push("");
+        continue;
+      }
+      wrappedLines.push(...wrapTextWithAnsi(line, contentWidth));
+    }
+
+    if (wrappedLines.length === 0) {
+      wrappedLines.push("");
+    }
+
+    const lastIndex = wrappedLines.length - 1;
+    wrappedLines[lastIndex] = `${wrappedLines[lastIndex]}█`;
+
+    const overflow = Math.max(0, wrappedLines.length - COMMENT_EDITOR_MAX_VISIBLE_LINES);
+    const visibleLines = wrappedLines.slice(-COMMENT_EDITOR_MAX_VISIBLE_LINES);
+    if (overflow > 0 && visibleLines.length > 0) {
+      visibleLines[0] = `…${visibleLines[0]}`;
+    }
+
+    return [
+      truncateToWidth(theme.fg("accent", "Comment:"), width),
+      ...visibleLines.map(line => truncateToWidth(`  ${line}`, width)),
+    ];
+  }
+
   function renderFooter(width: number): string[] {
     const lines: string[] = [];
     const pct = state.content.length > 0
@@ -271,14 +307,13 @@ export function createViewer(
       : 0;
 
     if (state.mode === "comment") {
-      const prompt = theme.fg("accent", `Comment: ${state.commentText}█`);
-      lines.push(truncateToWidth(prompt, width));
+      lines.push(...renderCommentEditor(width));
       lines.push(theme.fg("borderMuted", "─".repeat(width)));
     }
 
     let help: string;
     if (state.mode === "comment") {
-      help = theme.fg("dim", "Enter: send  Esc: cancel");
+      help = theme.fg("dim", "Enter: newline  Ctrl+Enter: send  Esc: cancel");
     } else if (state.mode === "select") {
       help = theme.fg("dim", "j/k: extend  c: comment  Esc: cancel");
     } else if (state.mode === "search") {
@@ -363,19 +398,21 @@ export function createViewer(
       if (!state.file) return { type: "none" };
 
       if (state.mode === "comment") {
-        if (matchesKey(data, Key.enter)) {
+        if (matchesKey(data, "ctrl+enter")) {
           const comment = state.commentText.trim();
           if (comment) {
             sendComment(comment);
           } else {
             setMode("normal");
           }
+        } else if (matchesKey(data, Key.enter) || matchesKey(data, "shift+enter")) {
+          state.commentText += "\n";
         } else if (matchesKey(data, Key.escape)) {
           setMode("normal");
         } else if (matchesKey(data, Key.backspace)) {
           state.commentText = state.commentText.slice(0, -1);
         } else {
-          const text = textInput.push(data);
+          const text = commentInput.push(data);
           if (text) {
             state.commentText += text;
           }
@@ -392,7 +429,7 @@ export function createViewer(
           state.searchQuery = state.searchQuery.slice(0, -1);
           updateSearchMatches();
         } else {
-          const text = textInput.push(data);
+          const text = searchInput.push(data);
           if (text) {
             state.searchQuery += text;
             updateSearchMatches();
