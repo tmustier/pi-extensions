@@ -7,6 +7,7 @@ All notable changes to this extension will be documented in this file.
 ### Changed
 - Make the inline comment editor multiline with wrapped footer rendering, `Enter` for a new line, and `Ctrl+Enter`/`Ctrl+D` to send.
 - Add an `m` toggle for rendered vs raw Markdown in the viewer, and fall back to raw mode before line-based search or selection.
+- Show a sent/queued confirmation toast after returning an inline comment to the agent.
 
 ## [0.1.16] - 2026-04-19
 

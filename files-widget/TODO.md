@@ -74,7 +74,7 @@
 - [x] Format message with file path, line range, code snippet, comment
 - [x] Use `pi.sendUserMessage()` with `deliverAs: "followUp"`
 - [x] Handle case when agent is idle vs streaming
-- [ ] Show confirmation notification
+- [x] Show confirmation notification
 
 ## Phase 4: tuicr Integration (Optional)
 
