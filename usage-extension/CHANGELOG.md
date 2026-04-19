@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.3.1 - 2026-04-19
+- **Cost-only insights.** The Insights view now weights every insight by recorded USD cost, with no tokens fallback. The headline question is now "What's contributing to your cost?" and every bullet reads "X% of your cost …". Periods with no recorded cost show an explicit empty state instead of silently switching unit.
+- **Long-running sessions use true lifetime.** The 8h+ insight now looks at each session's global lifetime across all session files, not just the span visible inside the selected period slice.
+- **Exact ±2 min parallel window.** The "4+ sessions in parallel" insight now uses a precise ±120000 ms two-pointer sweep instead of rounded minute buckets. A message at second 1 of minute M and another at second 59 of minute M+2 are correctly treated as ~178 s apart (outside the window).
+- **Empty states.** Insights view now distinguishes three cases: no usage recorded in the period, usage but no cost data, and usage with cost but no insights clearing the 1% threshold.
+- **Narrow-terminal compact hint is hidden in Insights mode** (it only applied to the table layout).
+- **"Cache miss" bullet relabelled** to "of your cost came from >100k-token uncached prompts" — same math, more accurate wording.
+- **Messages with missing/invalid timestamps are excluded** from the parallel-sessions sweep so that older/incomplete logs don't inflate the insight by collapsing into a single synthetic instant.
+
+## 0.3.0 - 2026-04-19
+- Add an **Insights** view to `/usage` (press `v` to toggle). Surfaces Claude-style narrative characteristics of your usage for the active time period:
+  - `X% of your usage was while 4+ sessions ran in parallel`
+  - `X% of your usage was at >150k context`
+  - `X% of your usage hit a >100k-token cache miss`
+  - `X% of your usage came from sessions active for 8+ hours`
+  - `X% of your usage came from your top 5 sessions`
+- Insights are weighted by cost when cost data is recorded, otherwise by tokens, with a small footer noting which basis is in use.
+- Insights are independent characteristics of usage (they overlap), not a breakdown — the view makes this explicit.
+
 ## 0.2.1 - 2026-04-17
 - Add a one-line formula footer to the `/usage` dashboard (`Tokens = Input + Output + CacheWrite  ·  ↑In = Input + CacheWrite`)
 - README now calls out the 0.2.0 formula change explicitly under the columns table
