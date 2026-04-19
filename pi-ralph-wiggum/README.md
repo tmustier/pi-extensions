@@ -10,7 +10,7 @@ This one is cool because:
 
 **Note: This is a flat version without subagents, similar to the [Anthropic plugins implementation](https://github.com/anthropics/claude-code-plugins/tree/main/ralph-loop).**
 
-## Install
+## Installation
 
 ```bash
 pi install npm:@tmustier/pi-ralph-wiggum
@@ -27,8 +27,8 @@ Then filter to just this extension in `~/.pi/agent/settings.json`:
   "packages": [
     {
       "source": "git:github.com/tmustier/pi-extensions",
-      "extensions": ["ralph-wiggum/index.ts"],
-      "skills": ["ralph-wiggum/SKILL.md"]
+      "extensions": ["pi-ralph-wiggum/index.ts"],
+      "skills": ["pi-ralph-wiggum/SKILL.md"]
     }
   ]
 }

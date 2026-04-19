@@ -1,5 +1,5 @@
 ---
-name: ralph-wiggum
+name: pi-ralph-wiggum
 description: Long-running iterative development loops with pacing control and verifiable progress. Use when tasks require multiple iterations, many discrete steps, or periodic reflection with clear checkpoints; avoid for simple one-shot tasks or quick fixes.
 ---
 
