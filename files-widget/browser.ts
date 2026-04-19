@@ -22,7 +22,7 @@ import { buildFileTreeFromPaths, flattenTree, getIgnoredNames, sortChildren, upd
 import type { DiffStats, FileNode, FlatNode } from "./types";
 import { isIgnoredStatus, isUntrackedStatus } from "./utils";
 import { createViewer, type CommentPayload, type ViewerAction } from "./viewer";
-import { getTextInput } from "./input-utils";
+import { createTextInputBuffer } from "./input-utils";
 
 export interface BrowserController {
   render(width: number): string[];
@@ -219,6 +219,7 @@ export function createFileBrowser(
   const gitBranch = repo ? getGitBranch(cwd) : "";
 
   const viewer = createViewer(cwd, theme, requestComment);
+  const textInput = createTextInputBuffer();
 
   const root = repo
     ? buildFileTreeFromPaths(cwd, getGitFileList(cwd), gitStatus, diffStats, ignored, agentModifiedFiles)
@@ -797,6 +798,7 @@ export function createFileBrowser(
     const maxIndex = Math.max(0, displayList.length - 1);
 
     if (matchesKey(data, "q") && !browser.searchMode) {
+      textInput.reset();
       stopBackgroundTasks();
       onClose();
       return;
@@ -805,7 +807,9 @@ export function createFileBrowser(
       if (browser.searchMode) {
         browser.searchMode = false;
         browser.searchQuery = "";
+        textInput.reset();
       } else {
+        textInput.reset();
         stopBackgroundTasks();
         onClose();
       }
@@ -814,12 +818,14 @@ export function createFileBrowser(
     if (matchesKey(data, "/") && !browser.searchMode) {
       browser.searchMode = true;
       browser.searchQuery = "";
+      textInput.reset();
       return;
     }
     if (browser.searchMode) {
       if (matchesKey(data, Key.enter)) {
         browser.searchMode = false;
         browser.selectedIndex = 0;
+        textInput.reset();
       } else if (matchesKey(data, Key.backspace)) {
         browser.searchQuery = browser.searchQuery.slice(0, -1);
         browser.selectedIndex = 0;
@@ -828,9 +834,9 @@ export function createFileBrowser(
       } else if (matchesKey(data, Key.up)) {
         browser.selectedIndex = Math.max(0, browser.selectedIndex - 1);
       } else {
-        const textInput = getTextInput(data);
-        if (textInput) {
-          browser.searchQuery += textInput;
+        const text = textInput.push(data);
+        if (text) {
+          browser.searchQuery += text;
           browser.selectedIndex = 0;
         }
       }

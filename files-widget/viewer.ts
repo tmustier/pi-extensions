@@ -12,7 +12,7 @@ import {
 import { loadFileContent } from "./file-viewer";
 import type { FileNode } from "./types";
 import { isUntrackedStatus } from "./utils";
-import { getTextInput } from "./input-utils";
+import { createTextInputBuffer } from "./input-utils";
 
 export interface CommentPayload {
   relPath: string;
@@ -61,6 +61,8 @@ export function createViewer(
   theme: Theme,
   requestComment: (payload: CommentPayload, comment: string) => void
 ): ViewerController {
+  const textInput = createTextInputBuffer();
+
   const state: ViewerState = {
     file: null,
     content: [],
@@ -95,6 +97,10 @@ export function createViewer(
   }
 
   function setMode(mode: ViewerMode): void {
+    if (mode !== state.mode) {
+      textInput.reset();
+    }
+
     state.mode = mode;
     if (mode !== "search") resetSearch();
     if (mode !== "comment") resetComment();
@@ -324,7 +330,8 @@ export function createViewer(
     render(width: number): string[] {
       if (!state.file) return [];
 
-      if (state.lastRenderWidth !== width || state.content.length === 0 || hasFileChangedOnDisk()) {
+      const shouldAutoRefresh = state.mode !== "select" && state.mode !== "comment";
+      if (state.lastRenderWidth !== width || state.content.length === 0 || (shouldAutoRefresh && hasFileChangedOnDisk())) {
         reloadContent(width);
       }
 
@@ -368,9 +375,9 @@ export function createViewer(
         } else if (matchesKey(data, Key.backspace)) {
           state.commentText = state.commentText.slice(0, -1);
         } else {
-          const textInput = getTextInput(data);
-          if (textInput) {
-            state.commentText += textInput;
+          const text = textInput.push(data);
+          if (text) {
+            state.commentText += text;
           }
         }
         return { type: "none" };
@@ -385,9 +392,9 @@ export function createViewer(
           state.searchQuery = state.searchQuery.slice(0, -1);
           updateSearchMatches();
         } else {
-          const textInput = getTextInput(data);
-          if (textInput) {
-            state.searchQuery += textInput;
+          const text = textInput.push(data);
+          if (text) {
+            state.searchQuery += text;
             updateSearchMatches();
           }
         }
