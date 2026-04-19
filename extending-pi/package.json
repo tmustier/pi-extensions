@@ -1,6 +1,6 @@
 {
   "name": "@tmustier/extending-pi",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Guide for extending Pi — skills, extensions, prompt templates, themes, and packaging.",
   "license": "MIT",
   "author": "Thomas Mustier",

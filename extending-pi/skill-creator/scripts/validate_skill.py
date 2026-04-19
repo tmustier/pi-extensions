@@ -1,9 +1,19 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["pyyaml>=6"]
+# ///
 """
 Validate a Pi skill directory for Agent Skills + README requirements.
 
 Usage:
   scripts/validate_skill.py <skill_directory>
+
+Requires `uv` (https://docs.astral.sh/uv/). The shebang above runs the script
+in an ephemeral uv-managed environment with PyYAML, so nothing is installed
+into the system Python. You can also invoke it explicitly:
+
+  uv run scripts/validate_skill.py <skill_directory>
 """
 
 from __future__ import annotations
