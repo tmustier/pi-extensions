@@ -1,6 +1,7 @@
 import type { Theme } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
-import { readdir, readFile, stat } from "node:fs/promises";
+import { lstatSync, realpathSync, statSync } from "node:fs";
+import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join, relative, resolve, sep } from "node:path";
 
@@ -104,6 +105,51 @@ function getNodeDepth(node: FileNode, cwd: string): number {
   return rel.split(sep).length;
 }
 
+function safeRealPathSync(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+function getPathInfoSync(path: string): { isDirectory: boolean; isSymlink: boolean; realPath?: string } {
+  try {
+    const linkStat = lstatSync(path);
+    const isSymlink = linkStat.isSymbolicLink();
+    const targetStat = isSymlink ? statSync(path) : linkStat;
+    return {
+      isDirectory: targetStat.isDirectory(),
+      isSymlink,
+      realPath: targetStat.isDirectory() ? safeRealPathSync(path) : undefined,
+    };
+  } catch {
+    return { isDirectory: false, isSymlink: false };
+  }
+}
+
+async function getPathInfo(path: string, isSymlink: boolean): Promise<{ isDirectory: boolean; isSymlink: boolean; realPath?: string }> {
+  try {
+    const targetStat = await stat(path);
+    return {
+      isDirectory: targetStat.isDirectory(),
+      isSymlink,
+      realPath: targetStat.isDirectory() ? await realpath(path).catch(() => resolve(path)) : undefined,
+    };
+  } catch {
+    return { isDirectory: false, isSymlink };
+  }
+}
+
+function hasAncestorRealPath(node: FileNode | undefined, realPath: string): boolean {
+  let current = node;
+  while (current) {
+    if (current.realPath === realPath) return true;
+    current = current.parent;
+  }
+  return false;
+}
+
 function shouldSafeMode(cwd: string): boolean {
   const resolved = resolve(cwd);
   const home = resolve(homedir());
@@ -183,14 +229,19 @@ function formatNodeMeta(node: FileNode, theme: Theme): string {
   return parts.length > 0 ? ` ${parts.join(" ")}` : "";
 }
 
+function withSymlinkMarker(label: string, node: FileNode, theme: Theme): string {
+  return node.isSymlink ? `${label}${theme.fg("dim", " ↗")}` : label;
+}
+
 function formatNodeName(node: FileNode, theme: Theme): string {
-  if (isIgnoredStatus(node.gitStatus)) return theme.fg("dim", node.name);
+  if (isIgnoredStatus(node.gitStatus)) return withSymlinkMarker(theme.fg("dim", node.name), node, theme);
   if (node.isDirectory) {
     const label = node.hasChangedChildren ? theme.fg("warning", node.name) : theme.fg("accent", node.name);
-    return node.loading ? `${label}${theme.fg("dim", " ⏳")}` : label;
+    const rendered = withSymlinkMarker(label, node, theme);
+    return node.loading ? `${rendered}${theme.fg("dim", " ⏳")}` : rendered;
   }
-  if (node.gitStatus) return theme.fg("warning", node.name);
-  return node.name;
+  if (node.gitStatus) return withSymlinkMarker(theme.fg("warning", node.name), node, theme);
+  return withSymlinkMarker(node.name, node, theme);
 }
 
 function collapseAllExcept(node: FileNode, keep: Set<FileNode>): void {
@@ -227,6 +278,7 @@ export function createFileBrowser(
       name: ".",
       path: cwd,
       isDirectory: true,
+      realPath: safeRealPathSync(cwd),
       children: undefined,
       expanded: true,
       hasChangedChildren: false,
@@ -350,6 +402,14 @@ export function createFileBrowser(
   }
 
   function shouldAutoScan(depth: number): boolean {
+    // In git repos the main tree comes from git file lists, not from filesystem
+    // crawling. If the user expands a symlinked directory inside that tree, only
+    // scan one level on demand; nested directories stay lazy until explicitly
+    // expanded so links into large trees (iCloud/Drive/$HOME) don't trigger a
+    // broad recursive crawl.
+    if (repo) {
+      return false;
+    }
     if (browser.scanState.mode === "safe") {
       return depth <= 0;
     }
@@ -399,31 +459,74 @@ export function createFileBrowser(
       for (const entry of sorted) {
         if (ignored.has(entry.name) || entry.name.startsWith(".")) continue;
         const fullPath = join(node.path, entry.name);
+        const childDepth = depth + 1;
+
         if (entry.isDirectory()) {
           const dirNode: FileNode = {
             name: entry.name,
             path: fullPath,
             isDirectory: true,
+            realPath: await realpath(fullPath).catch(() => resolve(fullPath)),
+            parent: node,
             children: undefined,
-            expanded: depth + 1 < 1,
+            expanded: childDepth < 1,
             hasChangedChildren: false,
           };
           dirs.push(dirNode);
           browser.nodeByPath.set(fullPath, dirNode);
-          if (shouldAutoScan(depth + 1)) {
-            enqueueScan(dirNode, depth + 1);
+          if (shouldAutoScan(childDepth)) {
+            enqueueScan(dirNode, childDepth);
           }
-        } else {
-          const fileNode: FileNode = {
+          continue;
+        }
+
+        if (entry.isSymbolicLink()) {
+          const pathInfo = await getPathInfo(fullPath, true);
+          if (pathInfo.isDirectory) {
+            const isCycle = pathInfo.realPath ? hasAncestorRealPath(node, pathInfo.realPath) : false;
+            const dirNode: FileNode = {
+              name: entry.name,
+              path: fullPath,
+              isDirectory: true,
+              isSymlink: true,
+              realPath: pathInfo.realPath,
+              parent: node,
+              children: isCycle ? [] : undefined,
+              expanded: childDepth < 1,
+              hasChangedChildren: false,
+            };
+            dirs.push(dirNode);
+            browser.nodeByPath.set(fullPath, dirNode);
+            if (!isCycle && shouldAutoScan(childDepth)) {
+              enqueueScan(dirNode, childDepth);
+            }
+            continue;
+          }
+
+          const symlinkFileNode: FileNode = {
             name: entry.name,
             path: fullPath,
             isDirectory: false,
+            isSymlink: true,
+            parent: node,
             agentModified: agentModifiedFiles.has(fullPath),
           };
-          files.push(fileNode);
-          browser.nodeByPath.set(fullPath, fileNode);
-          queueLineCount(fileNode);
+          files.push(symlinkFileNode);
+          browser.nodeByPath.set(fullPath, symlinkFileNode);
+          queueLineCount(symlinkFileNode);
+          continue;
         }
+
+        const fileNode: FileNode = {
+          name: entry.name,
+          path: fullPath,
+          isDirectory: false,
+          parent: node,
+          agentModified: agentModifiedFiles.has(fullPath),
+        };
+        files.push(fileNode);
+        browser.nodeByPath.set(fullPath, fileNode);
+        queueLineCount(fileNode);
       }
 
       node.children = [...dirs, ...files];
@@ -483,14 +586,13 @@ export function createFileBrowser(
 
   function applyGitUpdates(): void {
     for (const node of browser.nodeByPath.values()) {
-      if (node.isDirectory) continue;
       const relPath = normalizeGitPath(relative(cwd, node.path));
       node.gitStatus = gitStatus.get(relPath);
       node.diffStats = diffStats.get(relPath);
     }
   }
 
-  function ensureFileNode(relPath: string): FileNode | null {
+  function ensureNode(relPath: string): FileNode | null {
     if (!browser.root) return null;
     let normalized = relPath.trim();
     if (!normalized) return null;
@@ -517,6 +619,8 @@ export function createFileBrowser(
           name: part,
           path: dirPath,
           isDirectory: true,
+          realPath: safeRealPathSync(dirPath),
+          parent: current,
           children: [],
           expanded: depth < 1,
           hasChangedChildren: false,
@@ -536,10 +640,36 @@ export function createFileBrowser(
     const existing = browser.nodeByPath.get(filePath);
     if (existing) return existing;
 
+    const pathInfo = getPathInfoSync(filePath);
+    if (pathInfo.isDirectory) {
+      const isCycle = pathInfo.realPath ? hasAncestorRealPath(current, pathInfo.realPath) : false;
+      const dirNode: FileNode = {
+        name: fileName,
+        path: filePath,
+        isDirectory: true,
+        isSymlink: pathInfo.isSymlink,
+        realPath: pathInfo.realPath ?? safeRealPathSync(filePath),
+        parent: current,
+        children: pathInfo.isSymlink && !isCycle ? undefined : [],
+        expanded: false,
+        hasChangedChildren: false,
+        gitStatus: gitStatus.get(normalized),
+        diffStats: diffStats.get(normalized),
+      };
+
+      current.children ??= [];
+      current.children.push(dirNode);
+      sortChildren(current);
+      browser.nodeByPath.set(filePath, dirNode);
+      return dirNode;
+    }
+
     const fileNode: FileNode = {
       name: fileName,
       path: filePath,
       isDirectory: false,
+      isSymlink: pathInfo.isSymlink,
+      parent: current,
       gitStatus: gitStatus.get(normalized),
       agentModified: agentModifiedFiles.has(filePath),
       diffStats: diffStats.get(normalized),
@@ -555,11 +685,13 @@ export function createFileBrowser(
   function addUntrackedNodes(): void {
     for (const [relPath, status] of gitStatus.entries()) {
       if (!isUntrackedStatus(status)) continue;
-      const node = ensureFileNode(relPath);
+      const node = ensureNode(relPath);
       if (node) {
         node.gitStatus = status;
         node.diffStats = diffStats.get(relPath);
-        queueLineCount(node, true);
+        if (!node.isDirectory) {
+          queueLineCount(node, true);
+        }
       }
     }
   }
@@ -673,7 +805,7 @@ export function createFileBrowser(
   function toggleDir(node: FileNode): void {
     if (node.isDirectory) {
       node.expanded = !node.expanded;
-      if (!repo && node.expanded && node.children === undefined) {
+      if (node.expanded && node.children === undefined) {
         enqueueScan(node, getNodeDepth(node, cwd), true);
       }
       refreshLists();
