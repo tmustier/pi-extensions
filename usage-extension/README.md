@@ -7,7 +7,7 @@ A Pi extension that displays aggregated usage statistics across all sessions.
 ## Compatibility
 
 - **Pi version:** 0.42.4+
-- **Last updated:** 2026-04-17 (0.2.1)
+- **Last updated:** 2026-04-19 (0.3.1)
 
 ## Installation
 
@@ -55,6 +55,25 @@ In Pi, run:
 
 ## Features
 
+### Views
+
+`/usage` has two view modes, toggled with `v`:
+
+- **Table** (default) — per-provider / per-model stats with cost and token breakdown.
+- **Insights** — narrative characteristics of your cost for the active time period, e.g. *"X% of your cost was at >150k context"*. Insights are **independent characteristics**, not a breakdown, so they overlap and can sum to more than 100%.
+
+**Unit:** insights are always weighted by recorded API cost (USD). Periods with no recorded cost show an explicit empty state rather than silently switching to a different unit.
+
+The insights currently shown:
+
+| Insight | Threshold |
+|---|---|
+| Parallel sessions | ≥ 4 sessions active within an exact ±2 min window |
+| Large context | `input + cacheRead + cacheWrite > 150k` |
+| Large uncached prompt | `input + cacheWrite > 100k` |
+| Long-running sessions | session lifetime ≥ 8 hours (global, not per-period slice) |
+| Top-session concentration | top 5 sessions by cost |
+
 ### Time Periods
 
 | Period | Definition |
@@ -92,8 +111,9 @@ On narrow terminals, `/usage` automatically switches to a compact table instead 
 | Key | Action |
 |-----|--------|
 | `Tab` / `←` `→` | Switch time period |
-| `↑` `↓` | Select provider |
-| `Enter` / `Space` | Expand/collapse provider to show models |
+| `↑` `↓` | Select provider *(table view)* |
+| `Enter` / `Space` | Expand/collapse provider to show models *(table view)* |
+| `v` | Toggle between Table and Insights view |
 | `q` / `Esc` | Close |
 
 ## Provider Notes

@@ -45,9 +45,39 @@ interface TotalStats extends BaseStats {
 	sessions: number;
 }
 
+interface Insight {
+	percent: number; // 0-100
+	headline: string;
+	advice: string;
+}
+
+interface PeriodInsights {
+	insights: Insight[];
+}
+
+interface RawMessage {
+	sessionId: string;
+	timestamp: number;
+	cost: number;
+	input: number;
+	cacheRead: number;
+	cacheWrite: number;
+}
+
+interface PeriodRawData {
+	messages: RawMessage[];
+	sessionCosts: Map<string, number>;
+}
+
+interface GlobalSessionSpan {
+	startMs: number;
+	endMs: number;
+}
+
 interface TimeFilteredStats {
 	providers: Map<string, ProviderStats>;
 	totals: TotalStats;
+	insights: PeriodInsights;
 }
 
 interface UsageData {
@@ -58,6 +88,7 @@ interface UsageData {
 }
 
 type TabName = "today" | "thisWeek" | "lastWeek" | "allTime";
+type ViewMode = "table" | "insights";
 
 // =============================================================================
 // Column Configuration
@@ -296,7 +327,12 @@ function emptyTimeFilteredStats(): TimeFilteredStats {
 	return {
 		providers: new Map(),
 		totals: { sessions: 0, messages: 0, cost: 0, tokens: emptyTokens() },
+		insights: { insights: [] },
 	};
+}
+
+function emptyPeriodRawData(): PeriodRawData {
+	return { messages: [], sessionCosts: new Map() };
 }
 
 function emptyUsageData(): UsageData {
@@ -325,11 +361,25 @@ function addMessagesToUsageData(
 	messages: SessionMessage[],
 	todayMs: number,
 	weekStartMs: number,
-	lastWeekStartMs: number
+	lastWeekStartMs: number,
+	rawByPeriod: Record<TabName, PeriodRawData>,
+	globalSessionSpans: Map<string, GlobalSessionSpan>
 ): void {
 	const sessionContributed = { today: false, thisWeek: false, lastWeek: false, allTime: false };
 
 	for (const msg of messages) {
+		// Track real per-session lifetime across every message we see, regardless of
+		// which period the message falls into. Used later for the "8h+ session" insight.
+		if (msg.timestamp > 0) {
+			const span = globalSessionSpans.get(sessionId);
+			if (!span) {
+				globalSessionSpans.set(sessionId, { startMs: msg.timestamp, endMs: msg.timestamp });
+			} else {
+				if (msg.timestamp < span.startMs) span.startMs = msg.timestamp;
+				if (msg.timestamp > span.endMs) span.endMs = msg.timestamp;
+			}
+		}
+
 		const periods = getPeriodsForTimestamp(msg.timestamp, todayMs, weekStartMs, lastWeekStartMs);
 		const tokens = {
 			// Count fresh tokens processed this turn.
@@ -365,6 +415,17 @@ function addMessagesToUsageData(
 
 			accumulateStats(stats.totals, msg.cost, tokens);
 			sessionContributed[period] = true;
+
+			const raw = rawByPeriod[period];
+			raw.messages.push({
+				sessionId,
+				timestamp: msg.timestamp,
+				cost: msg.cost,
+				input: msg.input,
+				cacheRead: msg.cacheRead,
+				cacheWrite: msg.cacheWrite,
+			});
+			raw.sessionCosts.set(sessionId, (raw.sessionCosts.get(sessionId) ?? 0) + msg.cost);
 		}
 	}
 
@@ -393,6 +454,13 @@ async function collectUsageData(signal?: AbortSignal): Promise<UsageData | null>
 	const lastWeekStartMs = startOfLastWeek.getTime();
 
 	const data = emptyUsageData();
+	const rawByPeriod: Record<TabName, PeriodRawData> = {
+		today: emptyPeriodRawData(),
+		thisWeek: emptyPeriodRawData(),
+		lastWeek: emptyPeriodRawData(),
+		allTime: emptyPeriodRawData(),
+	};
+	const globalSessionSpans = new Map<string, GlobalSessionSpan>();
 
 	const sessionFiles = await getAllSessionFiles(signal);
 	if (signal?.aborted) return null;
@@ -404,12 +472,185 @@ async function collectUsageData(signal?: AbortSignal): Promise<UsageData | null>
 		if (signal?.aborted) return null;
 		if (!parsed) continue;
 
-		addMessagesToUsageData(data, parsed.sessionId, parsed.messages, todayMs, weekStartMs, lastWeekStartMs);
+		addMessagesToUsageData(
+			data,
+			parsed.sessionId,
+			parsed.messages,
+			todayMs,
+			weekStartMs,
+			lastWeekStartMs,
+			rawByPeriod,
+			globalSessionSpans
+		);
 
 		await new Promise<void>((resolve) => setImmediate(resolve));
 	}
 
+	// Classify sessions that are globally long-running once, then reuse across periods.
+	const longSessionIds = new Set<string>();
+	for (const [id, span] of globalSessionSpans) {
+		if (span.endMs - span.startMs >= LONG_SESSION_MS) longSessionIds.add(id);
+	}
+
+	for (const period of TAB_ORDER) {
+		data[period].insights = computeInsights(rawByPeriod[period], longSessionIds);
+	}
+
 	return data;
+}
+
+// =============================================================================
+// Insights
+// =============================================================================
+
+const PARALLEL_WINDOW_MS = 2 * 60_000; // exact ±N milliseconds around each message
+const PARALLEL_SESSION_THRESHOLD = 4;
+const LARGE_CONTEXT_THRESHOLD = 150_000;
+const LARGE_CACHE_MISS_THRESHOLD = 100_000;
+const LONG_SESSION_MS = 8 * 60 * 60 * 1000;
+const TOP_SESSION_COUNT = 5;
+const MIN_MESSAGES_FOR_PARALLEL_INSIGHT = 10;
+const MIN_PERCENT_TO_SHOW = 1;
+
+/**
+ * Insights are weighted by recorded API cost. Periods with zero total cost produce
+ * an empty `insights` list — the UI renders a distinct empty-state for that case.
+ * Long-running-session classification is passed in from a global pass so that a
+ * session's real lifetime is used rather than the slice visible inside this period.
+ */
+function computeInsights(raw: PeriodRawData, longSessionIds: Set<string>): PeriodInsights {
+	if (raw.messages.length === 0) {
+		return { insights: [] };
+	}
+
+	const total = raw.messages.reduce((sum, m) => sum + m.cost, 0);
+	if (total <= 0) {
+		return { insights: [] };
+	}
+
+	const candidates: Insight[] = [];
+
+	// 1. Parallel sessions — ≥ N unique sessions active within an exact ±W ms window.
+	const parallelWeight = computeParallelCostWeight(raw.messages);
+	if (parallelWeight !== null) {
+		candidates.push({
+			percent: (parallelWeight / total) * 100,
+			headline: `of your cost was while ${PARALLEL_SESSION_THRESHOLD}+ sessions ran in parallel`,
+			advice:
+				"All sessions share one rate limit. If you don't need them all at once, queueing uses capacity more evenly.",
+		});
+	}
+
+	// 2. Large context — input + cacheRead + cacheWrite > threshold.
+	const largeContextWeight = raw.messages
+		.filter((m) => m.input + m.cacheRead + m.cacheWrite > LARGE_CONTEXT_THRESHOLD)
+		.reduce((sum, m) => sum + m.cost, 0);
+	candidates.push({
+		percent: (largeContextWeight / total) * 100,
+		headline: `of your cost was at >${formatThresholdTokens(LARGE_CONTEXT_THRESHOLD)} context`,
+		advice:
+			"Longer sessions are more expensive even when cached. /compact mid-task, /clear when switching to new tasks.",
+	});
+
+	// 3. Large uncached prompt — fresh (non-cached) input > threshold, per the v0.2.0 formula.
+	const uncachedWeight = raw.messages
+		.filter((m) => m.input + m.cacheWrite > LARGE_CACHE_MISS_THRESHOLD)
+		.reduce((sum, m) => sum + m.cost, 0);
+	candidates.push({
+		percent: (uncachedWeight / total) * 100,
+		headline: `of your cost came from >${formatThresholdTokens(LARGE_CACHE_MISS_THRESHOLD)}-token uncached prompts`,
+		advice:
+			"Uncached input is expensive, and often happens when sending a message to a session that has gone idle. /compact before stepping away keeps the cold-start small.",
+	});
+
+	// 4. Long-running sessions — classification comes from the global pass so we use
+	//    true session lifetime, not just the span visible inside this period slice.
+	const longWeight = raw.messages
+		.filter((m) => longSessionIds.has(m.sessionId))
+		.reduce((sum, m) => sum + m.cost, 0);
+	if (longWeight > 0) {
+		candidates.push({
+			percent: (longWeight / total) * 100,
+			headline: `of your cost came from sessions active for ${LONG_SESSION_MS / 3_600_000}+ hours`,
+			advice:
+				"These are often background/loop sessions. Continuous usage can add up quickly so make sure it is intentional.",
+		});
+	}
+
+	// 5. Top-N session concentration.
+	if (raw.sessionCosts.size > TOP_SESSION_COUNT) {
+		const sortedSessions = Array.from(raw.sessionCosts.values()).sort((a, b) => b - a);
+		const topN = Math.min(TOP_SESSION_COUNT, sortedSessions.length);
+		const topWeight = sortedSessions.slice(0, topN).reduce((sum, c) => sum + c, 0);
+		candidates.push({
+			percent: (topWeight / total) * 100,
+			headline: `of your cost came from your top ${topN} session${topN === 1 ? "" : "s"}`,
+			advice:
+				"A small number of sessions drives most of your spend. The table view can help pinpoint which ones.",
+		});
+	}
+
+	const insights = candidates.filter((i) => i.percent >= MIN_PERCENT_TO_SHOW).sort((a, b) => b.percent - a.percent);
+	return { insights };
+}
+
+/**
+ * Two-pointer sweep of messages sorted by timestamp. For each message, count the
+ * number of distinct session IDs whose messages fall within an exact ± window.
+ * Returns the total cost attributable to moments when ≥ threshold sessions were
+ * active, or null if the period has too few sessions/messages to call it.
+ */
+function computeParallelCostWeight(messages: RawMessage[]): number | null {
+	if (messages.length < MIN_MESSAGES_FOR_PARALLEL_INSIGHT) return null;
+	const distinctSessions = new Set(messages.map((m) => m.sessionId));
+	if (distinctSessions.size < PARALLEL_SESSION_THRESHOLD) return null;
+
+	const sorted = messages.slice().sort((a, b) => a.timestamp - b.timestamp);
+	const sidCount = new Map<string, number>();
+	let uniqueCount = 0;
+	let left = 0;
+	let right = 0;
+	let parallelCost = 0;
+
+	for (let i = 0; i < sorted.length; i++) {
+		const current = sorted[i]!;
+		const high = current.timestamp + PARALLEL_WINDOW_MS;
+		const low = current.timestamp - PARALLEL_WINDOW_MS;
+
+		while (right < sorted.length && sorted[right]!.timestamp <= high) {
+			const sid = sorted[right]!.sessionId;
+			const next = (sidCount.get(sid) ?? 0) + 1;
+			sidCount.set(sid, next);
+			if (next === 1) uniqueCount++;
+			right++;
+		}
+		while (left < right && sorted[left]!.timestamp < low) {
+			const sid = sorted[left]!.sessionId;
+			const next = (sidCount.get(sid) ?? 0) - 1;
+			if (next === 0) {
+				sidCount.delete(sid);
+				uniqueCount--;
+			} else {
+				sidCount.set(sid, next);
+			}
+			left++;
+		}
+
+		if (uniqueCount >= PARALLEL_SESSION_THRESHOLD) parallelCost += current.cost;
+	}
+
+	return parallelCost;
+}
+
+function formatThresholdTokens(n: number): string {
+	if (n >= 1_000_000) return `${n / 1_000_000}M`;
+	if (n >= 1_000) return `${n / 1_000}k`;
+	return String(n);
+}
+
+function formatInsightPercent(p: number): string {
+	if (p >= 10) return `${Math.round(p)}%`;
+	return `${Math.round(p * 10) / 10}%`;
 }
 
 // =============================================================================
@@ -514,6 +755,7 @@ const TAB_ORDER: TabName[] = ["today", "thisWeek", "lastWeek", "allTime"];
 
 class UsageComponent {
 	private activeTab: TabName = "allTime";
+	private viewMode: ViewMode = "table";
 	private data: UsageData;
 	private selectedIndex = 0;
 	private expanded = new Set<string>();
@@ -544,6 +786,12 @@ class UsageComponent {
 			return;
 		}
 
+		if (matchesKey(data, "v")) {
+			this.viewMode = this.viewMode === "table" ? "insights" : "table";
+			this.requestRender();
+			return;
+		}
+
 		if (matchesKey(data, "tab") || matchesKey(data, "right")) {
 			const idx = TAB_ORDER.indexOf(this.activeTab);
 			this.activeTab = TAB_ORDER[(idx + 1) % TAB_ORDER.length]!;
@@ -554,17 +802,17 @@ class UsageComponent {
 			this.activeTab = TAB_ORDER[(idx - 1 + TAB_ORDER.length) % TAB_ORDER.length]!;
 			this.updateProviderOrder();
 			this.requestRender();
-		} else if (matchesKey(data, "up")) {
+		} else if (this.viewMode === "table" && matchesKey(data, "up")) {
 			if (this.selectedIndex > 0) {
 				this.selectedIndex--;
 				this.requestRender();
 			}
-		} else if (matchesKey(data, "down")) {
+		} else if (this.viewMode === "table" && matchesKey(data, "down")) {
 			if (this.selectedIndex < this.providerOrder.length - 1) {
 				this.selectedIndex++;
 				this.requestRender();
 			}
-		} else if (matchesKey(data, "enter") || matchesKey(data, "space")) {
+		} else if (this.viewMode === "table" && (matchesKey(data, "enter") || matchesKey(data, "space"))) {
 			const provider = this.providerOrder[this.selectedIndex];
 			if (provider) {
 				if (this.expanded.has(provider)) {
@@ -582,6 +830,18 @@ class UsageComponent {
 	// -------------------------------------------------------------------------
 
 	render(width: number): string[] {
+		if (this.viewMode === "insights") {
+			return clampLines(
+				[
+					...this.renderTitle(),
+					...this.renderTabs(width, getTableLayout(width)),
+					...this.renderInsights(width),
+					...this.renderHelp(width),
+				],
+				width
+			);
+		}
+
 		const layout = getTableLayout(width);
 		return clampLines(
 			[
@@ -599,7 +859,54 @@ class UsageComponent {
 
 	private renderTitle(): string[] {
 		const th = this.theme;
-		return [th.fg("accent", th.bold("Usage Statistics")), ""];
+		const label = this.viewMode === "insights" ? "Usage Insights" : "Usage Statistics";
+		return [th.fg("accent", th.bold(label)), ""];
+	}
+
+	private renderInsights(width: number): string[] {
+		const th = this.theme;
+		const stats = this.data[this.activeTab];
+		const { insights } = stats.insights;
+		const hasMessages = stats.totals.messages > 0;
+		const hasCost = stats.totals.cost > 0;
+		const lines: string[] = [];
+
+		lines.push("What's contributing to your cost?");
+		lines.push(th.fg("dim", "Approximate, based on local sessions on this machine."));
+		lines.push("");
+		const note = `${TAB_LABELS[this.activeTab]} · weighted by cost (USD) · these overlap and can sum to >100%`;
+		lines.push(th.fg("dim", note));
+		lines.push("");
+
+		if (!hasMessages) {
+			lines.push(th.fg("dim", "  No usage recorded for this period."));
+			lines.push("");
+			return lines;
+		}
+		if (!hasCost) {
+			lines.push(th.fg("dim", "  No cost data recorded for this period."));
+			lines.push("");
+			return lines;
+		}
+		if (insights.length === 0) {
+			lines.push(th.fg("dim", "  No insights above 1% for this period."));
+			lines.push("");
+			return lines;
+		}
+
+		const indent = "     ";
+		const adviceWidth = Math.max(width - indent.length, 30);
+
+		for (const insight of insights) {
+			const pct = th.fg("accent", th.bold(formatInsightPercent(insight.percent)));
+			lines.push(`${pct} ${insight.headline}`);
+			for (const wrapped of wrapTextWithAnsi(insight.advice, adviceWidth)) {
+				lines.push(`${indent}${th.fg("dim", wrapped)}`);
+			}
+			lines.push("");
+		}
+
+		return lines;
 	}
 
 	private renderTabs(width: number, layout: TableLayout): string[] {
@@ -616,9 +923,11 @@ class UsageComponent {
 			activeTabOnly,
 		]);
 
-		const infoLines = layout.compact
-			? wrapTextWithAnsi(th.fg("dim", "Compact view. Widen the terminal for more columns."), Math.max(width, 1))
-			: [];
+		// Compact-note only applies to the table view — it's meaningless for insights.
+		const infoLines =
+			this.viewMode === "table" && layout.compact
+				? wrapTextWithAnsi(th.fg("dim", "Compact view. Widen the terminal for more columns."), Math.max(width, 1))
+				: [];
 
 		return [tabLine, ...infoLines, ""];
 	}
@@ -723,13 +1032,23 @@ class UsageComponent {
 	}
 
 	private renderHelp(width: number): string[] {
-		const line = pickFittingText(width, [
-			"[Tab/←→] period  [↑↓] select  [Enter] expand  [q] close",
-			"[Tab] period  [↑↓] select  [Enter] expand  [q] close",
-			"[↑↓] select  [Enter] expand  [q] close",
-			"[↑↓] select  [q] close",
-			"[q] close",
-		]);
+		const variants =
+			this.viewMode === "insights"
+				? [
+						"[Tab/←→] period  [v] table view  [q] close",
+						"[Tab] period  [v] table  [q] close",
+						"[v] table  [q] close",
+						"[q] close",
+				  ]
+				: [
+						"[Tab/←→] period  [↑↓] select  [Enter] expand  [v] insights  [q] close",
+						"[Tab] period  [↑↓] select  [Enter] expand  [v] insights  [q] close",
+						"[↑↓] select  [Enter] expand  [v] insights  [q] close",
+						"[↑↓] select  [v] insights  [q] close",
+						"[↑↓] select  [q] close",
+						"[q] close",
+				  ];
+		const line = pickFittingText(width, variants);
 		return [this.theme.fg("dim", line)];
 	}
 
