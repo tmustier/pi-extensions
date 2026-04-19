@@ -402,6 +402,14 @@ export function createFileBrowser(
   }
 
   function shouldAutoScan(depth: number): boolean {
+    // In git repos the main tree comes from git file lists, not from filesystem
+    // crawling. If the user expands a symlinked directory inside that tree, only
+    // scan one level on demand; nested directories stay lazy until explicitly
+    // expanded so links into large trees (iCloud/Drive/$HOME) don't trigger a
+    // broad recursive crawl.
+    if (repo) {
+      return false;
+    }
     if (browser.scanState.mode === "safe") {
       return depth <= 0;
     }
