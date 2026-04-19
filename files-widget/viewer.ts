@@ -143,11 +143,19 @@ export function createViewer(
     state.content = loadFileContent(state.file.path, cwd, state.diffMode, hasChanges, width);
     state.lastRenderWidth = width;
     clampScroll();
+    if (state.searchQuery) {
+      updateSearchMatches({ preserveActiveMatch: true });
+    }
   }
 
-  function updateSearchMatches(): void {
+  function updateSearchMatches(options: { preserveActiveMatch?: boolean } = {}): void {
+    const activeMatch = options.preserveActiveMatch ? state.searchMatches[state.searchIndex] : undefined;
+
     state.searchMatches = [];
-    if (!state.searchQuery) return;
+    if (!state.searchQuery) {
+      state.searchIndex = 0;
+      return;
+    }
 
     const q = state.searchQuery.toLowerCase();
     const rawLines = state.rawContent.split("\n");
@@ -156,12 +164,29 @@ export function createViewer(
         state.searchMatches.push(i);
       }
     }
-    state.searchIndex = 0;
 
-    if (state.searchMatches.length > 0) {
-      state.scroll = Math.max(0, state.searchMatches[0] - SEARCH_SCROLL_OFFSET);
-      clampScroll();
+    if (state.searchMatches.length === 0) {
+      state.searchIndex = 0;
+      return;
     }
+
+    if (activeMatch === undefined) {
+      state.searchIndex = 0;
+    } else {
+      let nearestIndex = 0;
+      let nearestDistance = Number.POSITIVE_INFINITY;
+      for (let i = 0; i < state.searchMatches.length; i++) {
+        const distance = Math.abs(state.searchMatches[i] - activeMatch);
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+          nearestIndex = i;
+        }
+      }
+      state.searchIndex = nearestIndex;
+    }
+
+    state.scroll = Math.max(0, state.searchMatches[state.searchIndex] - SEARCH_SCROLL_OFFSET);
+    clampScroll();
   }
 
   function jumpToNextMatch(direction: 1 | -1): void {
