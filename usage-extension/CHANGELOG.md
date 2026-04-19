@@ -7,6 +7,7 @@
 - **Empty states.** Insights view now distinguishes three cases: no usage recorded in the period, usage but no cost data, and usage with cost but no insights clearing the 1% threshold.
 - **Narrow-terminal compact hint is hidden in Insights mode** (it only applied to the table layout).
 - **"Cache miss" bullet relabelled** to "of your cost came from >100k-token uncached prompts" — same math, more accurate wording.
+- **Messages with missing/invalid timestamps are excluded** from the parallel-sessions sweep so that older/incomplete logs don't inflate the insight by collapsing into a single synthetic instant.
 
 ## 0.3.0 - 2026-04-19
 - Add an **Insights** view to `/usage` (press `v` to toggle). Surfaces Claude-style narrative characteristics of your usage for the active time period:

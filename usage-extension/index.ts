@@ -599,13 +599,18 @@ function computeInsights(raw: PeriodRawData, longSessionIds: Set<string>): Perio
  * number of distinct session IDs whose messages fall within an exact ± window.
  * Returns the total cost attributable to moments when ≥ threshold sessions were
  * active, or null if the period has too few sessions/messages to call it.
+ *
+ * Messages with missing/invalid timestamps (parsed as 0) are filtered out first —
+ * otherwise they would collapse into a single synthetic instant and inflate the
+ * parallel count on older or incomplete logs.
  */
 function computeParallelCostWeight(messages: RawMessage[]): number | null {
-	if (messages.length < MIN_MESSAGES_FOR_PARALLEL_INSIGHT) return null;
-	const distinctSessions = new Set(messages.map((m) => m.sessionId));
+	const timed = messages.filter((m) => m.timestamp > 0);
+	if (timed.length < MIN_MESSAGES_FOR_PARALLEL_INSIGHT) return null;
+	const distinctSessions = new Set(timed.map((m) => m.sessionId));
 	if (distinctSessions.size < PARALLEL_SESSION_THRESHOLD) return null;
 
-	const sorted = messages.slice().sort((a, b) => a.timestamp - b.timestamp);
+	const sorted = timed.slice().sort((a, b) => a.timestamp - b.timestamp);
 	const sidCount = new Map<string, number>();
 	let uniqueCount = 0;
 	let left = 0;
