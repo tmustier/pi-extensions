@@ -4,6 +4,19 @@ All notable changes to this extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.18] - 2026-04-19
+
+### Changed
+- Show symlinks with a `↗` marker in the `/readfiles` tree.
+
+### Fixed
+- Let `/readfiles` navigate into directory symlinks in both non-git folders and git repos instead of rendering them as inert files or empty directories.
+- Guard symlink directory scanning against ancestor cycles so links like `foo -> .` or `foo -> ..` don't recurse forever.
+- Treat git-tracked and untracked directory symlinks as lazily scannable directories rather than plain files.
+
+### Thanks
+- Thanks to @xapids for reporting the original macOS symlink navigation issue ([#9](https://github.com/tmustier/pi-extensions/issues/9)).
+
 ## [0.1.17] - 2026-04-19
 
 ### Changed

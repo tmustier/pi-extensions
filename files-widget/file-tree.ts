@@ -1,4 +1,4 @@
-import { statSync } from "node:fs";
+import { lstatSync, realpathSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { MAX_TREE_DEPTH } from "./constants";
@@ -6,11 +6,26 @@ import type { DiffStats, FileNode, FlatNode } from "./types";
 
 const collator = new Intl.Collator(undefined, { sensitivity: "base" });
 
-function isDirectoryPath(path: string): boolean {
+function safeRealPathSync(path: string): string {
   try {
-    return statSync(path).isDirectory();
+    return realpathSync(path);
   } catch {
-    return false;
+    return path;
+  }
+}
+
+function getPathInfo(path: string): { isDirectory: boolean; isSymlink: boolean; realPath?: string } {
+  try {
+    const linkStat = lstatSync(path);
+    const isSymlink = linkStat.isSymbolicLink();
+    const targetStat = isSymlink ? statSync(path) : linkStat;
+    return {
+      isDirectory: targetStat.isDirectory(),
+      isSymlink,
+      realPath: targetStat.isDirectory() ? safeRealPathSync(path) : undefined,
+    };
+  } catch {
+    return { isDirectory: false, isSymlink: false };
   }
 }
 
@@ -105,6 +120,7 @@ export function buildFileTreeFromPaths(
     name: ".",
     path: cwd,
     isDirectory: true,
+    realPath: safeRealPathSync(cwd),
     children: [],
     expanded: true,
     hasChangedChildren: false,
@@ -145,6 +161,8 @@ export function buildFileTreeFromPaths(
           name: part,
           path: join(cwd, relPath),
           isDirectory: true,
+          realPath: safeRealPathSync(join(cwd, relPath)),
+          parent: current,
           children: [],
           expanded: depth < 1,
           hasChangedChildren: false,
@@ -178,14 +196,18 @@ export function buildFileTreeFromPaths(
       continue;
     }
 
-    const isDirEntry = normalized.endsWith("/") || isDirectoryPath(filePath);
+    const pathInfo = getPathInfo(filePath);
+    const isDirEntry = normalized.endsWith("/") || pathInfo.isDirectory;
     if (isDirEntry) {
       const depth = parts.length;
       const dirNode: FileNode = {
         name: fileName,
         path: filePath,
         isDirectory: true,
-        children: [],
+        isSymlink: pathInfo.isSymlink,
+        realPath: pathInfo.realPath ?? safeRealPathSync(filePath),
+        parent: current,
+        children: pathInfo.isSymlink ? undefined : [],
         expanded: depth < 1,
         hasChangedChildren: false,
         gitStatus: fileGitStatus,
@@ -202,6 +224,8 @@ export function buildFileTreeFromPaths(
       name: fileName,
       path: filePath,
       isDirectory: false,
+      isSymlink: pathInfo.isSymlink,
+      parent: current,
       gitStatus: fileGitStatus,
       agentModified: agentModified.has(filePath),
       diffStats: fileDiffStats,

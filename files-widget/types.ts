@@ -7,6 +7,9 @@ export interface FileNode {
   name: string;
   path: string;
   isDirectory: boolean;
+  isSymlink?: boolean;
+  realPath?: string;
+  parent?: FileNode;
   children?: FileNode[];
   expanded?: boolean;
   gitStatus?: string;
