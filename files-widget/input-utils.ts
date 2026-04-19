@@ -4,17 +4,22 @@ const CONTROL_CHARS = /[\u0000-\u0008\u000B-\u001F\u007F]/g;
 const BRACKETED_PASTE_START = "\u001b[200~";
 const BRACKETED_PASTE_END = "\u001b[201~";
 
-function sanitizeTextInput(data: string): string {
+interface SanitizeTextInputOptions {
+  preserveNewlines?: boolean;
+}
+
+function sanitizeTextInput(data: string, options: SanitizeTextInputOptions = {}): string {
   const normalized = decodeKittyPrintable(data) ?? data;
   if (!normalized || normalized.includes("\u001b")) {
     return "";
   }
 
-  return normalized
-    .replace(/\r\n?/g, "\n")
-    .replace(/\n/g, " ")
-    .replace(/\t/g, " ")
-    .replace(CONTROL_CHARS, "");
+  const withNewlines = normalized.replace(/\r\n?/g, "\n");
+  const withoutTabs = options.preserveNewlines
+    ? withNewlines.replace(/\t/g, "  ")
+    : withNewlines.replace(/\n/g, " ").replace(/\t/g, " ");
+
+  return withoutTabs.replace(CONTROL_CHARS, "");
 }
 
 function getPendingStartSuffix(data: string): string {
@@ -33,7 +38,11 @@ export interface TextInputBuffer {
   reset(): void;
 }
 
-export function createTextInputBuffer(): TextInputBuffer {
+interface TextInputBufferOptions {
+  preserveNewlines?: boolean;
+}
+
+export function createTextInputBuffer(options: TextInputBufferOptions = {}): TextInputBuffer {
   let isInPaste = false;
   let pasteBuffer = "";
   let pendingStart = "";
@@ -52,14 +61,14 @@ export function createTextInputBuffer(): TextInputBuffer {
         const pendingSuffix = getPendingStartSuffix(combined);
         const completeText = pendingSuffix ? combined.slice(0, combined.length - pendingSuffix.length) : combined;
         pendingStart = pendingSuffix;
-        return sanitizeTextInput(completeText);
+        return sanitizeTextInput(completeText, options);
       }
 
       const beforePaste = combined.slice(0, startIndex);
       const afterStart = combined.slice(startIndex + BRACKETED_PASTE_START.length);
       isInPaste = true;
       pasteBuffer = "";
-      return sanitizeTextInput(beforePaste) + push(afterStart);
+      return sanitizeTextInput(beforePaste, options) + push(afterStart);
     }
 
     pasteBuffer += combined;
@@ -73,7 +82,7 @@ export function createTextInputBuffer(): TextInputBuffer {
     isInPaste = false;
     pasteBuffer = "";
 
-    return sanitizeTextInput(pastedText) + push(remaining);
+    return sanitizeTextInput(pastedText, options) + push(remaining);
   };
 
   return {
