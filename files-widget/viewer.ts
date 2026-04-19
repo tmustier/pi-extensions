@@ -11,7 +11,7 @@ import {
 } from "./constants";
 import { loadFileContent } from "./file-viewer";
 import type { FileNode } from "./types";
-import { isUntrackedStatus } from "./utils";
+import { isMarkdownPath, isUntrackedStatus } from "./utils";
 import { createTextInputBuffer } from "./input-utils";
 
 const COMMENT_EDITOR_MAX_VISIBLE_LINES = 4;
@@ -87,18 +87,19 @@ export function createViewer(
   };
 
   function isMarkdownFile(): boolean {
-    return !!state.file && state.file.name.toLowerCase().endsWith(".md");
+    return !!state.file && isMarkdownPath(state.file.path);
   }
 
   function isRenderedMarkdownMode(): boolean {
     return isMarkdownFile() && !state.diffMode && state.renderMarkdown;
   }
 
-  function switchMarkdownToRaw(): void {
-    if (!isRenderedMarkdownMode()) return;
+  function switchMarkdownToRaw(): boolean {
+    if (!isRenderedMarkdownMode()) return false;
     state.renderMarkdown = false;
-    state.lastRenderWidth = 0;
-    clampScroll();
+    const width = state.lastRenderWidth || process.stdout.columns || 80;
+    reloadContent(width);
+    return true;
   }
 
   function toggleMarkdownMode(): void {
@@ -372,7 +373,7 @@ export function createViewer(
       state.file = file;
       state.scroll = 0;
       state.diffMode = !!file.gitStatus && !isUntrackedStatus(file.gitStatus);
-      state.renderMarkdown = file.name.toLowerCase().endsWith(".md");
+      state.renderMarkdown = isMarkdownPath(file.path);
       setMode("normal");
       state.content = [];
       state.lastRenderWidth = 0;
@@ -548,7 +549,9 @@ export function createViewer(
         return { type: "none" };
       }
       if (matchesKey(data, "v") && state.mode !== "select") {
-        switchMarkdownToRaw();
+        if (switchMarkdownToRaw()) {
+          return { type: "none" };
+        }
         state.mode = "select";
         state.selectStart = state.scroll;
         state.selectEnd = state.scroll;

@@ -3,7 +3,7 @@ import { execSync } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
 
 import { isGitRepo } from "./git";
-import { hasCommand, stripLeadingEmptyLines } from "./utils";
+import { hasCommand, isMarkdownPath, stripLeadingEmptyLines } from "./utils";
 
 const DIFF_CONTENT_PREFIXES = new Set(["+", "-", " "]);
 
@@ -160,7 +160,7 @@ export function loadFileContent(
   width?: number,
   renderMarkdown = true
 ): string[] {
-  const isMarkdown = filePath.endsWith(".md");
+  const isMarkdown = isMarkdownPath(filePath);
   const termWidth = width || process.stdout.columns || 80;
 
   try {
