@@ -1,6 +1,6 @@
 import type { Theme } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { relative } from "node:path";
 
 import {
@@ -8,12 +8,11 @@ import {
   MAX_VIEWER_HEIGHT,
   MIN_PANEL_HEIGHT,
   SEARCH_SCROLL_OFFSET,
-  VIEWER_SCROLL_MARGIN,
 } from "./constants";
 import { loadFileContent } from "./file-viewer";
 import type { FileNode } from "./types";
 import { isUntrackedStatus } from "./utils";
-import { isPrintableChar } from "./input-utils";
+import { getTextInput } from "./input-utils";
 
 export interface CommentPayload {
   relPath: string;
@@ -43,6 +42,7 @@ interface ViewerState {
   searchMatches: number[];
   searchIndex: number;
   lastRenderWidth: number;
+  lastLoadedMtimeMs: number | null;
   height: number;
 }
 
@@ -75,6 +75,7 @@ export function createViewer(
     searchMatches: [],
     searchIndex: 0,
     lastRenderWidth: 0,
+    lastLoadedMtimeMs: null,
     height: DEFAULT_VIEWER_HEIGHT,
   };
 
@@ -102,11 +103,46 @@ export function createViewer(
     }
   }
 
+  function getMaxScroll(): number {
+    return Math.max(0, state.content.length - state.height);
+  }
+
+  function refreshRawContent(): void {
+    if (!state.file) return;
+
+    try {
+      const fileStat = statSync(state.file.path);
+      state.rawContent = readFileSync(state.file.path, "utf-8");
+      state.file.lineCount = state.rawContent.split("\n").length;
+      state.lastLoadedMtimeMs = fileStat.mtimeMs;
+    } catch {
+      state.rawContent = "";
+      state.file.lineCount = undefined;
+      state.lastLoadedMtimeMs = null;
+    }
+  }
+
+  function hasFileChangedOnDisk(): boolean {
+    if (!state.file) return false;
+
+    try {
+      return state.lastLoadedMtimeMs === null || statSync(state.file.path).mtimeMs !== state.lastLoadedMtimeMs;
+    } catch {
+      return state.lastLoadedMtimeMs !== null;
+    }
+  }
+
+  function clampScroll(): void {
+    state.scroll = Math.min(getMaxScroll(), Math.max(0, state.scroll));
+  }
+
   function reloadContent(width: number): void {
     if (!state.file) return;
+    refreshRawContent();
     const hasChanges = !!state.file.gitStatus;
     state.content = loadFileContent(state.file.path, cwd, state.diffMode, hasChanges, width);
     state.lastRenderWidth = width;
+    clampScroll();
   }
 
   function updateSearchMatches(): void {
@@ -124,6 +160,7 @@ export function createViewer(
 
     if (state.searchMatches.length > 0) {
       state.scroll = Math.max(0, state.searchMatches[0] - SEARCH_SCROLL_OFFSET);
+      clampScroll();
     }
   }
 
@@ -133,6 +170,7 @@ export function createViewer(
     if (state.searchIndex < 0) state.searchIndex = state.searchMatches.length - 1;
     if (state.searchIndex >= state.searchMatches.length) state.searchIndex = 0;
     state.scroll = Math.max(0, state.searchMatches[state.searchIndex] - SEARCH_SCROLL_OFFSET);
+    clampScroll();
   }
 
   function buildCommentPayload(): CommentPayload | null {
@@ -242,14 +280,8 @@ export function createViewer(
       setMode("normal");
       state.content = [];
       state.lastRenderWidth = 0;
-
-      try {
-        state.rawContent = readFileSync(file.path, "utf-8");
-        file.lineCount = state.rawContent.split("\n").length;
-      } catch {
-        state.rawContent = "";
-        file.lineCount = undefined;
-      }
+      state.lastLoadedMtimeMs = null;
+      refreshRawContent();
     },
 
     updateFileRef(file: FileNode | null): void {
@@ -259,13 +291,15 @@ export function createViewer(
     close(): void {
       state.file = null;
       state.content = [];
+      state.rawContent = "";
+      state.lastLoadedMtimeMs = null;
       setMode("normal");
     },
 
     render(width: number): string[] {
       if (!state.file) return [];
 
-      if (state.lastRenderWidth !== width || state.content.length === 0) {
+      if (state.lastRenderWidth !== width || state.content.length === 0 || hasFileChangedOnDisk()) {
         reloadContent(width);
       }
 
@@ -308,8 +342,11 @@ export function createViewer(
           setMode("normal");
         } else if (matchesKey(data, Key.backspace)) {
           state.commentText = state.commentText.slice(0, -1);
-        } else if (isPrintableChar(data)) {
-          state.commentText += data;
+        } else {
+          const textInput = getTextInput(data);
+          if (textInput) {
+            state.commentText += textInput;
+          }
         }
         return { type: "none" };
       }
@@ -322,9 +359,12 @@ export function createViewer(
         } else if (matchesKey(data, Key.backspace)) {
           state.searchQuery = state.searchQuery.slice(0, -1);
           updateSearchMatches();
-        } else if (isPrintableChar(data)) {
-          state.searchQuery += data;
-          updateSearchMatches();
+        } else {
+          const textInput = getTextInput(data);
+          if (textInput) {
+            state.searchQuery += textInput;
+            updateSearchMatches();
+          }
         }
         return { type: "none" };
       }
@@ -358,7 +398,7 @@ export function createViewer(
         if (state.mode === "select") {
           state.selectEnd = Math.min(state.content.length - 1, state.selectEnd + 1);
         } else {
-          state.scroll = Math.min(Math.max(0, state.content.length - VIEWER_SCROLL_MARGIN), state.scroll + 1);
+          state.scroll = Math.min(getMaxScroll(), state.scroll + 1);
         }
         return { type: "none" };
       }
@@ -371,7 +411,7 @@ export function createViewer(
         return { type: "none" };
       }
       if (matchesKey(data, Key.pageDown)) {
-        state.scroll = Math.min(Math.max(0, state.content.length - state.height), state.scroll + state.height);
+        state.scroll = Math.min(getMaxScroll(), state.scroll + state.height);
         return { type: "none" };
       }
       if (matchesKey(data, Key.pageUp)) {
@@ -382,16 +422,18 @@ export function createViewer(
         state.scroll = 0;
         return { type: "none" };
       }
-      if (matchesKey(data, "G")) {
-        state.scroll = Math.max(0, state.content.length - state.height);
+      if (matchesKey(data, "shift+g")) {
+        state.scroll = getMaxScroll();
         return { type: "none" };
       }
       if (matchesKey(data, "+") || matchesKey(data, "=")) {
         state.height = Math.min(MAX_VIEWER_HEIGHT, state.height + 5);
+        clampScroll();
         return { type: "none" };
       }
       if (matchesKey(data, "-") || matchesKey(data, "_")) {
         state.height = Math.max(MIN_PANEL_HEIGHT, state.height - 5);
+        clampScroll();
         return { type: "none" };
       }
       if (matchesKey(data, "d") && state.mode !== "select" && state.file.gitStatus && !isUntrackedStatus(state.file.gitStatus)) {
