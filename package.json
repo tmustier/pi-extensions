@@ -1,6 +1,6 @@
 {
   "name": "pi-extensions",
-  "version": "0.1.31",
+  "version": "0.1.32",
   "license": "MIT",
   "private": false,
   "keywords": [
@@ -17,14 +17,14 @@
       "./code-actions/index.ts",
       "./files-widget/index.ts",
       "./raw-paste/index.ts",
-      "./ralph-wiggum/index.ts",
+      "./pi-ralph-wiggum/index.ts",
       "./tab-status/tab-status.ts",
       "./usage-extension/index.ts"
     ],
     "skills": [
       "./extending-pi/SKILL.md",
       "./extending-pi/skill-creator/SKILL.md",
-      "./ralph-wiggum/SKILL.md"
+      "./pi-ralph-wiggum/SKILL.md"
     ]
   }
 }
