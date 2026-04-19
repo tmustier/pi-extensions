@@ -2,14 +2,16 @@
 
 All notable changes to this extension will be documented in this file.
 
-## [Unreleased]
+## [0.1.16] - 2026-04-19
 
 ### Fixed
 - Let `/readfiles` browser search accept `j` and `k` as search text instead of hijacking them for navigation.
 - Fix viewer scrolling so the last lines of a file remain reachable.
 - Restore `G` / `Shift+G` navigation to jump to the bottom of the viewer.
 - Refresh an open viewer when the file changes on disk while `/readfiles` is open.
-- Accept pasted and multi-character text input in browser search and the inline comment prompt.
+- Accept pasted, multi-character, and chunked bracketed-paste input in browser search and the inline comment prompt.
+- Keep viewer search results in sync after live refreshes.
+- Pause live refresh while a line selection or inline comment is active so comments stay anchored to what the user selected.
 
 ## [0.1.14] - 2026-02-03
 
