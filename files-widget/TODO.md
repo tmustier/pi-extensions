@@ -46,7 +46,7 @@
 ### Markdown Rendering
 - [x] Detect `glow` availability
 - [x] Shell out to `glow` for .md files
-- [ ] Toggle between rendered and raw (`m` key?)
+- [x] Toggle between rendered and raw (`m`)
 - [x] Fallback to syntax-highlighted raw
 
 ### Diff View

@@ -3,7 +3,7 @@ import { execSync } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
 
 import { isGitRepo } from "./git";
-import { hasCommand, stripLeadingEmptyLines } from "./utils";
+import { hasCommand, isMarkdownPath, stripLeadingEmptyLines } from "./utils";
 
 const DIFF_CONTENT_PREFIXES = new Set(["+", "-", " "]);
 
@@ -152,14 +152,20 @@ function wrapDeltaLines(lines: string[], width: number): string[] {
   return wrapped;
 }
 
+export interface LoadedFileContent {
+  lines: string[];
+  renderedMarkdown: boolean;
+}
+
 export function loadFileContent(
   filePath: string,
   cwd: string,
   diffMode: boolean,
   hasChanges: boolean,
-  width?: number
-): string[] {
-  const isMarkdown = filePath.endsWith(".md");
+  width?: number,
+  renderMarkdown = true
+): LoadedFileContent {
+  const isMarkdown = isMarkdownPath(filePath);
   const termWidth = width || process.stdout.columns || 80;
 
   try {
@@ -195,7 +201,7 @@ export function loadFileContent(
         }
 
         if (!diffOutput.trim()) {
-          return ["No diff available - file may be untracked or unchanged"];
+          return { lines: ["No diff available - file may be untracked or unchanged"], renderedMarkdown: false };
         }
 
         if (hasCommand("delta")) {
@@ -211,23 +217,23 @@ export function loadFileContent(
                 stdio: ["pipe", "pipe", "pipe"],
               }
             );
-            return wrapDeltaLines(stripLeadingEmptyLines(deltaOutput.split("\n")), termWidth);
+            return { lines: wrapDeltaLines(stripLeadingEmptyLines(deltaOutput.split("\n")), termWidth), renderedMarkdown: false };
           } catch {
             // Fall back to raw diff
           }
         }
 
-        return wrapDiffLines(stripLeadingEmptyLines(diffOutput.split("\n")), termWidth);
+        return { lines: wrapDiffLines(stripLeadingEmptyLines(diffOutput.split("\n")), termWidth), renderedMarkdown: false };
       } catch (e: any) {
-        return [`Diff error: ${e.message}`];
+        return { lines: [`Diff error: ${e.message}`], renderedMarkdown: false };
       }
     }
 
-    if (isMarkdown && hasCommand("glow")) {
+    if (isMarkdown && renderMarkdown && hasCommand("glow")) {
       try {
         const output = execSync(`glow -s dark -w ${termWidth} "${filePath}"`, { encoding: "utf-8", timeout: 10000 });
         if (output.trim()) {
-          return stripLeadingEmptyLines(output.split("\n"));
+          return { lines: stripLeadingEmptyLines(output.split("\n")), renderedMarkdown: true };
         }
       } catch {
         // Fall through to bat
@@ -236,16 +242,22 @@ export function loadFileContent(
 
     if (hasCommand("bat")) {
       try {
-        return execSync(
-          `bat --style=numbers --color=always --paging=never --wrap=auto --terminal-width=${termWidth} "${filePath}"`,
-          { encoding: "utf-8", timeout: 10000 }
-        ).split("\n");
+        return {
+          lines: execSync(
+            `bat --style=numbers --color=always --paging=never --wrap=auto --terminal-width=${termWidth} "${filePath}"`,
+            { encoding: "utf-8", timeout: 10000 }
+          ).split("\n"),
+          renderedMarkdown: false,
+        };
       } catch {
         try {
-          return execSync(
-            `bat --style=numbers --color=always --paging=never --terminal-width=${termWidth} "${filePath}"`,
-            { encoding: "utf-8", timeout: 10000 }
-          ).split("\n");
+          return {
+            lines: execSync(
+              `bat --style=numbers --color=always --paging=never --terminal-width=${termWidth} "${filePath}"`,
+              { encoding: "utf-8", timeout: 10000 }
+            ).split("\n"),
+            renderedMarkdown: false,
+          };
         } catch {
           // Fall through to raw file read
         }
@@ -253,8 +265,11 @@ export function loadFileContent(
     }
 
     const raw = readFileSync(filePath, "utf-8");
-    return raw.split("\n").map((line, i) => `${String(i + 1).padStart(4)} │ ${line}`);
+    return {
+      lines: raw.split("\n").map((line, i) => `${String(i + 1).padStart(4)} │ ${line}`),
+      renderedMarkdown: false,
+    };
   } catch (e: any) {
-    return [`Error loading file: ${e.message}`];
+    return { lines: [`Error loading file: ${e.message}`], renderedMarkdown: false };
   }
 }

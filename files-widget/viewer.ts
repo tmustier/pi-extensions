@@ -11,7 +11,7 @@ import {
 } from "./constants";
 import { loadFileContent } from "./file-viewer";
 import type { FileNode } from "./types";
-import { isUntrackedStatus } from "./utils";
+import { isMarkdownPath, isUntrackedStatus } from "./utils";
 import { createTextInputBuffer } from "./input-utils";
 
 const COMMENT_EDITOR_MAX_VISIBLE_LINES = 4;
@@ -36,6 +36,7 @@ interface ViewerState {
   rawContent: string;
   scroll: number;
   diffMode: boolean;
+  renderMarkdown: boolean;
   mode: ViewerMode;
   selectStart: number;
   selectEnd: number;
@@ -72,6 +73,7 @@ export function createViewer(
     rawContent: "",
     scroll: 0,
     diffMode: false,
+    renderMarkdown: true,
     mode: "normal",
     selectStart: 0,
     selectEnd: 0,
@@ -83,6 +85,31 @@ export function createViewer(
     lastLoadedMtimeMs: null,
     height: DEFAULT_VIEWER_HEIGHT,
   };
+
+  function isMarkdownFile(): boolean {
+    return !!state.file && isMarkdownPath(state.file.path);
+  }
+
+  function isRenderedMarkdownMode(): boolean {
+    return isMarkdownFile() && !state.diffMode && state.renderMarkdown;
+  }
+
+  function switchMarkdownToRaw(): boolean {
+    if (!isRenderedMarkdownMode()) return false;
+    state.renderMarkdown = false;
+    const width = state.lastRenderWidth || process.stdout.columns || 80;
+    reloadContent(width);
+    return true;
+  }
+
+  function toggleMarkdownMode(): void {
+    if (!isMarkdownFile() || state.diffMode) return;
+    state.renderMarkdown = !state.renderMarkdown;
+    state.lastRenderWidth = 0;
+    resetSearch();
+    setMode("normal");
+    clampScroll();
+  }
 
   function resetSearch(): void {
     state.searchQuery = "";
@@ -150,7 +177,9 @@ export function createViewer(
     if (!state.file) return;
     refreshRawContent();
     const hasChanges = !!state.file.gitStatus;
-    state.content = loadFileContent(state.file.path, cwd, state.diffMode, hasChanges, width);
+    const result = loadFileContent(state.file.path, cwd, state.diffMode, hasChanges, width, state.renderMarkdown);
+    state.content = result.lines;
+    state.renderMarkdown = result.renderedMarkdown;
     state.lastRenderWidth = width;
     clampScroll();
     if (state.searchQuery) {
@@ -239,6 +268,8 @@ export function createViewer(
       header += theme.fg("dim", " [UNTRACKED]");
     } else if (state.diffMode) {
       header += theme.fg("warning", " [DIFF]");
+    } else if (isMarkdownFile()) {
+      header += theme.fg("accent", state.renderMarkdown ? " [RENDERED]" : " [RAW]");
     }
     if (state.mode === "select" || state.mode === "comment") {
       header += theme.fg("accent", ` [SELECT ${state.selectStart + 1}-${state.selectEnd + 1}]`);
@@ -320,9 +351,10 @@ export function createViewer(
       help = theme.fg("dim", "Type to search  Enter: confirm  Esc: cancel");
     } else {
       const isUntracked = state.file && isUntrackedStatus(state.file.gitStatus);
+      const markdownHelp = isMarkdownFile() && !state.diffMode ? "m: raw/render  " : "";
       help = theme.fg(
         "dim",
-        `j/k: scroll  /: search  n/N: next/prev match  []: files  ${state.file?.gitStatus && !isUntracked ? "d: diff  " : ""}q: back  ${pct}%`
+        `j/k: scroll  /: search  n/N: next/prev match  ${markdownHelp}[]: files  ${state.file?.gitStatus && !isUntracked ? "d: diff  " : ""}q: back  ${pct}%`
       );
     }
     lines.push(truncateToWidth(help, width));
@@ -343,6 +375,7 @@ export function createViewer(
       state.file = file;
       state.scroll = 0;
       state.diffMode = !!file.gitStatus && !isUntrackedStatus(file.gitStatus);
+      state.renderMarkdown = isMarkdownPath(file.path);
       setMode("normal");
       state.content = [];
       state.lastRenderWidth = 0;
@@ -358,6 +391,7 @@ export function createViewer(
       state.file = null;
       state.content = [];
       state.rawContent = "";
+      state.renderMarkdown = true;
       state.lastLoadedMtimeMs = null;
       setMode("normal");
     },
@@ -452,6 +486,7 @@ export function createViewer(
         return { type: "none" };
       }
       if (matchesKey(data, "/") && state.mode !== "select") {
+        switchMarkdownToRaw();
         setMode("search");
         return { type: "none" };
       }
@@ -511,7 +546,14 @@ export function createViewer(
         state.scroll = 0;
         return { type: "none" };
       }
+      if (matchesKey(data, "m") && state.mode !== "select" && state.mode !== "comment") {
+        toggleMarkdownMode();
+        return { type: "none" };
+      }
       if (matchesKey(data, "v") && state.mode !== "select") {
+        if (switchMarkdownToRaw()) {
+          return { type: "none" };
+        }
         state.mode = "select";
         state.selectStart = state.scroll;
         state.selectEnd = state.scroll;

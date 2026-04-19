@@ -113,6 +113,7 @@ If missing, `/review` or `/diff` will show a clear install prompt.
 - `PgUp/PgDn`: page up/down
 - `g/G`: top/bottom
 - `d`: toggle diff (tracked files only)
+- `m`: toggle rendered/raw view for Markdown files
 - `/`: search (type to search)
 - `n` / `N`: next/prev match
 - `v`: select mode (line selection)
@@ -126,6 +127,7 @@ If missing, `/review` or `/diff` will show a clear install prompt.
 ## Notes
 
 - Untracked files show as `[UNTRACKED]` and open in normal view.
+- Searching in rendered Markdown switches to raw mode first, and selecting from rendered Markdown first switches you back to raw so line-based matches and comments stay aligned with the source file.
 - Folder LOCs are shown only when the folder is collapsed (expanded folders would duplicate counts).
 - Line counts load asynchronously; the header shows activity while counts are computed.
 - Large non-git folders load progressively and may show `[partial]` while loading in safe mode.
