@@ -313,7 +313,7 @@ export function createViewer(
 
     let help: string;
     if (state.mode === "comment") {
-      help = theme.fg("dim", "Enter: newline  Ctrl+Enter: send  Esc: cancel");
+      help = theme.fg("dim", "Enter: newline  Ctrl+Enter/Ctrl+D: send  Esc: cancel");
     } else if (state.mode === "select") {
       help = theme.fg("dim", "j/k: extend  c: comment  Esc: cancel");
     } else if (state.mode === "search") {
@@ -398,7 +398,7 @@ export function createViewer(
       if (!state.file) return { type: "none" };
 
       if (state.mode === "comment") {
-        if (matchesKey(data, "ctrl+enter")) {
+        if (matchesKey(data, "ctrl+enter") || matchesKey(data, "ctrl+d") || matchesKey(data, "alt+enter")) {
           const comment = state.commentText.trim();
           if (comment) {
             sendComment(comment);

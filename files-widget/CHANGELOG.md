@@ -5,7 +5,7 @@ All notable changes to this extension will be documented in this file.
 ## [Unreleased]
 
 ### Changed
-- Make the inline comment editor multiline with wrapped footer rendering, `Enter` for a new line, and `Ctrl+Enter` to send.
+- Make the inline comment editor multiline with wrapped footer rendering, `Enter` for a new line, and `Ctrl+Enter`/`Ctrl+D` to send.
 
 ## [0.1.16] - 2026-04-19
 
