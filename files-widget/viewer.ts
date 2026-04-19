@@ -177,7 +177,9 @@ export function createViewer(
     if (!state.file) return;
     refreshRawContent();
     const hasChanges = !!state.file.gitStatus;
-    state.content = loadFileContent(state.file.path, cwd, state.diffMode, hasChanges, width, state.renderMarkdown);
+    const result = loadFileContent(state.file.path, cwd, state.diffMode, hasChanges, width, state.renderMarkdown);
+    state.content = result.lines;
+    state.renderMarkdown = result.renderedMarkdown;
     state.lastRenderWidth = width;
     clampScroll();
     if (state.searchQuery) {
