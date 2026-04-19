@@ -45,6 +45,7 @@ export default function editorExtension(pi: ExtensionAPI): void {
             deliverAs: "followUp",
             streamingBehavior: "followUp" as any,
           } as any);
+          ctx.ui.notify(`Comment sent to agent for ${payload.relPath} (${payload.lineRange})`, "success");
         };
 
         const requestRender = () => tui.requestRender();
