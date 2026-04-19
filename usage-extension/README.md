@@ -2,7 +2,7 @@
 
 A Pi extension that displays aggregated usage statistics across all sessions.
 
-![Usage Statistics Screenshot](screenshot.png)
+![Default table view of /usage](screenshot.png)
 
 ## Compatibility
 
@@ -59,8 +59,10 @@ In Pi, run:
 
 `/usage` has two view modes, toggled with `v`:
 
-- **Table** (default) — per-provider / per-model stats with cost and token breakdown.
+- **Table** (default) — per-provider / per-model stats with cost and token breakdown (screenshot at the top of this page).
 - **Insights** — narrative characteristics of your cost for the active time period, e.g. *"X% of your cost was at >150k context"*. Insights are **independent characteristics**, not a breakdown, so they overlap and can sum to more than 100%.
+
+![Insights view of /usage](insights-screenshot.png)
 
 **Unit:** insights are always weighted by recorded API cost (USD). Periods with no recorded cost show an explicit empty state rather than silently switching to a different unit.
 
