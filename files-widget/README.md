@@ -81,7 +81,8 @@ The `/readfiles` browser requires these tools and will refuse to open until they
 
 ## Commands
 
-- `/readfiles` - open the file browser and viewer
+- `/readfiles` - open the file browser in the current directory
+- `/readfiles <path>` - open the file browser rooted at `<path>` (absolute, relative, or `~`-prefixed)
 
 Diff viewing is built into the file viewer: open a changed tracked file and press `d` to toggle the git diff view.
 
@@ -94,6 +95,8 @@ Diff viewing is built into the file viewer: open a changed tracked file and pres
 - `c`: toggle changed-only view
 - `]` / `[`: next/prev changed file
 - `/`: search (type to filter, `Esc` to exit)
+- `u`: go up one directory (re-root to parent)
+- `.`: jump back to the starting directory
 - `+` / `-`: increase/decrease browser height
 - `q`: close
 
@@ -118,6 +121,7 @@ Diff viewing is built into the file viewer: open a changed tracked file and pres
 
 - Untracked files show as `[UNTRACKED]` and open in normal view.
 - Searching in rendered Markdown switches to raw mode first, and selecting from rendered Markdown first switches you back to raw so line-based matches and comments stay aligned with the source file.
+- When you browse outside the current project directory, inline comments on those files use absolute paths so the agent can still locate them. Files inside the project continue to use project-relative paths.
 - Folder LOCs are shown only when the folder is collapsed (expanded folders would duplicate counts).
 - Line counts load asynchronously; the header shows activity while counts are computed.
 - Large non-git folders load progressively and may show `[partial]` while loading in safe mode.

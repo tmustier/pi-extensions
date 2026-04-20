@@ -4,6 +4,9 @@ All notable changes to this extension will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- `/readfiles` now supports browsing outside the current working directory. Press `u` to re-root to the parent, `.` to jump back to where you started, or pass an explicit starting path (`/readfiles <path>` or `/readfiles ~/somewhere`). The browser header shows the current root so you always know where you are, and comments on files outside the project use absolute paths so the agent can still find them.
+
 ### Fixed
 - Use `where` instead of `which` on Windows to detect `bat`, `delta`, and `glow`, so the dependency check works when running from PowerShell or cmd.exe.
 

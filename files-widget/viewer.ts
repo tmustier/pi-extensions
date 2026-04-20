@@ -59,11 +59,17 @@ export interface ViewerController {
   handleInput(data: string): ViewerAction;
 }
 
+export interface ViewerConfig {
+  getRoot: () => string;
+  projectCwd: string;
+}
+
 export function createViewer(
-  cwd: string,
+  config: ViewerConfig,
   theme: Theme,
   requestComment: (payload: CommentPayload, comment: string) => void
 ): ViewerController {
+  const { getRoot, projectCwd } = config;
   const searchInput = createTextInputBuffer();
   const commentInput = createTextInputBuffer({ preserveNewlines: true });
 
@@ -177,7 +183,7 @@ export function createViewer(
     if (!state.file) return;
     refreshRawContent();
     const hasChanges = !!state.file.gitStatus;
-    const result = loadFileContent(state.file.path, cwd, state.diffMode, hasChanges, width, state.renderMarkdown);
+    const result = loadFileContent(state.file.path, getRoot(), state.diffMode, hasChanges, width, state.renderMarkdown);
     state.content = result.lines;
     state.renderMarkdown = result.renderedMarkdown;
     state.lastRenderWidth = width;
@@ -242,7 +248,8 @@ export function createViewer(
 
     const rawLines = state.rawContent.split("\n");
     const selectedText = rawLines.slice(state.selectStart, state.selectEnd + 1).join("\n");
-    const relPath = relative(cwd, state.file.path);
+    const rel = relative(projectCwd, state.file.path);
+    const relPath = !rel || rel.startsWith("..") ? state.file.path : rel;
     const lineRange = state.selectStart === state.selectEnd
       ? `line ${state.selectStart + 1}`
       : `lines ${state.selectStart + 1}-${state.selectEnd + 1}`;
