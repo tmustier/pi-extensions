@@ -7,12 +7,35 @@
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { execSync, spawnSync } from "node:child_process";
-import { join } from "node:path";
+import { statSync } from "node:fs";
+import { homedir } from "node:os";
+import { isAbsolute, join, resolve } from "node:path";
 
 import { createFileBrowser } from "./browser";
 import { POLL_INTERVAL_MS } from "./constants";
 import { formatCommentMessage } from "./comment";
 import { hasCommand } from "./utils";
+
+function resolveInitialPath(arg: string | undefined, cwd: string): { path: string; error?: string } {
+  if (!arg) return { path: cwd };
+  let candidate = arg.trim();
+  if (!candidate) return { path: cwd };
+  const home = homedir();
+  if (candidate === "~") {
+    candidate = home;
+  } else if (candidate.startsWith("~/")) {
+    candidate = join(home, candidate.slice(2));
+  }
+  const absolute = isAbsolute(candidate) ? candidate : resolve(cwd, candidate);
+  try {
+    if (!statSync(absolute).isDirectory()) {
+      return { path: cwd, error: `${absolute} is not a directory` };
+    }
+  } catch {
+    return { path: cwd, error: `${absolute} is not accessible` };
+  }
+  return { path: absolute };
+}
 
 export default function editorExtension(pi: ExtensionAPI): void {
   const cwd = process.cwd();
@@ -21,13 +44,20 @@ export default function editorExtension(pi: ExtensionAPI): void {
   const getMissingDeps = () => requiredDeps.filter((dep) => !hasCommand(dep));
 
   pi.registerCommand("readfiles", {
-    description: "Open file browser",
-    handler: async (_args, ctx) => {
+    description: "Open file browser (optional: /readfiles <path> to start outside the current directory)",
+    handler: async (args, ctx) => {
       const missing = getMissingDeps();
       if (missing.length > 0) {
         ctx.ui.notify(`files-widget requires ${missing.join(", ")}. Install: brew install bat git-delta glow`, "error");
         return;
       }
+
+      const resolved = resolveInitialPath(args, cwd);
+      if (resolved.error) {
+        ctx.ui.notify(resolved.error, "error");
+        return;
+      }
+      const initialPath = resolved.path;
 
       await ctx.ui.custom<void>((tui, theme, _kb, done) => {
         let pollInterval: ReturnType<typeof setInterval> | null = null;
@@ -52,7 +82,15 @@ export default function editorExtension(pi: ExtensionAPI): void {
         };
 
         const requestRender = () => tui.requestRender();
-        const browser = createFileBrowser(cwd, agentModifiedFiles, theme, cleanup, requestComment, requestRender);
+        const browser = createFileBrowser(
+          initialPath,
+          agentModifiedFiles,
+          theme,
+          cleanup,
+          requestComment,
+          requestRender,
+          cwd
+        );
 
         pollInterval = setInterval(() => {
           requestRender();
