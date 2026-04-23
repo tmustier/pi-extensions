@@ -354,6 +354,11 @@ export default function (pi: ExtensionAPI) {
 		const transcript = buildRecentTranscript(entries, opts.reason !== "resume");
 		if (!transcript.trim()) return;
 
+		// Snapshot the leaf we're summarising BEFORE we await. If the branch
+		// advances while the model call is in flight, the recap reflects stale
+		// content — we must discard it rather than stamp the wrong leaf.
+		const startLeaf = getLeafId(ctx);
+
 		// Take ownership of the active-request slot. Any prior request is
 		// cancelled; we'll only clear shared state in the finally if we're
 		// still the current owner, so a late-completing aborted call can't
@@ -370,10 +375,14 @@ export default function (pi: ExtensionAPI) {
 		try {
 			const recap = await generateRecap(transcript, ctx, modelOverride(), controller.signal);
 			if (!recap || controller.signal.aborted) return;
+			// Discard the recap if the branch moved on while we were drafting.
+			if (getLeafId(ctx) !== startLeaf) return;
 
-			// Stamp the draft with the leaf id so we can skip re-drafting until
-			// something new happens in the session.
-			lastDraftedLeafId = getLeafId(ctx);
+			// Stamp with the leaf we actually summarised, not the live one.
+			lastDraftedLeafId = startLeaf;
+			// Another trigger has now produced a recap for this leaf — kill the
+			// idle fallback so we don't issue a second call 45s later.
+			clearTimer();
 
 			if (opts.reason === "focus") {
 				if (focusedOutAt === undefined) showRecap(ctx, recap);
@@ -418,7 +427,10 @@ export default function (pi: ExtensionAPI) {
 		if (duration < focusMinMs()) {
 			// Quick glance — discard any parked recap AND cancel an in-flight
 			// focus draft so a slow model response can't bypass min-seconds.
+			// Also clear the leaf stamp, otherwise a later real absence at the
+			// same leaf would skip regen and never surface a recap.
 			pendingRecap = undefined;
+			lastDraftedLeafId = undefined;
 			if (activeReason === "focus") cancelActive();
 			return;
 		}
@@ -537,6 +549,7 @@ export default function (pi: ExtensionAPI) {
 	// Session start: wire up focus reporting; on resume, show a recap.
 	pi.on("session_start", async (event, ctx) => {
 		attachFocusReporting(ctx);
+		if (isDisabled()) return;
 		if (event.reason === "resume" || event.reason === "fork") {
 			setTimeout(() => {
 				void generateAndShow(ctx, { reason: "resume" });
