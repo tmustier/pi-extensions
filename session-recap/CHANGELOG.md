@@ -10,3 +10,6 @@
 - Flags: `--recap-idle-seconds`, `--recap-focus-min-seconds`, `--recap-disable-focus`, `--recap-disable`, `--recap-model`.
 - Draft stamping by branch-leaf id to avoid regenerating on focus-out/in churn without new session activity.
 - Idle fallback armed on `turn_end` rather than `agent_end` so errored/aborted turns still get a recap.
+- Robust focus-event parser that advances through its buffer so completed sequences never fire twice across chunk boundaries.
+- Per-call `AbortController` ownership so late-completing aborted requests can't clear state for a newer in-flight request.
+- Quick refocus (< `--recap-focus-min-seconds`) now also cancels any in-flight focus draft, preventing a slow model response from bypassing the suppression.

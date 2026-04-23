@@ -57,6 +57,8 @@ type Entry = {
 
 type Model = Parameters<typeof completeSimple>[0];
 
+type RecapReason = "idle" | "manual" | "resume" | "focus";
+
 const WIDGET_KEY = "session-recap";
 const STATUS_KEY = "session-recap";
 
@@ -280,14 +282,19 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	let idleTimer: NodeJS.Timeout | undefined;
-	let inflight: AbortController | undefined;
+
+	// Active recap request state. Only one request is ever in flight; starting
+	// a new one aborts the previous. We track both the controller and the
+	// reason so we can ask questions like "is there a focus draft running?"
+	// without a separate boolean that can go out of sync on late completions.
+	let activeController: AbortController | undefined;
+	let activeReason: RecapReason | undefined;
 
 	// Focus reporting state.
 	let focusListener: ((chunk: Buffer) => void) | undefined;
 	let focusEnabled = false;
 	let focusedOutAt: number | undefined;
 	let pendingRecap: string | undefined; // drafted while away, shown on refocus
-	let draftingForFocus = false;
 
 	// Leaf-id of the branch state we last drafted for. Lets us skip regen on
 	// refocus churn when nothing has happened in the session.
@@ -315,10 +322,11 @@ export default function (pi: ExtensionAPI) {
 		}
 	};
 
-	const cancelInflight = () => {
-		if (inflight) {
-			inflight.abort();
-			inflight = undefined;
+	const cancelActive = () => {
+		if (activeController) {
+			activeController.abort();
+			activeController = undefined;
+			activeReason = undefined;
 		}
 	};
 
@@ -339,27 +347,29 @@ export default function (pi: ExtensionAPI) {
 		}
 	};
 
-	const generateAndShow = async (
-		ctx: ExtensionContext,
-		opts: { reason: "idle" | "manual" | "resume" | "focus" },
-	) => {
+	const generateAndShow = async (ctx: ExtensionContext, opts: { reason: RecapReason }) => {
+		const entries = ctx.sessionManager.getBranch() as Entry[];
+		if (!hasMeaningfulActivity(entries) && opts.reason !== "manual") return;
+
+		const transcript = buildRecentTranscript(entries, opts.reason !== "resume");
+		if (!transcript.trim()) return;
+
+		// Take ownership of the active-request slot. Any prior request is
+		// cancelled; we'll only clear shared state in the finally if we're
+		// still the current owner, so a late-completing aborted call can't
+		// stomp on a newer in-flight request.
+		cancelActive();
+		const controller = new AbortController();
+		activeController = controller;
+		activeReason = opts.reason;
+
+		const showStatus = opts.reason !== "resume" && opts.reason !== "focus";
+		if (showStatus && ctx.hasUI)
+			ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("dim", "✦ drafting recap…"));
+
 		try {
-			const entries = ctx.sessionManager.getBranch() as Entry[];
-			if (!hasMeaningfulActivity(entries) && opts.reason !== "manual") return;
-
-			const transcript = buildRecentTranscript(entries, opts.reason !== "resume");
-			if (!transcript.trim()) return;
-
-			cancelInflight();
-			inflight = new AbortController();
-			const showStatus = opts.reason !== "resume" && opts.reason !== "focus";
-			if (showStatus && ctx.hasUI)
-				ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("dim", "✦ drafting recap…"));
-
-			const recap = await generateRecap(transcript, ctx, modelOverride(), inflight.signal);
-			if (ctx.hasUI) ctx.ui.setStatus(STATUS_KEY, undefined);
-
-			if (!recap) return;
+			const recap = await generateRecap(transcript, ctx, modelOverride(), controller.signal);
+			if (!recap || controller.signal.aborted) return;
 
 			// Stamp the draft with the leaf id so we can skip re-drafting until
 			// something new happens in the session.
@@ -372,11 +382,13 @@ export default function (pi: ExtensionAPI) {
 				showRecap(ctx, recap);
 			}
 		} catch (err) {
-			if (ctx.hasUI) ctx.ui.setStatus(STATUS_KEY, undefined);
-			console.error("[session-recap] failed:", err);
+			if (!controller.signal.aborted) console.error("[session-recap] failed:", err);
 		} finally {
-			inflight = undefined;
-			draftingForFocus = false;
+			if (activeController === controller) {
+				activeController = undefined;
+				activeReason = undefined;
+				if (showStatus && ctx.hasUI) ctx.ui.setStatus(STATUS_KEY, undefined);
+			}
 		}
 	};
 
@@ -384,16 +396,17 @@ export default function (pi: ExtensionAPI) {
 
 	const handleFocusOut = (ctx: ExtensionContext) => {
 		focusedOutAt = Date.now();
-		if (isDisabled() || draftingForFocus || inflight) return;
+		if (isDisabled() || activeController) return;
 
 		// Skip regen if we already have a fresh recap for the current session
-		// state. pendingRecap is still valid; it'll be revealed on focus-in.
+		// state — regardless of whether it's still parked in pendingRecap or
+		// already shown in the widget. The stamp is invalidated on any new
+		// turn_end / input / agent_start.
 		const leaf = getLeafId(ctx);
-		if (lastDraftedLeafId && leaf === lastDraftedLeafId && pendingRecap) return;
+		if (lastDraftedLeafId && leaf === lastDraftedLeafId) return;
 
 		const entries = ctx.sessionManager.getBranch() as Entry[];
 		if (!hasMeaningfulActivity(entries)) return;
-		draftingForFocus = true;
 		void generateAndShow(ctx, { reason: "focus" });
 	};
 
@@ -403,8 +416,10 @@ export default function (pi: ExtensionAPI) {
 		if (outAt === undefined) return; // spurious focus-in before we saw focus-out
 		const duration = Date.now() - outAt;
 		if (duration < focusMinMs()) {
-			// Quick glance — don't bother.
+			// Quick glance — discard any parked recap AND cancel an in-flight
+			// focus draft so a slow model response can't bypass min-seconds.
 			pendingRecap = undefined;
+			if (activeReason === "focus") cancelActive();
 			return;
 		}
 		if (pendingRecap) {
@@ -412,7 +427,7 @@ export default function (pi: ExtensionAPI) {
 			pendingRecap = undefined;
 			showRecap(ctx, recap);
 		}
-		// Still drafting? generateAndShow's finally-path will reveal it when done.
+		// Still drafting? generateAndShow's success-path will reveal it when done.
 	};
 
 	const attachFocusReporting = (ctx: ExtensionContext) => {
@@ -426,16 +441,32 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		// Scan stdin for ESC[I / ESC[O. Sequences can straddle chunks, so we
-		// keep a short tail. Adding a 'data' listener is safe: Node dispatches
-		// to all listeners and pi is already in flowing mode — we don't steal
-		// bytes from the TUI's input layer.
-		let tail = "";
+		// keep unconsumed trailing bytes in `buf` between calls. Consume each
+		// match by advancing `i`, so a completed sequence never fires twice.
+		// Adding a 'data' listener is safe: Node dispatches to all listeners
+		// and pi is already in flowing mode — we don't steal bytes from the
+		// TUI's input layer.
+		const MAX_SEQ = Math.max(FOCUS_IN_SEQ.length, FOCUS_OUT_SEQ.length);
+		let buf = "";
 		const listener = (chunk: Buffer) => {
 			try {
-				const s = tail + chunk.toString("binary");
-				if (s.includes(FOCUS_IN_SEQ)) handleFocusIn(ctx);
-				if (s.includes(FOCUS_OUT_SEQ)) handleFocusOut(ctx);
-				tail = s.slice(-3);
+				buf += chunk.toString("binary");
+				let i = 0;
+				while (i + MAX_SEQ <= buf.length) {
+					if (buf.startsWith(FOCUS_IN_SEQ, i)) {
+						handleFocusIn(ctx);
+						i += FOCUS_IN_SEQ.length;
+					} else if (buf.startsWith(FOCUS_OUT_SEQ, i)) {
+						handleFocusOut(ctx);
+						i += FOCUS_OUT_SEQ.length;
+					} else {
+						i++;
+					}
+				}
+				buf = buf.slice(i);
+				// Safety net — never let buf grow unbounded if we're reading a
+				// long non-escape stream on a terminal that streams ahead of us.
+				if (buf.length > 64) buf = buf.slice(-(MAX_SEQ - 1));
 			} catch {
 				/* best-effort */
 			}
@@ -464,7 +495,6 @@ export default function (pi: ExtensionAPI) {
 		}
 		focusedOutAt = undefined;
 		pendingRecap = undefined;
-		draftingForFocus = false;
 	};
 
 	// Lifecycle: idle timer arms on turn_end (fires even on error/abort),
@@ -484,7 +514,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("input", async (_event, ctx) => {
 		clearTimer();
-		cancelInflight();
+		cancelActive();
 		pendingRecap = undefined;
 		lastDraftedLeafId = undefined;
 		clearRecap(ctx);
@@ -492,7 +522,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("agent_start", async (_event, ctx) => {
 		clearTimer();
-		cancelInflight();
+		cancelActive();
 		pendingRecap = undefined;
 		lastDraftedLeafId = undefined;
 		clearRecap(ctx);
@@ -500,7 +530,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_shutdown", async () => {
 		clearTimer();
-		cancelInflight();
+		cancelActive();
 		detachFocusReporting();
 	});
 

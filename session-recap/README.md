@@ -2,11 +2,7 @@
 
 Claude-Code-style session recap for Pi. When you switch focus away from a Pi session and come back, a one-line recap appears above the editor so you can re-enter flow without re-reading scrollback.
 
-```
-✦ recap
-recap: Migrated 4 of 7 billing tables to the v2 schema; invoices.ts still fails
-its FK constraint. Next: fix the foreign key on line 142.
-```
+![session-recap widget in a live Pi session](./assets/recap.png)
 
 Built for multi-clauding / multi-pi workflows where several agent sessions run in parallel tabs.
 

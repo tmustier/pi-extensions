@@ -17,6 +17,7 @@
   "pi": {
     "extensions": [
       "index.ts"
-    ]
+    ],
+    "image": "https://raw.githubusercontent.com/tmustier/pi-extensions/main/session-recap/assets/recap.png"
   }
 }
