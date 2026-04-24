@@ -1,6 +1,6 @@
 {
   "name": "@tmustier/pi-files-widget",
-  "version": "0.1.19",
+  "version": "0.1.20",
   "description": "In-terminal file browser and viewer for Pi.",
   "license": "MIT",
   "author": "Thomas Mustier",

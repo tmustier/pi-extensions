@@ -81,21 +81,9 @@ The `/readfiles` browser requires these tools and will refuse to open until they
 
 ## Commands
 
-- `/readfiles` - open the file browser
-- `/review` - open tuicr review flow
-- `/diff` - open critique (bunx critique)
+- `/readfiles` - open the file browser and viewer
 
-### Review/Diff Dependencies
-
-```bash
-brew install agavra/tap/tuicr
-brew install oven-sh/bun/bun
-```
-
-- `tuicr` is required for `/review`
-- `bun` is required for `/diff`
-
-If missing, `/review` or `/diff` will show a clear install prompt.
+Diff viewing is built into the file viewer: open a changed tracked file and press `d` to toggle the git diff view.
 
 ## Browser Keybindings
 

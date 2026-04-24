@@ -4,6 +4,12 @@ All notable changes to this extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.20] - 2026-04-24
+
+### Removed
+- Remove the external `/readfiles-review` and `/readfiles-diff` commands so files-widget stays focused on the `/readfiles` browser/viewer.
+
+
 ## [0.1.18] - 2026-04-19
 
 ### Changed
