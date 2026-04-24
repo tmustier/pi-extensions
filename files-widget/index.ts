@@ -70,7 +70,7 @@ export default function editorExtension(pi: ExtensionAPI): void {
     },
   });
 
-  pi.registerCommand("review", {
+  pi.registerCommand("readfiles-review", {
     description: "Open tuicr to review changes and send feedback to agent",
     handler: async (_args, ctx) => {
       if (!hasCommand("tuicr")) {
@@ -105,7 +105,7 @@ export default function editorExtension(pi: ExtensionAPI): void {
     },
   });
 
-  pi.registerCommand("diff", {
+  pi.registerCommand("readfiles-diff", {
     description: "Open critique to view diffs",
     handler: async (args, ctx) => {
       if (!hasCommand("bun")) {
