@@ -212,6 +212,9 @@ async function generateRecap(
 	const response = await completeSimple(
 		model,
 		{
+			// Some providers (notably openai-codex-responses) require a non-empty
+			// top-level instruction string even for simple one-shot completions.
+			systemPrompt: "You write terse, concrete session recaps for a coding agent UI.",
 			messages: [
 				{
 					role: "user",
