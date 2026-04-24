@@ -1,12 +1,11 @@
 /**
  * Pi Editor Extension
  *
- * Provides an in-terminal file browser, viewer, and review workflow.
- * Use /files to open the file browser, navigate with j/k, Enter to view.
+ * Provides an in-terminal file browser and viewer.
+ * Use /readfiles to open the file browser, navigate with j/k, Enter to view.
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { execSync, spawnSync } from "node:child_process";
 import { join } from "node:path";
 
 import { createFileBrowser } from "./browser";
@@ -67,60 +66,6 @@ export default function editorExtension(pi: ExtensionAPI): void {
           invalidate: () => browser.invalidate(),
         };
       });
-    },
-  });
-
-  pi.registerCommand("readfiles-review", {
-    description: "Open tuicr to review changes and send feedback to agent",
-    handler: async (_args, ctx) => {
-      if (!hasCommand("tuicr")) {
-        ctx.ui.notify("Install tuicr: brew install agavra/tap/tuicr", "error");
-        return;
-      }
-
-      ctx.ui.notify("Opening tuicr... Press :wq or y to copy review", "info");
-
-      try {
-        spawnSync("tuicr", [], { cwd, stdio: "inherit" });
-
-        try {
-          const clipboard = execSync(
-            process.platform === "darwin" ? "pbpaste" : "xclip -selection clipboard -o",
-            { encoding: "utf-8", timeout: 5000 }
-          );
-
-          if (
-            clipboard.includes("## Review") ||
-            clipboard.includes("```") ||
-            clipboard.includes("[Issue]") ||
-            clipboard.includes("[Suggestion]")
-          ) {
-            pi.sendUserMessage(clipboard, { deliverAs: "steer" });
-            ctx.ui.notify("Review sent to agent", "success");
-          }
-        } catch {}
-      } catch (e: any) {
-        ctx.ui.notify(`tuicr error: ${e.message}`, "error");
-      }
-    },
-  });
-
-  pi.registerCommand("readfiles-diff", {
-    description: "Open critique to view diffs",
-    handler: async (args, ctx) => {
-      if (!hasCommand("bun")) {
-        ctx.ui.notify("critique requires Bun: brew install oven-sh/bun/bun", "error");
-        return;
-      }
-
-      const critiqueArgs = args ? args.split(" ") : [];
-      ctx.ui.notify("Opening critique...", "info");
-
-      try {
-        spawnSync("bunx", ["critique", ...critiqueArgs], { cwd, stdio: "inherit" });
-      } catch (e: any) {
-        ctx.ui.notify(`critique error: ${e.message}`, "error");
-      }
     },
   });
 
