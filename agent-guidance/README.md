@@ -78,8 +78,8 @@ Links the extension to `~/.pi/agent/extensions/` and helps you set up `AGENTS.md
 
 Starter templates in `templates/`:
 - `CLAUDE.md` - Claude-specific guidelines
-- `CODEX.md` - OpenAI guidelines (from [steipete/agent-scripts](https://github.com/steipete/agent-scripts))
-- `GEMINI.md` - Gemini guidelines
+- `CODEX.md` - OpenAI guidelines (`<solution_persistence>` and `<validation>` blocks adapted from Factory Droid's GPT-5.1+ system-prompt additions)
+- `GEMINI.md` - Gemini guidelines (`<tool_usage_rules>` block adapted from Factory Droid's Google system-prompt additions, with tool names mapped to pi's `read`/`write`/`edit`/`bash`)
 
 Install with:
 ```bash
