@@ -60,6 +60,10 @@ For build/test/refactor tasks, Ralph prompts the agent not to complete based onl
 - Ensure a separate monitor can rerun that command from the same worktree in a fresh shell.
 - Mark work blocked or deferred if the final command cannot be made externally rerunnable.
 
+## Stale prompt guard
+
+If an already-queued Ralph prompt arrives after a loop has completed, the agent should reload `.ralph/<name>.state.json` before doing work. If the loop state is `completed`, it should ignore the stale prompt, avoid file edits and task commands, and not call `ralph_done`.
+
 ## Commands
 
 | Command | Description |
