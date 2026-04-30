@@ -188,7 +188,10 @@ export default function (pi: ExtensionAPI) {
 		saveState(ctx, state);
 		currentLoop = null;
 		updateUI(ctx);
-		pi.sendUserMessage(banner, { streamingBehavior: "followUp" });
+		pi.sendUserMessage(banner, {
+			deliverAs: "followUp",
+			streamingBehavior: "followUp",
+		});
 	}
 
 	function stopLoop(ctx: ExtensionContext, state: LoopState, message?: string): void {
@@ -354,7 +357,10 @@ export default function (pi: ExtensionAPI) {
 				ctx.ui.notify(`Could not read task file: ${taskFile}`, "error");
 				return;
 			}
-			pi.sendUserMessage(buildPrompt(state, content, false), { streamingBehavior: "followUp" });
+			pi.sendUserMessage(buildPrompt(state, content, false), {
+				deliverAs: "followUp",
+				streamingBehavior: "followUp",
+			});
 		},
 
 		stop(_rest, ctx) {
@@ -414,7 +420,10 @@ export default function (pi: ExtensionAPI) {
 
 			const needsReflection =
 				state.reflectEvery > 0 && state.iteration > 1 && (state.iteration - 1) % state.reflectEvery === 0;
-			pi.sendUserMessage(buildPrompt(state, content, needsReflection), { streamingBehavior: "followUp" });
+			pi.sendUserMessage(buildPrompt(state, content, needsReflection), {
+				deliverAs: "followUp",
+				streamingBehavior: "followUp",
+			});
 		},
 
 		status(_rest, ctx) {
