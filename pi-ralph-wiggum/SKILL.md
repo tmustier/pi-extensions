@@ -23,8 +23,20 @@ ralph_start({
 2. Work on the task and update the file each iteration.
 3. Record verification evidence (commands run, file paths, outputs) in the task file.
 4. Call `ralph_done` to proceed to the next iteration.
-5. Output `<promise>COMPLETE</promise>` when finished.
+5. Before outputting `<promise>COMPLETE</promise>`, run a final verification command that an external monitor can rerun from the same worktree.
 6. Stop when complete or when max iterations is reached (default 50).
+
+## Completion Gate
+
+For build/test/refactor tasks, do not mark complete based only on checked checklist items.
+
+Before emitting `<promise>COMPLETE</promise>`:
+
+- Preserve any build artifacts, generated files, virtualenvs, or environment setup required by the final verification command.
+- Record the exact final command, working directory, relevant environment variables, and output summary in the task file.
+- Ensure the command can be rerun by a separate monitor in a fresh shell from the same worktree.
+- If a test cannot be rerun externally, mark the item blocked or deferred instead of complete.
+- If cleanup removes required verification artifacts, recreate them or update the final command before completion.
 
 ## User Commands
 
@@ -58,7 +70,13 @@ Brief description.
 - [x] Completed item
 
 ## Verification
-- Evidence, commands run, or file paths
+- Commands run, working directories, relevant environment variables, outputs, and whether artifacts required for reruns were preserved
+
+## Final Verification
+- Exact monitor-rerunnable command: `<command>`
+- Working directory: `<path>`
+- Required preserved artifacts: `<paths>`
+- Result: `<output summary>`
 
 ## Notes
 (Update with progress, decisions, blockers)
@@ -70,4 +88,5 @@ Brief description.
 2. Update checklist and notes as you go.
 3. Capture verification evidence for completed items.
 4. Reflect when stuck to reassess approach.
-5. Output the completion marker only when truly done.
+5. Preserve the environment needed to rerun final verification.
+6. Output the completion marker only when truly done and externally rerunnable.
