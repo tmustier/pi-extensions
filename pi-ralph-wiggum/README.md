@@ -46,10 +46,23 @@ You ask Pi to set up a ralph-wiggum loop.
   - It gets a prompt telling it to work on the task, update the task file, and call ralph_done when it finishes that iteration
   - When the iteration is done, it calls `ralph_done`, resending the same prompt*
 - Pi runs until either:
-  - All tasks are done (Pi sends `<promise>COMPLETE</promise>`)
+  - All tasks are done and final verification is externally rerunnable (Pi sends `<promise>COMPLETE</promise>`)
   - Max iterations (default 50)
   - You hit `esc` (pausing the loop)
 If you hit `esc`, you can run `/ralph-stop` to clear the loop. Alternatively, just tell Pi to continue to keep going.
+
+## Completion gate
+
+For build/test/refactor tasks, Ralph prompts the agent not to complete based only on checked checklist items. Before sending `<promise>COMPLETE</promise>`, the agent should:
+
+- Preserve any build artifacts, generated files, virtualenvs, or copied libraries required by final verification.
+- Record the exact final command, working directory, relevant environment variables, and output summary in the task file.
+- Ensure a separate monitor can rerun that command from the same worktree in a fresh shell.
+- Mark work blocked or deferred if the final command cannot be made externally rerunnable.
+
+## Stale prompt guard
+
+If an already-queued Ralph prompt arrives after a loop has completed, the agent should reload `.ralph/<name>.state.json` before doing work. If the loop state is `completed`, it should ignore the stale prompt, avoid file edits and task commands, and not call `ralph_done`.
 
 ## Commands
 

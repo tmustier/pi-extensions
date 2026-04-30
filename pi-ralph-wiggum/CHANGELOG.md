@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- Add a completion gate to Ralph prompts and skill guidance. Agents are now instructed to preserve required verification artifacts and record an exact monitor-rerunnable final command before emitting `<promise>COMPLETE</promise>`.
+- Queue Ralph follow-up messages with `streamingBehavior: "followUp"` to avoid runtime warnings when a loop tool schedules the next iteration while the agent is still processing.
+- Add a stale-prompt guard instructing agents to reload loop state and ignore already-completed loops instead of doing duplicate work.
+
 ## 0.2.0 - 2026-04-19
 
 ### Changed
