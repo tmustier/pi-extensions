@@ -46,6 +46,11 @@ Before completion:
 4. If cleanup removes required artifacts, recreate them or update the final command before completing.
 5. If the final command cannot be made externally rerunnable, mark the item blocked/deferred instead of complete.`;
 
+const DEFAULT_STALE_PROMPT_GUARD = `STALE PROMPT GUARD
+
+Before doing any work from a Ralph prompt, reload the loop state file named in the prompt (usually .ralph/<name>.state.json).
+If the state says \"status\": \"completed\", do not edit files, do not run task commands, and do not call ralph_done. Reply briefly that the stale prompt was ignored because the loop is already completed.`;
+
 const DEFAULT_REFLECT_INSTRUCTIONS = `REFLECTION CHECKPOINT
 
 Pause and reflect on your progress:
@@ -257,6 +262,7 @@ export default function (pi: ExtensionAPI) {
 		if (isReflection) parts.push(state.reflectInstructions, "\n---\n");
 
 		parts.push(`## Current Task (from ${state.taskFile})\n\n${taskContent}\n\n---`);
+		parts.push(`\n## Stale Prompt Guard\n\n${DEFAULT_STALE_PROMPT_GUARD}\n`);
 		parts.push(`\n## Completion Gate\n\n${DEFAULT_COMPLETION_GATE}\n`);
 		parts.push(`\n## Instructions\n`);
 		parts.push("User controls: ESC pauses the assistant. Send a message to resume. Run /ralph-stop when idle to stop the loop.\n");
@@ -771,6 +777,7 @@ Examples:
 		const iterStr = `${state.iteration}${state.maxIterations > 0 ? `/${state.maxIterations}` : ""}`;
 
 		let instructions = `You are in a Ralph loop working on: ${state.taskFile}\n`;
+		instructions += `- Before doing work, reload .ralph/${state.name}.state.json; if status is completed, ignore this stale prompt and do not call ralph_done\n`;
 		if (state.itemsPerIteration > 0) {
 			instructions += `- Work on ~${state.itemsPerIteration} items this iteration\n`;
 		}

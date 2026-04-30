@@ -38,6 +38,10 @@ Before emitting `<promise>COMPLETE</promise>`:
 - If a test cannot be rerun externally, mark the item blocked or deferred instead of complete.
 - If cleanup removes required verification artifacts, recreate them or update the final command before completion.
 
+## Stale Prompt Guard
+
+Before doing any work from a Ralph prompt, reload `.ralph/<name>.state.json`. If the loop state says `"status": "completed"`, do not edit files, do not run task commands, and do not call `ralph_done`. Reply briefly that the stale prompt was ignored because the loop is already completed.
+
 ## User Commands
 
 - `/ralph start <name|path>` - Start a new loop.
