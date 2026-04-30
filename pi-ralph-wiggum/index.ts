@@ -23,9 +23,28 @@ Describe your task here.
 - [ ] Item 1
 - [ ] Item 2
 
+## Verification
+- Commands run, working directories, relevant environment variables, outputs, and preserved artifacts
+
+## Final Verification
+- Exact monitor-rerunnable command: <command>
+- Working directory: <path>
+- Required preserved artifacts: <paths>
+- Result: <output summary>
+
 ## Notes
 (Update this as you work)
 `;
+
+const DEFAULT_COMPLETION_GATE = `COMPLETION GATE
+
+Do not output ${COMPLETE_MARKER} based only on checked checklist items.
+Before completion:
+1. Run a final verification command that an external monitor can rerun from the same worktree in a fresh shell.
+2. Record the exact command, working directory, relevant environment variables, and output summary in the task file.
+3. Preserve every artifact required by that command, including build directories, generated libraries, virtualenvs, caches, or copied dylibs.
+4. If cleanup removes required artifacts, recreate them or update the final command before completing.
+5. If the final command cannot be made externally rerunnable, mark the item blocked/deferred instead of complete.`;
 
 const DEFAULT_REFLECT_INSTRUCTIONS = `REFLECTION CHECKPOINT
 
@@ -169,7 +188,7 @@ export default function (pi: ExtensionAPI) {
 		saveState(ctx, state);
 		currentLoop = null;
 		updateUI(ctx);
-		pi.sendUserMessage(banner);
+		pi.sendUserMessage(banner, { streamingBehavior: "followUp" });
 	}
 
 	function stopLoop(ctx: ExtensionContext, state: LoopState, message?: string): void {
@@ -235,6 +254,7 @@ export default function (pi: ExtensionAPI) {
 		if (isReflection) parts.push(state.reflectInstructions, "\n---\n");
 
 		parts.push(`## Current Task (from ${state.taskFile})\n\n${taskContent}\n\n---`);
+		parts.push(`\n## Completion Gate\n\n${DEFAULT_COMPLETION_GATE}\n`);
 		parts.push(`\n## Instructions\n`);
 		parts.push("User controls: ESC pauses the assistant. Send a message to resume. Run /ralph-stop when idle to stop the loop.\n");
 		parts.push(
@@ -248,7 +268,7 @@ export default function (pi: ExtensionAPI) {
 			parts.push(`1. Continue working on the task`);
 		}
 		parts.push(`2. Update the task file (${state.taskFile}) with your progress`);
-		parts.push(`3. When FULLY COMPLETE, respond with: ${COMPLETE_MARKER}`);
+		parts.push(`3. When FULLY COMPLETE and the completion gate is satisfied, respond with: ${COMPLETE_MARKER}`);
 		parts.push(`4. Otherwise, call the ralph_done tool to proceed to next iteration`);
 
 		return parts.join("\n");
@@ -341,7 +361,7 @@ export default function (pi: ExtensionAPI) {
 				ctx.ui.notify(`Could not read task file: ${taskFile}`, "error");
 				return;
 			}
-			pi.sendUserMessage(buildPrompt(state, content, false));
+			pi.sendUserMessage(buildPrompt(state, content, false), { streamingBehavior: "followUp" });
 		},
 
 		stop(_rest, ctx) {
@@ -401,7 +421,7 @@ export default function (pi: ExtensionAPI) {
 
 			const needsReflection =
 				state.reflectEvery > 0 && state.iteration > 1 && (state.iteration - 1) % state.reflectEvery === 0;
-			pi.sendUserMessage(buildPrompt(state, content, needsReflection));
+			pi.sendUserMessage(buildPrompt(state, content, needsReflection), { streamingBehavior: "followUp" });
 		},
 
 		status(_rest, ctx) {
@@ -652,7 +672,10 @@ Examples:
 			currentLoop = loopName;
 			updateUI(ctx);
 
-			pi.sendUserMessage(buildPrompt(state, params.taskContent, false), { deliverAs: "followUp" });
+			pi.sendUserMessage(buildPrompt(state, params.taskContent, false), {
+				deliverAs: "followUp",
+				streamingBehavior: "followUp",
+			});
 
 			return {
 				content: [{ type: "text", text: `Started loop "${loopName}" (max ${state.maxIterations} iterations).` }],
@@ -717,7 +740,10 @@ Examples:
 			}
 
 			// Queue next iteration - use followUp so user can still interrupt
-			pi.sendUserMessage(buildPrompt(state, content, needsReflection), { deliverAs: "followUp" });
+			pi.sendUserMessage(buildPrompt(state, content, needsReflection), {
+				deliverAs: "followUp",
+				streamingBehavior: "followUp",
+			});
 
 			return {
 				content: [{ type: "text", text: `Iteration ${state.iteration - 1} complete. Next iteration queued.` }],
@@ -740,7 +766,9 @@ Examples:
 			instructions += `- Work on ~${state.itemsPerIteration} items this iteration\n`;
 		}
 		instructions += `- Update the task file as you progress\n`;
-		instructions += `- When FULLY COMPLETE: ${COMPLETE_MARKER}\n`;
+		instructions += `- Preserve artifacts needed by final verification\n`;
+		instructions += `- Record an exact monitor-rerunnable final command before completion\n`;
+		instructions += `- When FULLY COMPLETE and externally rerunnable: ${COMPLETE_MARKER}\n`;
 		instructions += `- Otherwise, call ralph_done tool to proceed to next iteration`;
 
 		return {
