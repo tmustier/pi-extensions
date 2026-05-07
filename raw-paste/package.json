@@ -19,5 +19,11 @@
       "index.ts"
     ],
     "image": "https://github.com/user-attachments/assets/292c059a-8b06-40c2-abdd-795c0699336a"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.74.0"
   }
 }

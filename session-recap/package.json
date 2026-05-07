@@ -19,5 +19,13 @@
       "index.ts"
     ],
     "image": "https://raw.githubusercontent.com/tmustier/pi-extensions/main/session-recap/assets/recap.png"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "^0.74.0",
+    "@earendil-works/pi-coding-agent": "^0.74.0"
   }
 }

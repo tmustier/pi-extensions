@@ -3,6 +3,7 @@
 ## [0.1.3] - 2026-05-07
 
 ### Changed
+- Declare the `@earendil-works/pi-coding-agent` peer and development dependency used by runtime imports.
 - Update Pi extension imports to the new `@earendil-works` namespace.
 
 ## 0.1.2 - 2026-02-03

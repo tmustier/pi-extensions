@@ -23,5 +23,13 @@
       "mario-not/mario-not.ts"
     ],
     "video": "https://raw.githubusercontent.com/tmustier/pi-extensions/main/arcade/assets/demo.mp4"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.74.0",
+    "@earendil-works/pi-tui": "^0.74.0"
   }
 }

@@ -3,6 +3,7 @@
 ## [0.3.2] - 2026-05-07
 
 ### Changed
+- Declare the `@earendil-works` Pi peer and development dependencies used by runtime imports.
 - Update Pi extension imports to the new `@earendil-works` namespace.
 
 ## 0.3.1 - 2026-04-19
