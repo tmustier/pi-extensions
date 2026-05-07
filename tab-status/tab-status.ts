@@ -13,9 +13,9 @@ import type {
 	ToolCallEvent,
 	ToolResultEvent,
 	SessionShutdownEvent,
-} from "@mariozechner/pi-coding-agent";
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import type { AssistantMessage, StopReason } from "@mariozechner/pi-ai";
+} from "@earendil-works/pi-coding-agent";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { AssistantMessage, StopReason } from "@earendil-works/pi-ai";
 import { basename } from "node:path";
 
 type StatusState = "new" | "running" | "doneCommitted" | "doneNoCommit" | "timeout";

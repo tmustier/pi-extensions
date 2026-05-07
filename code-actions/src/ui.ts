@@ -1,6 +1,6 @@
-import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
-import { DynamicBorder } from "@mariozechner/pi-coding-agent";
-import { Container, type SelectItem, SelectList, Text, matchesKey } from "@mariozechner/pi-tui";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { DynamicBorder } from "@earendil-works/pi-coding-agent";
+import { Container, type SelectItem, SelectList, Text, matchesKey } from "@earendil-works/pi-tui";
 import type { Snippet } from "./snippets";
 import { getSnippetPreview, truncatePreview } from "./snippets";
 import { buildSearchIndex, rankedFilterItems } from "./search";

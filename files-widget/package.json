@@ -1,6 +1,6 @@
 {
   "name": "@tmustier/pi-files-widget",
-  "version": "0.1.20",
+  "version": "0.1.21",
   "description": "In-terminal file browser and viewer for Pi.",
   "license": "MIT",
   "author": "Thomas Mustier",
@@ -15,8 +15,8 @@
   "bugs": "https://github.com/tmustier/pi-extensions/issues",
   "homepage": "https://github.com/tmustier/pi-extensions/tree/main/files-widget",
   "peerDependencies": {
-    "@mariozechner/pi-coding-agent": "*",
-    "@mariozechner/pi-tui": "*"
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
   },
   "scripts": {
     "postinstall": "node -e \"console.log('pi-files-widget: required deps: bat, delta, glow. Install with: brew install bat git-delta glow')\""

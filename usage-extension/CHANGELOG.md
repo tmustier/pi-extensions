@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.3.2] - 2026-05-07
+
+### Changed
+- Update Pi extension imports to the new `@earendil-works` namespace.
+
 ## 0.3.1 - 2026-04-19
 - **Cost-only insights.** The Insights view now weights every insight by recorded USD cost, with no tokens fallback. The headline question is now "What's contributing to your cost?" and every bullet reads "X% of your cost …". Periods with no recorded cost show an explicit empty state instead of silently switching unit.
 - **Long-running sessions use true lifetime.** The 8h+ insight now looks at each session's global lifetime across all session files, not just the span visible inside the selected period slice.

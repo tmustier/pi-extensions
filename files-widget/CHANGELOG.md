@@ -4,6 +4,12 @@ All notable changes to this extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.21] - 2026-05-07
+
+### Changed
+- Update Pi extension imports and peer dependencies to the new `@earendil-works` namespace.
+
+
 ## [0.1.20] - 2026-04-24
 
 ### Removed

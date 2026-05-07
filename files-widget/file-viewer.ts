@@ -1,4 +1,4 @@
-import { visibleWidth, wrapTextWithAnsi } from "@mariozechner/pi-tui";
+import { visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { execSync } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
 

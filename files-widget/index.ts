@@ -5,7 +5,7 @@
  * Use /readfiles to open the file browser, navigate with j/k, Enter to view.
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { join } from "node:path";
 
 import { createFileBrowser } from "./browser";

@@ -1,4 +1,4 @@
-import { decodeKittyPrintable } from "@mariozechner/pi-tui";
+import { decodeKittyPrintable } from "@earendil-works/pi-tui";
 
 const CONTROL_CHARS = /[\u0000-\u0008\u000B-\u001F\u007F]/g;
 const BRACKETED_PASTE_START = "\u001b[200~";

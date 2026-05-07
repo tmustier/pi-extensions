@@ -2,8 +2,8 @@
  * sPIce Invaders game extension - play with /spice-invaders
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { matchesKey, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
 const GAME_WIDTH = 24;
 const GAME_HEIGHT = 16;
