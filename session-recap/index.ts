@@ -242,17 +242,20 @@ async function generateRecap(
 	return text ? text.split(/\r?\n/, 1)[0].trim() : undefined;
 }
 
-function showRecap(ctx: ExtensionContext, recap: string) {
-	if (!ctx.hasUI) return;
-	const theme = ctx.ui.theme;
+// Track whether UI is active — avoids stale ctx.hasUI calls after session replacement.
+let uiActive = false;
+
+function showRecap(_ctx: ExtensionContext, recap: string) {
+	if (!uiActive) return;
+	const theme = _ctx.ui.theme;
 	const header = theme.fg("accent", theme.bold("✦ recap"));
-	ctx.ui.setWidget(WIDGET_KEY, [header, theme.fg("dim", recap)], { placement: "aboveEditor" });
+	_ctx.ui.setWidget(WIDGET_KEY, [header, theme.fg("dim", recap)], { placement: "aboveEditor" });
 }
 
-function clearRecap(ctx: ExtensionContext) {
-	if (!ctx.hasUI) return;
-	ctx.ui.setWidget(WIDGET_KEY, undefined);
-	ctx.ui.setStatus(STATUS_KEY, undefined);
+function clearRecap(_ctx: ExtensionContext) {
+	if (!uiActive) return;
+	_ctx.ui.setWidget(WIDGET_KEY, undefined);
+	_ctx.ui.setStatus(STATUS_KEY, undefined);
 }
 
 // --- extension ---------------------------------------------------------------
@@ -335,7 +338,7 @@ export default function (pi: ExtensionAPI) {
 
 	const scheduleRecap = (ctx: ExtensionContext) => {
 		clearTimer();
-		if (isDisabled() || !ctx.hasUI) return;
+		if (isDisabled() || !uiActive) return;
 		idleTimer = setTimeout(() => {
 			idleTimer = undefined;
 			void generateAndShow(ctx, { reason: "idle" });
@@ -446,7 +449,7 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	const attachFocusReporting = (ctx: ExtensionContext) => {
-		if (focusEnabled || isFocusDisabled() || !ctx.hasUI) return;
+		if (focusEnabled || isFocusDisabled() || !uiActive) return;
 		if (!process.stdout.isTTY || !process.stdin.isTTY) return;
 
 		try {
@@ -544,6 +547,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_shutdown", async () => {
+		uiActive = false;
 		clearTimer();
 		cancelActive();
 		detachFocusReporting();
@@ -551,6 +555,7 @@ export default function (pi: ExtensionAPI) {
 
 	// Session start: wire up focus reporting; on resume, show a recap.
 	pi.on("session_start", async (event, ctx) => {
+		uiActive = ctx.hasUI;
 		attachFocusReporting(ctx);
 		if (isDisabled()) return;
 		if (event.reason === "resume" || event.reason === "fork") {
