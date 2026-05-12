@@ -39,12 +39,12 @@ All four cancel each other cleanly via an `AbortController`; the next `input`,
 
 Default must not surprise users with auth/login issues.
 
-**Decision:** default to the **currently active model** with **`reasoning: "minimal"`** where supported. Trust the user's model choice — no auto-fallback to a cheap tier. If they're on Opus 4-7 the recap uses Opus 4-7. It's the only way to guarantee reliable generation across built-in + custom providers.
+**Decision:** default to the **currently active model**, but invoke it as a tiny throwaway completion: no tools, no Agent Skills, reasoning/thinking disabled, no prompt-cache retention, capped output. Trust the user's model choice — no auto-fallback to a cheap tier. If they're on Opus 4-7 the recap uses Opus 4-7. It's the only way to guarantee reliable generation across built-in + custom providers.
 
 - Primary: `ctx.model` (whatever the user is running right now).
-- Reasoning: pass `reasoningEffort: "minimal"` when `model.reasoning === true`; omit entirely otherwise.
-  - Pi's own `setThinkingLevel` already clamps to model capabilities — we follow the same rule.
-  - Some custom providers may not honour `reasoningEffort`; that's fine, they'll ignore it.
+- Reasoning: disabled for recap generation. Claude Code's away-summary path uses `thinkingConfig: { type: "disabled" }`; recap generation is similarly not worth reasoning tokens.
+- Cache: pass `cacheRetention: "none"` so providers do not add Anthropic cache-control markers or OpenAI prompt-cache session keys. We should not pay cache-write overhead for one-off recap prompts.
+- Output cap: `maxTokens: 256`. Avoid forcing `temperature: 0` because some reasoning/chat providers reject temperature on their Responses API even when we are not requesting reasoning.
 - Auth: `ctx.modelRegistry.getApiKeyAndHeaders(ctx.model)` — same primitive as every other pi call, so any OAuth / env-var / custom-provider credential the user already set up just works.
 - Custom / local models (via `pi.registerProvider`): same path. If the provider is registered and has a key, recap works. If not, we skip silently — never fail loudly.
 - No active model / no API key → skip silently, log to `console.error` for debugging.
@@ -55,7 +55,7 @@ Default must not surprise users with auth/login issues.
 
 **Trade-off we're accepting**
 
-- If the user is on a heavy model (Opus 4-7, GPT-5.4), each recap uses that model for a small one-liner task. Still cheap in absolute terms because the prompt is capped at ~12k chars and the output is one line, but not the cheapest option. We prefer "no auth surprise" over "always-cheapest".
+- If the user is on a heavy model (Opus 4-7, GPT-5.5), each recap uses that model for a small one-liner task. Still cheap in absolute terms because the prompt is capped at ~12k chars and the output is one line, but not the cheapest option. We prefer "no auth surprise" over "always-cheapest".
 
 ## Context fed to the model
 
@@ -99,7 +99,15 @@ guard against multi-line outputs.
 
 ## Edge cases
 
-### 1. Focus → defocus → focus again without user input
+### 1. Focus-out during long-running agent activity
+
+Claude Code's `useAwaySummary` waits until the terminal has been blurred for a fixed delay. If that delay expires while `isLoading` is still true, it sets a pending bit and generates only after loading finishes, as long as the terminal is still blurred. On focus-in it cancels the timer, aborts in-flight generation, and clears the pending bit.
+
+Pi's recap extension mirrors that by default: `agent_start`/`agent_end` maintain `agentActive`; focus-out while active sets `focusDraftAfterAgent`; generation is deferred until `agent_end` (or a safe `turn_end` check) and is cancelled if the user refocuses or starts new input. This avoids drafting against a half-written branch during slow tool calls, which could otherwise show one recap and then replace it with a later one once tool results land.
+
+Escape hatch: `--recap-during-active` restores the older behavior and allows focus-triggered drafts while the agent turn is still running. This is useful for users who want a mid-flight "what's happened so far" peek and accept the possibility of stale/discarded duplicate drafts.
+
+### 2. Focus → defocus → focus again without user input
 
 **Current behaviour:** `handleFocusOut` re-enters `generateAndShow` if there is no in-flight request and no `draftingForFocus` flag, even if `pendingRecap` is still a perfectly valid recap for the same session state. Wasteful, and may overwrite a good recap with an identical one.
 
@@ -110,7 +118,7 @@ guard against multi-line outputs.
 
 **Related:** also gate on "has any activity happened since the previous draft?" — if nothing, reuse; if yes, regenerate.
 
-### 2. Agent turn ends in error or abort
+### 3. Agent turn ends in error or abort
 
 **Question:** does `agent_end` fire reliably on user-Escape abort and on model/transport errors? Need to verify against pi's current behaviour. `turn_end` is documented as per-turn and should fire even on partial completion.
 
@@ -119,19 +127,19 @@ guard against multi-line outputs.
 - Focus-out path already works: `hasMeaningfulActivity` counts assistant words and tool calls, independent of success/failure. An aborted turn with partial work still qualifies.
 - Add a note in the recap prompt encouraging the model to mention "aborted" / "failed" state explicitly when present in the transcript, so the one-liner is honest (e.g. `recap: Started refactor of auth.ts; aborted before tests ran. Next: resume from middleware split.`).
 
-### 3. Terminal doesn't support DECSET ?1004
+### 4. Terminal doesn't support DECSET ?1004
 
 Idle fallback covers it. `--recap-disable-focus` lets the user opt out explicitly (in case the escape sequences cause weird ghost characters in a less-compliant terminal).
 
-### 4. tmux without `focus-events on`
+### 5. tmux without `focus-events on`
 
 tmux swallows focus events unless `set -g focus-events on` is set. Document in README. Idle fallback still works.
 
-### 5. Aborted-in-flight recap request
+### 6. Aborted-in-flight recap request
 
 Already handled: `AbortController` on every `complete()` call; cancelled on input / agent_start / session_shutdown / next trigger.
 
-### 6. Multiple pi sessions in the same terminal process
+### 7. Multiple pi sessions in the same terminal process
 
 Not applicable — pi is one process per terminal tab. The stdin listener we add is scoped to the process and cleaned up on `session_shutdown`.
 
@@ -145,7 +153,7 @@ Not applicable — pi is one process per terminal tab. The stdin listener we add
 
 ### Code
 - [x] Extension lives at `session-recap/index.ts`.
-- [x] Default model = `ctx.model` with `reasoning: "minimal"` via `completeSimple()` when the model advertises reasoning; `--recap-model` override.
+- [x] Default model = `ctx.model` via `completeSimple()` with no reasoning, no cache retention, capped output, and `--recap-model` override.
 - [x] Idle timer armed on `turn_end` (not `agent_end`) so error/abort turns still get a recap.
 - [x] `pendingRecap` + `lastDraftedLeafId` stamping; skip regen on focus-out if branch leaf hasn't changed.
 - [x] Prompt explicitly asks the model to mention aborted/errored turn state when present.

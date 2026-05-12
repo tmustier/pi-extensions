@@ -30,10 +30,12 @@ If focus events cause any weirdness in your terminal, run with `--recap-disable-
 
 ## Model
 
-Defaults to the **currently active model** in your Pi session with `reasoning: "minimal"` where the model supports it. This piggybacks on whatever auth you already have (including custom providers registered via `pi.registerProvider`), so there are no login surprises.
+Defaults to the **currently active model** in your Pi session, but with recap-specific low-cost settings. This piggybacks on whatever auth you already have (including custom providers registered via `pi.registerProvider`), so there are no login surprises.
 
-- Reasoning-capable model (Opus 4-7, GPT-5.4, etc.) → runs at minimal thinking for speed/cost.
-- Non-reasoning model → no reasoning params passed.
+- No tools or Agent Skills are loaded into the recap call — only the compact transcript below is sent.
+- Reasoning/thinking is disabled for the recap call.
+- Prompt cache writes/reads are disabled with `cacheRetention: "none"`.
+- Output is capped with `maxTokens: 256`.
 - No active model or missing API key → the recap is skipped silently.
 
 Override with `--recap-model "<provider>/<id>"` if you want a specific model regardless of the session's active one.
@@ -76,6 +78,7 @@ Filter to just this extension in `~/.pi/agent/settings.json`:
 | `--recap-idle-seconds <n>` | `45` | Seconds after `turn_end` before the idle-fallback recap fires. |
 | `--recap-focus-min-seconds <n>` | `3` | Minimum focus-out duration before a recap is revealed on refocus. |
 | `--recap-disable-focus` | `false` | Disable DECSET `?1004` focus reporting. Idle fallback still runs. |
+| `--recap-during-active` | `false` | Allow focus-triggered recaps while an agent turn is still running. This restores the older “peek mid-flight” behavior, at the cost of possible stale/discarded duplicate drafts. |
 | `--recap-disable` | `false` | Disable the automatic recap entirely. `/recap` still works. |
 | `--recap-model "<p/id>"` | (active model) | Override the default, e.g. `anthropic/claude-sonnet-4-6`. |
 
@@ -89,6 +92,7 @@ Filter to just this extension in `~/.pi/agent/settings.json`:
 
 - **Uses `turn_end`, not `agent_end`**, so a turn that errors or is aborted still gets recapped.
 - **No duplicate drafts**: the last-drafted branch-leaf is stamped; if you focus out / in repeatedly without any new session activity, the recap is reused rather than regenerated.
+- **Defers during active work by default**: if you focus away during a slow model/tool action, the focus recap waits until the agent finishes loading before drafting, matching Claude Code's away-summary behavior. Use `--recap-during-active` to allow mid-flight recaps instead.
 - **Aborts on new input**: any in-flight recap request is cancelled when you start typing or a new turn begins.
 - **No session persistence**: the recap lives only in the widget for the active session — nothing is stored.
 

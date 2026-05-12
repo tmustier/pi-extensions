@@ -18,16 +18,17 @@
  * Also fires on `/resume` (session_start reason="resume") to recap where
  * the prior session left off.
  *
- * Model: defaults to the user's currently active model with
- * `reasoning: "minimal"` when the model advertises reasoning support. This
- * piggybacks on whatever auth the user already has configured (including
- * custom providers) so there are no login surprises. Override explicitly
+ * Model: defaults to the user's currently active model with reasoning/thinking
+ * disabled and cache writes disabled. This piggybacks on whatever auth the user
+ * already has configured (including custom providers) so there are no login
+ * surprises. Override explicitly
  * with `--recap-model "<provider>/<id>"` if you want a specific model.
  *
  * Flags:
  *   --recap-idle-seconds <n>      Seconds after turn_end for idle recap (default 45)
  *   --recap-focus-min-seconds <n> Min focus-out duration to show a recap (default 3)
  *   --recap-disable-focus         Disable DECSET ?1004 focus reporting
+ *   --recap-during-active         Allow focus recaps while an agent turn is still running
  *   --recap-disable               Disable the automatic recap entirely
  *   --recap-model <p/id>          Override the default (active) model
  *
@@ -227,9 +228,11 @@ async function generateRecap(
 			apiKey: auth.apiKey,
 			headers: auth.headers,
 			signal,
-			// Only request reasoning on reasoning-capable models. Non-reasoning
-			// models ignore unknown params but we keep this clean.
-			...(model.reasoning ? { reasoning: "minimal" as const } : {}),
+			// Recaps are tiny, throwaway UI hints. Do not pay to create/read prompt
+			// cache entries, and do not spend reasoning tokens. Claude Code's away
+			// summary path likewise disables thinking for this job.
+			cacheRetention: "none",
+			maxTokens: 256,
 		},
 	);
 
@@ -273,6 +276,11 @@ export default function (pi: ExtensionAPI) {
 		type: "boolean",
 		default: false,
 	});
+	pi.registerFlag("recap-during-active", {
+		description: "Allow focus-triggered recaps while an agent turn is still running",
+		type: "boolean",
+		default: false,
+	});
 	pi.registerFlag("recap-disable", {
 		description: "Disable the automatic session recap",
 		type: "boolean",
@@ -293,6 +301,14 @@ export default function (pi: ExtensionAPI) {
 	let activeController: AbortController | undefined;
 	let activeReason: RecapReason | undefined;
 
+	// Agent activity state. Claude Code's away recap deliberately avoids
+	// generating while a turn is still loading: if the user blurs during a slow
+	// tool call, it marks the recap as pending and waits for loading to finish.
+	// Mirroring that here prevents a draft from summarising the pre-result
+	// branch, then being replaced when the slow action finally commits output.
+	let agentActive = false;
+	let focusDraftAfterAgent = false;
+
 	// Focus reporting state.
 	let focusListener: ((chunk: Buffer) => void) | undefined;
 	let focusEnabled = false;
@@ -304,17 +320,18 @@ export default function (pi: ExtensionAPI) {
 	let lastDraftedLeafId: string | undefined;
 
 	const idleMs = (): number => {
-		const n = Number(pi.getFlag("--recap-idle-seconds") ?? DEFAULT_IDLE_SECONDS);
+		const n = Number(pi.getFlag("recap-idle-seconds") ?? DEFAULT_IDLE_SECONDS);
 		return Math.max(5, Number.isFinite(n) ? n : DEFAULT_IDLE_SECONDS) * 1000;
 	};
 	const focusMinMs = (): number => {
-		const n = Number(pi.getFlag("--recap-focus-min-seconds") ?? DEFAULT_FOCUS_MIN_SECONDS);
+		const n = Number(pi.getFlag("recap-focus-min-seconds") ?? DEFAULT_FOCUS_MIN_SECONDS);
 		return Math.max(0, Number.isFinite(n) ? n : DEFAULT_FOCUS_MIN_SECONDS) * 1000;
 	};
-	const isDisabled = (): boolean => Boolean(pi.getFlag("--recap-disable"));
-	const isFocusDisabled = (): boolean => Boolean(pi.getFlag("--recap-disable-focus"));
+	const isDisabled = (): boolean => Boolean(pi.getFlag("recap-disable"));
+	const isFocusDisabled = (): boolean => Boolean(pi.getFlag("recap-disable-focus"));
+	const allowDuringActive = (): boolean => Boolean(pi.getFlag("recap-during-active"));
 	const modelOverride = (): string | undefined => {
-		const v = String(pi.getFlag("--recap-model") ?? "").trim();
+		const v = String(pi.getFlag("recap-model") ?? "").trim();
 		return v.length > 0 ? v : undefined;
 	};
 
@@ -406,9 +423,26 @@ export default function (pi: ExtensionAPI) {
 
 	// --- focus reporting wiring -------------------------------------------
 
+	const maybeGenerateDeferredFocusRecap = (ctx: ExtensionContext) => {
+		if (!focusDraftAfterAgent) return;
+		if (focusedOutAt === undefined) return;
+		if (agentActive) return;
+		focusDraftAfterAgent = false;
+		void generateAndShow(ctx, { reason: "focus" });
+	};
+
 	const handleFocusOut = (ctx: ExtensionContext) => {
 		focusedOutAt = Date.now();
 		if (isDisabled() || activeController) return;
+
+		// If the user switches away during a long-running model/tool action, do
+		// not draft against the half-written branch. Claude Code sets a pending
+		// bit in this case and generates only after `isLoading` flips false; we do
+		// the same via agent_start/agent_end.
+		if (agentActive && !allowDuringActive()) {
+			focusDraftAfterAgent = true;
+			return;
+		}
 
 		// Skip regen if we already have a fresh recap for the current session
 		// state — regardless of whether it's still parked in pendingRecap or
@@ -425,6 +459,7 @@ export default function (pi: ExtensionAPI) {
 	const handleFocusIn = (ctx: ExtensionContext) => {
 		const outAt = focusedOutAt;
 		focusedOutAt = undefined;
+		focusDraftAfterAgent = false;
 		if (outAt === undefined) return; // spurious focus-in before we saw focus-out
 		const duration = Date.now() - outAt;
 		if (duration < focusMinMs()) {
@@ -509,6 +544,7 @@ export default function (pi: ExtensionAPI) {
 			focusEnabled = false;
 		}
 		focusedOutAt = undefined;
+		focusDraftAfterAgent = false;
 		pendingRecap = undefined;
 	};
 
@@ -519,23 +555,30 @@ export default function (pi: ExtensionAPI) {
 		// A new turn (successful or not) invalidates any prior draft.
 		lastDraftedLeafId = undefined;
 		scheduleRecap(ctx);
+		maybeGenerateDeferredFocusRecap(ctx);
 	});
 
 	pi.on("turn_start", async () => {
 		// Another turn is starting in the same agent loop — clear the idle timer
 		// we armed on the previous turn_end; it'll re-arm on the next turn_end.
+		// It also means any focus/idle draft racing in the background is stale.
 		clearTimer();
+		cancelActive();
+		pendingRecap = undefined;
+		lastDraftedLeafId = undefined;
 	});
 
 	pi.on("input", async (_event, ctx) => {
 		clearTimer();
 		cancelActive();
+		focusDraftAfterAgent = false;
 		pendingRecap = undefined;
 		lastDraftedLeafId = undefined;
 		clearRecap(ctx);
 	});
 
 	pi.on("agent_start", async (_event, ctx) => {
+		agentActive = true;
 		clearTimer();
 		cancelActive();
 		pendingRecap = undefined;
@@ -543,7 +586,14 @@ export default function (pi: ExtensionAPI) {
 		clearRecap(ctx);
 	});
 
+	pi.on("agent_end", async (_event, ctx) => {
+		agentActive = false;
+		maybeGenerateDeferredFocusRecap(ctx);
+	});
+
 	pi.on("session_shutdown", async () => {
+		agentActive = false;
+		focusDraftAfterAgent = false;
 		clearTimer();
 		cancelActive();
 		detachFocusReporting();
@@ -552,7 +602,7 @@ export default function (pi: ExtensionAPI) {
 	// Session start: wire up focus reporting; on resume, show a recap.
 	pi.on("session_start", async (event, ctx) => {
 		attachFocusReporting(ctx);
-		if (isDisabled()) return;
+		if (isDisabled() || !ctx.hasUI) return;
 		if (event.reason === "resume" || event.reason === "fork") {
 			setTimeout(() => {
 				void generateAndShow(ctx, { reason: "resume" });

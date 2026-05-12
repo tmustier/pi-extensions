@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.3] - 2026-05-12
+
+### Fixed
+- Defer focus-triggered recaps while the agent is still active, matching Claude Code's away-summary pending behavior and avoiding duplicate/stale recaps during slow tool calls.
+- Cancel stale in-flight recap drafts when a new turn starts.
+- Skip `/resume` and `/fork` recap generation in headless/non-UI sessions.
+- Read registered flag values using bare flag names (for example `recap-idle-seconds`, not `--recap-idle-seconds`) so automatic trigger configuration actually takes effect.
+- Invoke recap generation with no reasoning, no prompt-cache retention, and `maxTokens: 256`.
+
+### Added
+- Add `--recap-during-active` to opt back into focus-triggered recaps while an agent turn is still running.
+
 ## [0.1.2] - 2026-05-07
 
 ### Changed
