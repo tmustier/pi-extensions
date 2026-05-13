@@ -129,11 +129,11 @@ pi --no-skills --skill /path/to/my-skill
 
 ### 9) Publish (optional)
 
-To share with Pi users, publish as a Pi package (package.json-based, not a `.skill` archive). Agent Skills can also be shared as normal directories or repositories for other compatible clients.
+To share with Pi users, make the skill installable with `pi install`: publish it as an npm, git, or local source that either has a `package.json` `pi.skills` manifest or uses the conventional `skills/` directory. Pi does not use `.skill` archives. `pi update` updates non-pinned npm/git installs; pinned refs/versions and local paths are not auto-updated. Agent Skills can also be shared as normal directories or repositories for other compatible clients.
 
-- Add `package.json` with a `pi` manifest (or rely on the conventional `skills/` directory).
+- Add `package.json` with a `pi` manifest, or place skills under the conventional `skills/` directory.
 - Add `"keywords": ["pi-package"]` for Pi package gallery discoverability.
-- Publish to npm or host in git; install with `pi install <source>` and enable via `pi config` if needed.
+- Publish to npm or host in git; install with `pi install npm:<package>` or `pi install git:github.com/org/repo` and enable via `pi config` if needed.
 
 ```json
 {
