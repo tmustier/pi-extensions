@@ -9,8 +9,7 @@ Provide guidance for creating effective **Agent Skills** that Pi and other compa
 
 ## Principles
 
-- **Progressive disclosure**: Agent Skills load in tiers — frontmatter (always in context), body (on trigger), bundled resources (on demand) — so splitting content across them keeps context lean.
-- **Activation**: in Pi, automatic skill loading is driven by the frontmatter `description`. "When to use" information in the body comes too late for auto-triggering.
+- **Activation**: in Pi, automatic skill loading is driven by the frontmatter `description`; "when to use" details in the body come too late for auto-triggering.
 - **Interoperability**: call these artifacts Agent Skills, not client-specific skill names. Keep Pi-specific discovery or packaging notes clearly scoped to Pi.
 
 ## Agent Skills format (Pi-compatible)
@@ -127,16 +126,4 @@ pi --no-skills --skill /path/to/my-skill
 
 ### 9) Publish (optional)
 
-To share with Pi users, make the skill installable with `pi install`: publish it as an npm, git, or local source that either has a `package.json` `pi.skills` manifest or uses the conventional `skills/` directory. Pi does not use `.skill` archives. `pi update` updates non-pinned npm/git installs; pinned refs/versions and local paths are not auto-updated. Agent Skills can also be shared as normal directories or repositories for other compatible clients.
-
-- Add `package.json` with a `pi` manifest, or place skills under the conventional `skills/` directory.
-- Add `"keywords": ["pi-package"]` for Pi package gallery discoverability.
-- Publish to npm or host in git; install with `pi install npm:<package>` or `pi install git:github.com/org/repo` and enable via `pi config` if needed.
-
-```json
-{
-  "name": "my-agent-skills",
-  "keywords": ["pi-package"],
-  "pi": { "skills": ["./skills"] }
-}
-```
+When the user wants to share an Agent Skill with Pi users, read `references/PUBLISHING.md`. In short: make it installable with `pi install` from npm, git, or a local source; use either a `package.json` `pi.skills` manifest or the conventional `skills/` directory; Pi does not use `.skill` archives.
