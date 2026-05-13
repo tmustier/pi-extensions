@@ -1,27 +1,28 @@
 ---
 name: extending-pi
-description: Guide for changing or extending Pi's behaviour without patching internals first. Use when someone wants to modify how Pi behaves, add capabilities, build or package an extension, create an Agent Skill, add prompt templates/themes/context/model providers, configure Pi resources, or asks whether a Pi internal patch is needed.
+description: Guide for changing or extending Pi's behaviour. Use when someone wants to modify how Pi behaves, add capabilities, decide which Pi extension point or artifact to use, build or package an extension, create an Agent Skill, add prompt templates/themes/context/model providers, configure Pi resources, or asks whether a Pi internal patch is needed.
 ---
 
 # Extending Pi
 
-Help the user choose the right extension point, scaffold the right artifact, and package it when useful.
+Help the user choose what to build, scaffold the right artifact, and package it when useful.
 
 This skill is intentionally **not** an API reference. Pi's docs, examples, and installed TypeScript types are the source of truth for exact signatures and current behavior.
 
-## Core principle: extend first, patch last
+## Core principle: choose an extension point first, patch last
 
-Pi is designed to be extended. Any request to change Pi's behavior should start by looking for an extension-based solution.
+Pi has multiple public extension points: Agent Skills, context files, prompt templates, themes, packages, model configuration, provider extensions, settings, and TypeScript extensions. Do not jump straight to a TypeScript extension or Pi internal patch.
 
 Before editing Pi internals:
 
 1. **State the desired user-visible behavior** in one sentence.
-2. **Read the current docs for the relevant surface**, starting with `docs/extensions.md` and `examples/extensions/README.md` for behavior changes.
-3. **Inspect at least one relevant working example** under `examples/extensions/` and adapt that pattern where possible.
-4. **Inspect installed types/source if the docs or examples are ambiguous** rather than guessing API names or signatures. Useful starting points include `dist/core/extensions/types.d.ts`, `dist/core/index.d.ts`, and the matching `src/` files when available.
-5. **Only consider a Pi internal patch after the extension audit fails.** If a patch is still needed, record the docs/examples/source checked and explain why no existing extension point can cover the case. Prefer proposing the smallest public extension API addition when the behavior should be user-extensible.
+2. **Choose what to build** from the table below. Ask whether the need is instructions, configuration, a reusable package, a runtime hook/tool/UI, or a core bug fix.
+3. **Read the current docs for the chosen surface.** Use `docs/extensions.md` and `examples/extensions/README.md` when the chosen surface is a TypeScript extension; otherwise start with the artifact-specific docs in the table.
+4. **Inspect at least one relevant working example** and adapt that pattern where possible.
+5. **Inspect installed types/source if the docs or examples are ambiguous** rather than guessing API names or signatures. Useful starting points for extensions include `dist/core/extensions/types.d.ts`, `dist/core/index.d.ts`, and the matching `src/` files when available.
+6. **Only consider a Pi internal patch after the public-extension-point audit fails.** If a patch is still needed, record the docs/examples/source checked and explain why no existing extension point can cover the case. Prefer proposing the smallest public extension API addition when the behavior should be user-extensible.
 
-Patch-level changes are appropriate for core bugs, missing primitives, or behavior that genuinely cannot be expressed through extensions, Agent Skills, prompt templates, themes, packages, settings, or model/provider configuration.
+Patch-level changes are appropriate for core bugs, missing primitives, or behavior that genuinely cannot be expressed through public Pi extension points such as extensions, Agent Skills, prompt templates, themes, packages, settings, or model/provider configuration.
 
 ## What to build
 
@@ -51,20 +52,21 @@ Examples:
 - "Pi should have a structured `db_query` tool" → **Extension**
 - "Pi should change the footer, add plan mode, add subagents, or alter compaction" → **Extension**
 
-## Extension API audit checklist
+## Behavior-change audit checklist
 
 Use this checklist whenever the request is to modify Pi's behavior:
 
-1. Map the request to a likely extension capability: events, tools, commands, shortcuts, flags, UI, custom rendering, resource discovery, model/provider registration, session/compaction hooks, tool operations, or packaging.
-2. Read the relevant section of `docs/extensions.md` and any linked docs (`docs/tui.md`, `docs/themes.md`, `docs/models.md`, `docs/custom-provider.md`, `docs/packages.md`, etc.).
-3. Inspect a matching example in `examples/extensions/` and copy its structure rather than inventing from memory.
-4. If still unsure, grep/read the installed Pi types or source for the exact API.
-5. Build as an extension or package unless the audit produces concrete evidence that no extension point exists.
+1. Decide the lightest artifact that could satisfy the request: Agent Skill, context file, prompt template, theme, model config/provider, settings, package, TypeScript extension, docs-only guidance, or core patch.
+2. If the likely answer is a TypeScript extension, map it to a current extension capability: events, tools, commands, shortcuts, flags, UI, custom rendering, resource discovery, model/provider registration, session/compaction hooks, tool operations, or packaging.
+3. Read the relevant docs for that artifact and any linked docs (`docs/extensions.md`, `docs/tui.md`, `docs/themes.md`, `docs/models.md`, `docs/custom-provider.md`, `docs/packages.md`, etc.).
+4. Inspect a matching example when one exists, especially under `examples/extensions/` for TypeScript extensions, and copy its structure rather than inventing from memory.
+5. If still unsure, grep/read the installed Pi types or source for the exact API.
+6. Build using a public extension point unless the audit produces concrete evidence that none can cover the request.
 
 ## Quick-start steps
 
 1. **Pick the artifact type** from the table above.
-2. **Do the extension-first audit** for any Pi behavior change before touching internals.
+2. **Do the behavior-change audit** for any Pi behavior change before touching internals.
 3. **Scaffold from current docs/examples**, not from stale snippets in this skill.
 4. **Validate locally**:
    - Agent Skills: load with `pi --no-skills --skill /path/to/skill` or invoke `/skill:name`; if it does not trigger, check `name` and `description` frontmatter.
