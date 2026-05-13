@@ -5,12 +5,7 @@ description: Create or update Agent Skills (SKILL.md plus optional scripts, refe
 
 # Skill Creator
 
-Provide guidance for creating effective **Agent Skills** that Pi and other compatible agent clients can load.
-
-## Principles
-
-- **Activation**: in Pi, automatic skill loading is driven by the frontmatter `description`; "when to use" details in the body come too late for auto-triggering.
-- **Interoperability**: call these artifacts Agent Skills, not client-specific skill names. Keep Pi-specific discovery or packaging notes clearly scoped to Pi.
+Provide guidance for creating effective **Agent Skills** that Pi and other compatible agent clients can load. Use Agent Skill / Agent Skills terminology, and keep Pi-specific discovery or packaging notes clearly scoped to Pi.
 
 ## Agent Skills format (Pi-compatible)
 
@@ -71,7 +66,7 @@ Short summary for humans discovering the skill.
 
 ### 5) Write frontmatter
 
-Use only the fields you need.
+Use only the fields you need. In Pi, automatic loading is driven by `description`, so put when-to-use triggers there.
 
 ```markdown
 ---
