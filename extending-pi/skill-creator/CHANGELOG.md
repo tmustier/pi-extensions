@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.2 - 2026-05-13
+- Rename artifact terminology from Pi skills to Agent Skills while keeping Pi-specific discovery and packaging guidance where relevant.
+- Refresh Pi discovery notes to include `.agents/skills` compatibility paths.
+
 ## 0.3.1 - 2026-04-19
 - `validate_skill.py` is now self-contained: uses a PEP 723 `uv run --script` shebang so PyYAML is provisioned in an ephemeral environment instead of requiring a system-wide install. Thanks to @tekumara for reporting ([#20](https://github.com/tmustier/pi-extensions/issues/20)).
 

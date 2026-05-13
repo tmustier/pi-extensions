@@ -1,32 +1,33 @@
 ---
 name: skill-creator
-description: Create or update Pi skills (SKILL.md plus optional scripts, references, or assets). Use when someone asks to design a new Pi skill, refine an existing one, or structure skills for Pi discovery or packaging.
+description: Create or update Agent Skills (SKILL.md plus optional scripts, references, or assets). Use when someone asks to design a new Agent Skill, refine an existing one, or structure skills for Pi discovery, packaging, or other Agent Skills-compatible clients.
 ---
 
 # Skill Creator
 
-Provide guidance for creating effective Pi skills.
+Provide guidance for creating effective **Agent Skills** that Pi and other compatible agent clients can load.
 
 ## Principles
 
-- **Conciseness**: the agent is already very capable - only domain-specific knowledge, workflows, and tooling it can't infer earn their token cost.
-- **Progressive disclosure**: Pi loads skills in tiers - frontmatter (always in context), body (on trigger), bundled resources (on demand) - so splitting content across them keeps context lean.
-- **Activation**: Pi decides whether to load a skill based solely on the frontmatter `description`. "When to use" information in the body comes too late.
+- **Conciseness**: the agent is already very capable — only domain-specific knowledge, workflows, and tooling it cannot infer earn their token cost.
+- **Progressive disclosure**: Agent Skills load in tiers — frontmatter (always in context), body (on trigger), bundled resources (on demand) — so splitting content across them keeps context lean.
+- **Activation**: in Pi, automatic skill loading is driven by the frontmatter `description`. "When to use" information in the body comes too late for auto-triggering.
 - **Context over directives**: the agent makes better decisions when it understands why. For tasks requiring judgment, context like "X helps Y because Z" is more robust than instructions like "You MUST do X".
+- **Interoperability**: call these artifacts Agent Skills, not client-specific skill names. Keep Pi-specific discovery or packaging notes clearly scoped to Pi.
 
-## Pi Agent Skills format
+## Agent Skills format (Pi-compatible)
 
 - Required frontmatter: `name`, `description`. Directory name must equal `name`.
 - Name rules: 1–64 chars, lowercase letters/digits/hyphens, no leading/trailing/consecutive hyphens.
-- Optional frontmatter: `license`, `compatibility`, `metadata` (arbitrary key-value pairs for tooling), `allowed-tools` (restrict which tools the skill may invoke).
-- `disable-model-invocation`: when set, Pi won't auto-trigger the skill; the user must invoke it explicitly with `/skill:name`.
+- Optional frontmatter: `license`, `compatibility`, `metadata` (arbitrary key-value pairs for tooling), `allowed-tools` (experimental; support varies by client).
+- `disable-model-invocation`: when set, Pi will not auto-trigger the skill; the user must invoke it explicitly with `/skill:name`.
 - Paths are relative to the skill directory; `{baseDir}` placeholders are not supported.
-- Skill locations: `~/.pi/agent/skills/`, `.pi/skills/`, `skills/` in a package, settings `skills`, or `--skill <path>`.
+- Pi loads Agent Skills from `~/.pi/agent/skills/`, `~/.agents/skills/`, `.pi/skills/`, `.agents/skills/`, package `skills` entries, settings `skills`, or `--skill <path>`.
 
 ## Recommended structure
 
 ```
-pi-skill/
+agent-skill/
 ├── SKILL.md
 ├── README.md         # Optional: human summary + installation
 ├── scripts/          # Optional executables
@@ -38,7 +39,7 @@ pi-skill/
 
 ### 1) Clarify use cases
 
-2-4 concrete example requests usually suffice to scope triggers and functionality.
+2–4 concrete example requests usually suffice to scope triggers and functionality.
 
 ### 2) Plan reusable resources
 
@@ -49,12 +50,14 @@ For each example, decide if you need:
 
 ### 3) Create the skeleton
 
-A skill needs a directory containing a SKILL.md. Only add resource sub-directories that are actually needed.
+An Agent Skill needs a directory containing a `SKILL.md`. Only add resource sub-directories that are actually needed.
 
 ```bash
 mkdir -p ~/.pi/agent/skills/my-skill
 touch ~/.pi/agent/skills/my-skill/SKILL.md
 ```
+
+Use `.agents/skills/` when you want the same skill directory to be naturally discoverable by other Agent Skills-compatible clients too.
 
 ### 4) Optional: Write README.md (humans + installation)
 
@@ -80,7 +83,7 @@ description: What it does + when to use it.
 ---
 ```
 
-If you need to hide auto-invocation, set:
+If you need to hide auto-invocation in Pi, set:
 
 ```yaml
 disable-model-invocation: true
@@ -90,7 +93,7 @@ disable-model-invocation: true
 
 - Imperative phrasing works well for procedural instructions; context framing works better for guidance (see Principles).
 - ~500 lines is a practical ceiling for SKILL.md; beyond that, split content into references.
-- The agent won't know a reference file exists unless SKILL.md says when to read it.
+- The agent will not know a reference file exists unless SKILL.md says when to read it.
 
 ### 7) Add resources
 
@@ -110,7 +113,7 @@ scripts/validate_skill.py /path/to/my-skill
 uv run scripts/validate_skill.py /path/to/my-skill
 ```
 
-- Load only the skill to spot warnings:
+- Load only the skill in Pi to spot warnings:
 
 ```bash
 pi --no-skills --skill /path/to/my-skill
@@ -126,15 +129,15 @@ pi --no-skills --skill /path/to/my-skill
 
 ### 9) Publish (optional)
 
-To share beyond a single machine, publish as a Pi package (package.json-based, not a .skill archive).
+To share with Pi users, publish as a Pi package (package.json-based, not a `.skill` archive). Agent Skills can also be shared as normal directories or repositories for other compatible clients.
 
 - Add `package.json` with a `pi` manifest (or rely on the conventional `skills/` directory).
-- Add `"keywords": ["pi-package"]` for discoverability.
+- Add `"keywords": ["pi-package"]` for Pi package gallery discoverability.
 - Publish to npm or host in git; install with `pi install <source>` and enable via `pi config` if needed.
 
 ```json
 {
-  "name": "my-pi-skills",
+  "name": "my-agent-skills",
   "keywords": ["pi-package"],
   "pi": { "skills": ["./skills"] }
 }

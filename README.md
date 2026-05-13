@@ -16,13 +16,13 @@ Personal extensions for the [Pi coding agent](https://github.com/badlogic/pi-mon
 | [session-recap](session-recap/) | One-line recap above the editor when you refocus the terminal (or after idle). Keeps you in flow while multi-clauding |
 | [arcade](arcade/) | Play minigames while your tests run: 👾 sPIce-invaders, 👻 picman, 🏓 ping, 🧩 tetris, 🍄 mario-not |
 
-## Skills
+## Agent Skills
 
-| Skill | Description |
-|-------|-------------|
-| [extending-pi](extending-pi/) | Guide for extending Pi — decide between skills, extensions, prompt templates, themes, or packages. |
-| ↳ [skill-creator](extending-pi/skill-creator/) | Detailed guidance for creating Pi skills. |
-| [pi-ralph-wiggum](pi-ralph-wiggum/) | Skill instructions for long-running development loops. |
+| Agent Skill | Description |
+|-------------|-------------|
+| [extending-pi](extending-pi/) | Guide for extending Pi — decide between Agent Skills, extensions, prompt templates, themes, models/providers, or packages. |
+| ↳ [skill-creator](extending-pi/skill-creator/) | Detailed guidance for creating Agent Skills. |
+| [pi-ralph-wiggum](pi-ralph-wiggum/) | Agent Skill instructions for long-running development loops. |
 
 ## Install (pi package manager)
 

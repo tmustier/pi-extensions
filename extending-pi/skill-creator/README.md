@@ -1,6 +1,6 @@
-# pi-skill-creator
+# Agent Skill Creator
 
-Guidelines and templates for creating Pi skills that follow the Agent Skills format.
+Guidelines and templates for creating Agent Skills that follow the Agent Skills format and can be loaded by Pi and other compatible agent clients.
 
 ## Installation
 `pi install npm:@tmustier/pi-skill-creator`

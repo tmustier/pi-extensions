@@ -1,7 +1,7 @@
 {
   "name": "@tmustier/extending-pi",
-  "version": "0.1.1",
-  "description": "Guide for extending Pi — skills, extensions, prompt templates, themes, and packaging.",
+  "version": "0.1.2",
+  "description": "Guide for extending Pi — Agent Skills, extensions, prompt templates, themes, models, providers, and packaging.",
   "license": "MIT",
   "author": "Thomas Mustier",
   "keywords": [
