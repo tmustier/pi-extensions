@@ -94,11 +94,11 @@ disable-model-invocation: true
 
 ### 7) Add resources
 
-SKILL.md is the agent's interface to the skill — usage examples and input/output descriptions let it call scripts without needing to understand internals.
+SKILL.md is the agent's interface to the skill.
 
-- **scripts/**: usage examples in SKILL.md inform the agent how to call them; scripts should be executable.
-- **references/**: a table of contents helps the agent navigate files longer than ~100 lines. References work best one level deep from SKILL.md, and each fact should live in one place (SKILL.md or a reference, not both).
-- **assets/**: templates, boilerplate, or data used in final output — typically not loaded into context.
+- **scripts/**: document each command the agent may call, including inputs and outputs; scripts should be executable.
+- **references/**: link each file from SKILL.md with when to read it; keep references one level deep and avoid duplicating facts.
+- **assets/**: mention only when a workflow needs a specific template, boilerplate, or data file.
 
 ### 8) Validate and test
 
