@@ -4,7 +4,7 @@
 # dependencies = ["pyyaml>=6"]
 # ///
 """
-Validate a Pi skill directory for Agent Skills + README requirements.
+Validate an Agent Skill directory for Agent Skills + README requirements.
 
 Usage:
   scripts/validate_skill.py <skill_directory>

@@ -1,32 +1,25 @@
 ---
 name: skill-creator
-description: Create or update Pi skills (SKILL.md plus optional scripts, references, or assets). Use when someone asks to design a new Pi skill, refine an existing one, or structure skills for Pi discovery or packaging.
+description: Create or update Agent Skills (SKILL.md plus optional scripts, references, or assets). Use when someone asks to design a new Agent Skill, refine an existing one, or structure skills for Pi discovery, packaging, or other Agent Skills-compatible clients.
 ---
 
 # Skill Creator
 
-Provide guidance for creating effective Pi skills.
+Provide guidance for creating effective **Agent Skills** that Pi and other compatible agent clients can load. Use Agent Skill / Agent Skills terminology, and keep Pi-specific discovery or packaging notes clearly scoped to Pi.
 
-## Principles
-
-- **Conciseness**: the agent is already very capable - only domain-specific knowledge, workflows, and tooling it can't infer earn their token cost.
-- **Progressive disclosure**: Pi loads skills in tiers - frontmatter (always in context), body (on trigger), bundled resources (on demand) - so splitting content across them keeps context lean.
-- **Activation**: Pi decides whether to load a skill based solely on the frontmatter `description`. "When to use" information in the body comes too late.
-- **Context over directives**: the agent makes better decisions when it understands why. For tasks requiring judgment, context like "X helps Y because Z" is more robust than instructions like "You MUST do X".
-
-## Pi Agent Skills format
+## Agent Skills format (Pi-compatible)
 
 - Required frontmatter: `name`, `description`. Directory name must equal `name`.
 - Name rules: 1–64 chars, lowercase letters/digits/hyphens, no leading/trailing/consecutive hyphens.
-- Optional frontmatter: `license`, `compatibility`, `metadata` (arbitrary key-value pairs for tooling), `allowed-tools` (restrict which tools the skill may invoke).
-- `disable-model-invocation`: when set, Pi won't auto-trigger the skill; the user must invoke it explicitly with `/skill:name`.
+- Optional frontmatter: `license`, `compatibility`, `metadata` (arbitrary key-value pairs for tooling), `allowed-tools` (experimental; support varies by client).
+- `disable-model-invocation`: when set, Pi will not auto-trigger the skill; the user must invoke it explicitly with `/skill:name`.
 - Paths are relative to the skill directory; `{baseDir}` placeholders are not supported.
-- Skill locations: `~/.pi/agent/skills/`, `.pi/skills/`, `skills/` in a package, settings `skills`, or `--skill <path>`.
+- Pi loads Agent Skills from `~/.pi/agent/skills/`, `~/.agents/skills/`, `.pi/skills/`, `.agents/skills/`, package `skills` entries, settings `skills`, or `--skill <path>`.
 
 ## Recommended structure
 
 ```
-pi-skill/
+agent-skill/
 ├── SKILL.md
 ├── README.md         # Optional: human summary + installation
 ├── scripts/          # Optional executables
@@ -38,7 +31,7 @@ pi-skill/
 
 ### 1) Clarify use cases
 
-2-4 concrete example requests usually suffice to scope triggers and functionality.
+2–4 concrete example requests usually suffice to scope triggers and functionality.
 
 ### 2) Plan reusable resources
 
@@ -49,12 +42,14 @@ For each example, decide if you need:
 
 ### 3) Create the skeleton
 
-A skill needs a directory containing a SKILL.md. Only add resource sub-directories that are actually needed.
+An Agent Skill needs a directory containing a `SKILL.md`. Only add resource sub-directories that are actually needed.
 
 ```bash
 mkdir -p ~/.pi/agent/skills/my-skill
 touch ~/.pi/agent/skills/my-skill/SKILL.md
 ```
+
+Use `.agents/skills/` when you want the same skill directory to be naturally discoverable by other Agent Skills-compatible clients too.
 
 ### 4) Optional: Write README.md (humans + installation)
 
@@ -71,7 +66,7 @@ Short summary for humans discovering the skill.
 
 ### 5) Write frontmatter
 
-Use only the fields you need.
+Use only the fields you need. In Pi, automatic loading is driven by `description`, so put when-to-use triggers there.
 
 ```markdown
 ---
@@ -80,7 +75,7 @@ description: What it does + when to use it.
 ---
 ```
 
-If you need to hide auto-invocation, set:
+If you need to hide auto-invocation in Pi, set:
 
 ```yaml
 disable-model-invocation: true
@@ -90,19 +85,19 @@ disable-model-invocation: true
 
 - Imperative phrasing works well for procedural instructions; context framing works better for guidance (see Principles).
 - ~500 lines is a practical ceiling for SKILL.md; beyond that, split content into references.
-- The agent won't know a reference file exists unless SKILL.md says when to read it.
+- The agent will not know a reference file exists unless SKILL.md says when to read it.
 
 ### 7) Add resources
 
-SKILL.md is the agent's interface to the skill — usage examples and input/output descriptions let it call scripts without needing to understand internals.
+SKILL.md is the agent's interface to the skill.
 
-- **scripts/**: usage examples in SKILL.md inform the agent how to call them; scripts should be executable.
-- **references/**: a table of contents helps the agent navigate files longer than ~100 lines. References work best one level deep from SKILL.md, and each fact should live in one place (SKILL.md or a reference, not both).
-- **assets/**: templates, boilerplate, or data used in final output — typically not loaded into context.
+- **scripts/**: document each command the agent may call, including inputs and outputs; scripts should be executable.
+- **references/**: link each file from SKILL.md with when to read it; keep references one level deep and avoid duplicating facts.
+- **assets/**: mention only when a workflow needs a specific template, boilerplate, or data file.
 
 ### 8) Validate and test
 
-- Run the validator script (uses [`uv`](https://docs.astral.sh/uv/) via a PEP 723 shebang, so PyYAML is provisioned in an ephemeral environment — no system install needed):
+- Run the bundled validator at `scripts/validate_skill.py` from this `skill-creator` directory (uses [`uv`](https://docs.astral.sh/uv/) via a PEP 723 shebang, so PyYAML is provisioned in an ephemeral environment — no system install needed):
 
 ```bash
 scripts/validate_skill.py /path/to/my-skill
@@ -110,7 +105,7 @@ scripts/validate_skill.py /path/to/my-skill
 uv run scripts/validate_skill.py /path/to/my-skill
 ```
 
-- Load only the skill to spot warnings:
+- Load only the skill in Pi to spot warnings:
 
 ```bash
 pi --no-skills --skill /path/to/my-skill
@@ -126,16 +121,4 @@ pi --no-skills --skill /path/to/my-skill
 
 ### 9) Publish (optional)
 
-To share beyond a single machine, publish as a Pi package (package.json-based, not a .skill archive).
-
-- Add `package.json` with a `pi` manifest (or rely on the conventional `skills/` directory).
-- Add `"keywords": ["pi-package"]` for discoverability.
-- Publish to npm or host in git; install with `pi install <source>` and enable via `pi config` if needed.
-
-```json
-{
-  "name": "my-pi-skills",
-  "keywords": ["pi-package"],
-  "pi": { "skills": ["./skills"] }
-}
-```
+When the user wants to share an Agent Skill with Pi users, read `references/PUBLISHING.md`. In short: make it installable with `pi install` from npm, git, or a local source; use either a `package.json` `pi.skills` manifest or the conventional `skills/` directory; Pi does not use `.skill` archives.
