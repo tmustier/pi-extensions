@@ -9,10 +9,8 @@ Provide guidance for creating effective **Agent Skills** that Pi and other compa
 
 ## Principles
 
-- **Conciseness**: the agent is already very capable — only domain-specific knowledge, workflows, and tooling it cannot infer earn their token cost.
 - **Progressive disclosure**: Agent Skills load in tiers — frontmatter (always in context), body (on trigger), bundled resources (on demand) — so splitting content across them keeps context lean.
 - **Activation**: in Pi, automatic skill loading is driven by the frontmatter `description`. "When to use" information in the body comes too late for auto-triggering.
-- **Context over directives**: the agent makes better decisions when it understands why. For tasks requiring judgment, context like "X helps Y because Z" is more robust than instructions like "You MUST do X".
 - **Interoperability**: call these artifacts Agent Skills, not client-specific skill names. Keep Pi-specific discovery or packaging notes clearly scoped to Pi.
 
 ## Agent Skills format (Pi-compatible)
@@ -105,7 +103,7 @@ SKILL.md is the agent's interface to the skill — usage examples and input/outp
 
 ### 8) Validate and test
 
-- Run this skill's bundled validator script from the `skill-creator` directory (uses [`uv`](https://docs.astral.sh/uv/) via a PEP 723 shebang, so PyYAML is provisioned in an ephemeral environment — no system install needed):
+- Run the bundled validator at `scripts/validate_skill.py` from this `skill-creator` directory (uses [`uv`](https://docs.astral.sh/uv/) via a PEP 723 shebang, so PyYAML is provisioned in an ephemeral environment — no system install needed):
 
 ```bash
 scripts/validate_skill.py /path/to/my-skill

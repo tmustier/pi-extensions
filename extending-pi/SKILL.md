@@ -55,7 +55,7 @@ Examples:
 
 Use this when the chosen artifact is a Pi TypeScript extension or provider extension.
 
-Agents often miss existing Pi extension points by reading only the first matching section or doing a heading search. Before deciding a Pi patch is needed:
+Agents often miss existing Pi extension points by reading only the first matching section or doing a heading search. Do the full extension audit:
 
 1. **Read `docs/extensions.md` fully.** Extension capabilities are spread across hooks, tools, commands, keybindings, resource loaders, renderers, session/compaction events, settings, and linked docs.
 2. **Follow relevant linked docs** for the surface you are changing: `docs/tui.md`, `docs/themes.md`, `docs/models.md`, `docs/custom-provider.md`, `docs/packages.md`, `docs/keybindings.md`, `docs/session-format.md`, or `docs/compaction.md`.
@@ -79,7 +79,7 @@ Before working on a patch:
 
 1. **Pick the artifact type** from the table above.
 2. **Do the behavior-change triage** for any Pi behavior change before touching internals.
-3. **For TypeScript extensions, complete the extension workflow** before deciding a patch is required.
+3. **For TypeScript extensions, complete the extension workflow.**
 4. **Scaffold from current docs/examples**, not from stale snippets in this skill.
 5. **Validate locally**:
    - Agent Skills: load with `pi --no-skills --skill /path/to/skill` or invoke `/skill:name`; if it does not trigger, check `name` and `description` frontmatter.
