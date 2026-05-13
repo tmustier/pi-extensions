@@ -13,8 +13,6 @@ This skill is intentionally **not** an API reference. Pi's docs, examples, and i
 
 Pi has multiple public extension points: Agent Skills, context files, prompt templates, themes, packages, model configuration, provider extensions, settings, and TypeScript extensions. Assume one of those is the right answer until proven otherwise; do not jump straight to a TypeScript extension or Pi internal patch.
 
-Patch-level changes are extremely rare. They are appropriate only for core bugs, truly missing primitives, or behavior that genuinely cannot be expressed through public Pi extension points. Pi maintainers receive many AI-generated PRs, so do not start a patch unless you can explain the change, its edge cases, and why a public extension point cannot solve it.
-
 ## What to build
 
 | Goal | Build a… | Key files / locations | Detailed source of truth |
@@ -35,8 +33,7 @@ Use this before touching Pi internals:
 2. **Choose the lightest artifact** from the table above. Ask whether the need is instructions, configuration, a reusable package, a runtime hook/tool/UI, or a core bug fix.
 3. **Read the current docs for the chosen surface.** Use the table's source-of-truth column; this skill should route you, not replace the docs.
 4. **Inspect a relevant working example** when one exists and adapt that pattern where possible.
-5. **Strongly discourage Pi internal patches.** Only consider one after the public-extension-point audit fails with concrete evidence. If a patch still appears necessary, record the docs/examples/source checked, explain why no public extension point can cover the case, and prefer the smallest public API addition when the behavior should be user-extensible.
-6. **Before working on a patch, read upstream contributor guidance** in `earendil-works/pi`: `CONTRIBUTING.md` and `AGENTS.md`. Ensure the proposed solution is minimal and maintainer-friendly before writing code.
+5. **If the request appears to require a Pi internal patch, stop and follow the patch policy below before writing code.** A patch should be the rare exception after the public-extension-point audit fails with concrete evidence.
 
 ## Agent Skill terminology
 
@@ -65,8 +62,18 @@ Agents often miss existing Pi extension points by reading only the first matchin
 3. **Read `examples/extensions/README.md` and at least one matching example** under `examples/extensions/`. Copy current structure rather than inventing from memory.
 4. **Map the request to a current extension capability**: events, tools, commands, shortcuts, flags, UI, custom rendering, resource discovery, model/provider registration, session/compaction hooks, tool operations, or packaging.
 5. **Inspect installed types/source if docs or examples are ambiguous** rather than guessing API names or signatures. Useful starting points include `dist/core/extensions/types.d.ts`, `dist/core/index.d.ts`, and the matching `src/` files when available.
-6. **Build as an extension or package unless the audit produces concrete evidence that no public extension point exists.** Treat patching Pi internals as the exceptional path, not the fallback.
-7. **If a patch is truly required, pause before coding.** Read `CONTRIBUTING.md` and `AGENTS.md` in `earendil-works/pi`, then write down: the desired behavior, the public extension points considered, the docs/examples/types/source inspected, why each public route fails, and the minimal code/API change proposed. If you cannot do that clearly, do not patch.
+6. **Build as an extension or package unless the audit produces concrete evidence that no public extension point exists.** If no public route works, stop and follow the patch policy before writing code.
+
+## Patch policy
+
+Patch-level changes are extremely rare. They are appropriate only for core bugs, truly missing primitives, or behavior that genuinely cannot be expressed through public Pi extension points. Pi maintainers receive many AI-generated PRs; protect their time by avoiding speculative patches and only proposing changes you understand.
+
+Before working on a patch:
+
+1. Read upstream contributor guidance in `earendil-works/pi`: `CONTRIBUTING.md` and `AGENTS.md`.
+2. Write down the desired behavior, the public extension points considered, the docs/examples/types/source inspected, and why each public route fails.
+3. Prefer the smallest public extension API addition when the behavior should be user-extensible; otherwise propose the minimal core fix.
+4. Ensure you can explain the code path, edge cases, tests, and interaction with the rest of Pi. If you cannot explain it clearly, do not patch.
 
 ## Quick-start steps
 
