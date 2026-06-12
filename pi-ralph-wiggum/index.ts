@@ -202,25 +202,18 @@ export default function (pi: ExtensionAPI) {
 
 		const { theme } = ctx.ui;
 		const maxStr = state.maxIterations > 0 ? `/${state.maxIterations}` : "";
+		const reflection =
+			state.reflectEvery > 0
+				? ` · 🪞 reflect in ${state.reflectEvery - ((state.iteration - 1) % state.reflectEvery)}`
+				: "";
+		const title = theme.fg("success", theme.bold("Ralph Wiggum"));
+		const status = theme.fg(
+			"dim",
+			` · 🔁 ${state.name} · ${STATUS_ICONS[state.status]} ${state.status} · 🔢 ${state.iteration}${maxStr} · 📄 ${state.taskFile}${reflection} · Esc pause · msg resume · /ralph-stop stop`,
+		);
 
-		ctx.ui.setStatus("ralph", theme.fg("accent", `🔄 ${state.name} (${state.iteration}${maxStr})`));
-
-		const lines = [
-			theme.fg("accent", theme.bold("Ralph Wiggum")),
-			theme.fg("muted", `Loop: ${state.name}`),
-			theme.fg("dim", `Status: ${STATUS_ICONS[state.status]} ${state.status}`),
-			theme.fg("dim", `Iteration: ${state.iteration}${maxStr}`),
-			theme.fg("dim", `Task: ${state.taskFile}`),
-		];
-		if (state.reflectEvery > 0) {
-			const next = state.reflectEvery - ((state.iteration - 1) % state.reflectEvery);
-			lines.push(theme.fg("dim", `Next reflection in: ${next} iterations`));
-		}
-		// Warning about stopping
-		lines.push("");
-		lines.push(theme.fg("warning", "ESC pauses the assistant"));
-		lines.push(theme.fg("warning", "Send a message to resume; /ralph-stop ends the loop"));
-		ctx.ui.setWidget("ralph", lines);
+		ctx.ui.setStatus("ralph", `${title}${status}`);
+		ctx.ui.setWidget("ralph", undefined);
 	}
 
 	// --- Prompt building ---
