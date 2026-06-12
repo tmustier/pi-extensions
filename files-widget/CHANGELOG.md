@@ -4,6 +4,9 @@ All notable changes to this extension will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- Use `where` instead of `which` on Windows to detect `bat`, `delta`, and `glow`, so the dependency check works when running from PowerShell or cmd.exe.
+
 ## [0.1.21] - 2026-05-07
 
 ### Changed

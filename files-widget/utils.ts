@@ -2,7 +2,8 @@ import { execSync } from "node:child_process";
 
 export function hasCommand(cmd: string): boolean {
   try {
-    execSync(`which ${cmd}`, { stdio: "ignore" });
+    const checkCmd = process.platform === "win32" ? "where" : "which";
+    execSync(`${checkCmd} ${cmd}`, { stdio: "ignore" });
     return true;
   } catch {
     return false;
