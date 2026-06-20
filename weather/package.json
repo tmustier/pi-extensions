@@ -50,7 +50,7 @@
     "video": "https://raw.githubusercontent.com/tmustier/pi-extensions/main/weather/assets/weather-demo.mp4"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "^0.74.0",
+    "@earendil-works/pi-coding-agent": "^0.79.8",
     "@earendil-works/pi-tui": "^0.74.0"
   }
 }
