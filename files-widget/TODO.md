@@ -17,6 +17,7 @@
 - [x] Collapse/expand directories
 - [x] Navigation with `j/k` and arrow keys
 - [x] Enter to expand dir or open file
+- [x] Browse outside the current working directory (`u` to go up, `.` to reset, `/readfiles <path>` to start elsewhere)
 
 ### Git Integration
 - [x] Parse `git status --porcelain` output

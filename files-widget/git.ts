@@ -11,6 +11,27 @@ export function isGitRepo(cwd: string): boolean {
   }
 }
 
+/**
+ * Path of `cwd` relative to the repository top-level (e.g. "app/"), or "" when
+ * `cwd` is the top-level itself. `git status --porcelain` reports paths relative
+ * to the repository root, while `git ls-files` (and this widget's node keys) are
+ * relative to `cwd` — this prefix lets us translate between the two.
+ */
+function getGitPathPrefix(cwd: string): string {
+  try {
+    return execSync("git rev-parse --show-prefix", { cwd, encoding: "utf-8", timeout: 2000, stdio: "pipe" }).trim();
+  } catch {
+    return "";
+  }
+}
+
+/** Convert a repo-root-relative path to a cwd-relative one; null if outside cwd. */
+function stripPathPrefix(filePath: string, prefix: string): string | null {
+  if (!prefix) return filePath;
+  if (filePath.startsWith(prefix)) return filePath.slice(prefix.length);
+  return null;
+}
+
 export function getGitStatus(cwd: string, options: { includeIgnored?: boolean } = {}): Map<string, string> {
   const status = new Map<string, string>();
   try {
@@ -18,11 +39,13 @@ export function getGitStatus(cwd: string, options: { includeIgnored?: boolean } 
     if (options.includeIgnored !== false) {
       flags.push("--ignored");
     }
+    const prefix = getGitPathPrefix(cwd);
     const output = execSync(`git status ${flags.join(" ")}`, { cwd, encoding: "utf-8", timeout: 5000, stdio: "pipe" });
     for (const line of output.split("\n")) {
       if (line.length < 3) continue;
       const statusCode = line.slice(0, 2).trim() || "?";
-      const filePath = line.slice(3);
+      const filePath = stripPathPrefix(line.slice(3), prefix);
+      if (filePath === null || !filePath) continue;
       status.set(filePath, statusCode);
     }
   } catch {}
@@ -39,6 +62,7 @@ export function getGitFileList(cwd: string): string[] {
   } catch {}
 
   try {
+    const prefix = getGitPathPrefix(cwd);
     const statusOutput = execSync("git status --porcelain -uall -z", { cwd, encoding: "utf-8", timeout: 5000, stdio: "pipe" });
     const entries = statusOutput.split("\0");
     for (let i = 0; i < entries.length; i++) {
@@ -52,8 +76,9 @@ export function getGitFileList(cwd: string): string[] {
       } else if (filePath.includes(" -> ")) {
         filePath = filePath.split(" -> ").pop() || filePath;
       }
-      if (filePath) {
-        files.add(filePath);
+      const relPath = filePath ? stripPathPrefix(filePath, prefix) : null;
+      if (relPath) {
+        files.add(relPath);
       }
     }
   } catch {}
@@ -72,8 +97,10 @@ export function getGitBranch(cwd: string): string {
 export function getGitDiffStats(cwd: string): Map<string, DiffStats> {
   const stats = new Map<string, DiffStats>();
   try {
-    // Get diff stats for modified files
-    const output = execSync("git diff --numstat HEAD", { cwd, encoding: "utf-8", timeout: 5000, stdio: "pipe" });
+    // Get diff stats for modified files. --relative keeps paths relative to cwd
+    // (and scoped to it) so they match the widget's cwd-relative node keys even
+    // when cwd is a subdirectory of the repository.
+    const output = execSync("git diff --relative --numstat HEAD", { cwd, encoding: "utf-8", timeout: 5000, stdio: "pipe" });
     for (const line of output.split("\n")) {
       const parts = line.split("\t");
       if (parts.length >= 3) {
@@ -84,7 +111,7 @@ export function getGitDiffStats(cwd: string): Map<string, DiffStats> {
       }
     }
     // Also get stats for staged files
-    const stagedOutput = execSync("git diff --numstat --cached", { cwd, encoding: "utf-8", timeout: 5000, stdio: "pipe" });
+    const stagedOutput = execSync("git diff --relative --numstat --cached", { cwd, encoding: "utf-8", timeout: 5000, stdio: "pipe" });
     for (const line of stagedOutput.split("\n")) {
       const parts = line.split("\t");
       if (parts.length >= 3) {
