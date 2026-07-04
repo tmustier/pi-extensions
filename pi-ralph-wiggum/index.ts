@@ -193,10 +193,7 @@ export default function (pi: ExtensionAPI) {
 		saveState(ctx, state);
 		currentLoop = null;
 		updateUI(ctx);
-		pi.sendUserMessage(banner, {
-			deliverAs: "followUp",
-			streamingBehavior: "followUp",
-		});
+		pi.sendUserMessage(banner, { deliverAs: "followUp" });
 	}
 
 	function stopLoop(ctx: ExtensionContext, state: LoopState, message?: string): void {
@@ -363,10 +360,7 @@ export default function (pi: ExtensionAPI) {
 				ctx.ui.notify(`Could not read task file: ${taskFile}`, "error");
 				return;
 			}
-			pi.sendUserMessage(buildPrompt(state, content, false), {
-				deliverAs: "followUp",
-				streamingBehavior: "followUp",
-			});
+			pi.sendUserMessage(buildPrompt(state, content, false), { deliverAs: "followUp" });
 		},
 
 		stop(_rest, ctx) {
@@ -426,10 +420,7 @@ export default function (pi: ExtensionAPI) {
 
 			const needsReflection =
 				state.reflectEvery > 0 && state.iteration > 1 && (state.iteration - 1) % state.reflectEvery === 0;
-			pi.sendUserMessage(buildPrompt(state, content, needsReflection), {
-				deliverAs: "followUp",
-				streamingBehavior: "followUp",
-			});
+			pi.sendUserMessage(buildPrompt(state, content, needsReflection), { deliverAs: "followUp" });
 		},
 
 		status(_rest, ctx) {
@@ -680,10 +671,7 @@ Examples:
 			currentLoop = loopName;
 			updateUI(ctx);
 
-			pi.sendUserMessage(buildPrompt(state, params.taskContent, false), {
-				deliverAs: "followUp",
-				streamingBehavior: "followUp",
-			});
+			pi.sendUserMessage(buildPrompt(state, params.taskContent, false), { deliverAs: "followUp" });
 
 			return {
 				content: [{ type: "text", text: `Started loop "${loopName}" (max ${state.maxIterations} iterations).` }],
@@ -748,10 +736,7 @@ Examples:
 			}
 
 			// Queue next iteration - use followUp so user can still interrupt
-			pi.sendUserMessage(buildPrompt(state, content, needsReflection), {
-				deliverAs: "followUp",
-				streamingBehavior: "followUp",
-			});
+			pi.sendUserMessage(buildPrompt(state, content, needsReflection), { deliverAs: "followUp" });
 
 			return {
 				content: [{ type: "text", text: `Iteration ${state.iteration - 1} complete. Next iteration queued.` }],
