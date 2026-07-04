@@ -2,7 +2,7 @@
 
 All notable changes to this extension will be documented in this file.
 
-## [Unreleased]
+## [0.2.0] - 2026-07-04
 
 ### Added
 - `/readfiles` now supports browsing outside the current working directory. Press `u` to re-root to the parent, `.` to jump back to where you started, or pass an explicit starting path (`/readfiles <path>` or `/readfiles ~/somewhere`). The browser header shows the current root so you always know where you are, and comments on files outside the project use absolute paths so the agent can still find them.
