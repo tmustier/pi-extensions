@@ -23,6 +23,6 @@
     "@earendil-works/pi-coding-agent": "*"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "^0.79.8"
+    "@earendil-works/pi-coding-agent": "^0.80.3"
   }
 }
