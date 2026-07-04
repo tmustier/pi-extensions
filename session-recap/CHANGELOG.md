@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.2.0] - 2026-07-04
+
+Away-recap redesign informed by Claude Code's actual away-summary implementation (from the leaked source in `tmustier/cc-inv`: `services/awaySummary.ts` + `hooks/useAwaySummary.ts`). See DESIGN.md for the full comparison.
+
+### Fixed
+- **Restore recap generation on pi 0.80.x**: import `completeSimple`/`getModel` from `@earendil-works/pi-ai/compat` — the root export dropped them, which silently broke v0.1.3 at runtime.
+- Stop requiring `auth.apiKey`: env/ambient-auth providers (e.g. Bedrock) resolve with `ok: true` and no key. Only bail when auth resolution fails, and pass `env` through to the completion call.
+
+### Changed
+- **Triggers**: recaps are no longer drafted on every focus-out. A recap is generated after `--recap-away-seconds` (default 90) of continuous blur, or when a turn ends while the terminal is blurred (3s debounce). Quick alt-tabs no longer fire (and then abort) model calls.
+- **Idle fallback is now conditional**: armed only while the terminal has not demonstrated focus-reporting support; the first real focus event disarms it for the session. Default raised 45s → 120s.
+- **Prompt**: adopted Claude Code's orientation philosophy — 1-3 short sentences, high-level task first, concrete next step, explicitly skipping status reports and commit recaps. v0.1 asked for a status report of the last turn, which duplicated what was already in scrollback.
+- **Context**: two-tier transcript — recent detail since the last user message (as before), plus cheap task framing: up to 4 earlier user prompts (trimmed to 300 chars) and the most recent compaction/branch summary. Same 12k-char overall cap, so worst-case cost is unchanged.
+- **Widget**: recap can now span 1-3 sentences, soft-wrapped to at most 4 dim lines.
+- Recaps generated while away are shown immediately (parked above the editor for your return) instead of being held for reveal on focus-in.
+- An in-flight draft is no longer cancelled on refocus — it lands moments after you return, which is when it helps.
+- Resume/fork recaps use the same two-tier builder instead of feeding the entire branch.
+
+### Added
+- `--recap-away-seconds <n>` (default 90) — continuous blur before an away recap.
+
+### Removed
+- `--recap-focus-min-seconds` — no drafts on focus-out means no quick-glance suppression to tune, and the `pendingRecap` park/reveal/cancel machinery is gone with it.
+
 ## [0.1.3] - 2026-05-12
 
 ### Fixed

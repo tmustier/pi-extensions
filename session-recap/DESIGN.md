@@ -1,181 +1,179 @@
 # session-recap — design & plan
 
-> Status: **v0.1.0 — initial release**  ·  Lives in `tmustier/pi-extensions/session-recap/`
-> Mirrors the [Claude Code session recap feature](https://x.com/ClaudeDevs) for Pi.
+> Status: **v0.2.0 — away-recap redesign**  ·  Lives in `tmustier/pi-extensions/session-recap/`
+> v0.1 guessed at Claude Code's recap design; v0.2 is informed by the actual
+> implementation from the leaked Claude Code source (`tmustier/cc-inv`,
+> 2026-03-31): `src/services/awaySummary.ts` + `src/hooks/useAwaySummary.ts`.
 
 ## Summary
 
-When you switch focus away from a Pi session and come back, Pi drops a one-line
-recap above the editor so you can re-enter flow without re-reading scrollback.
+When you've genuinely been away from a Pi session, a short recap is drafted
+while you're gone and parked above the editor so it's waiting when you return.
 Targets the "multi-clauding / multi-pi" workflow where several agent sessions
 run in parallel tabs.
 
 ```
 ✦ recap
-recap: Migrated 4 of 7 billing tables to the v2 schema; invoices.ts still fails
-its FK constraint. Next: fix the foreign key on line 142.
+You're migrating the billing tables to the v2 schema; 4 of 7 are done and
+invoices.ts still fails its FK constraint. Next: fix the foreign key on
+line 142.
 ```
 
-## Triggers
+## What Claude Code actually does (from cc-inv)
+
+| Aspect | Claude Code (leaked source) | session-recap v0.2 |
+|---|---|---|
+| Trigger | Blur → 5-min timer → generate while still away. Refocus cancels timer + in-flight. Timer fires mid-turn → pending bit, generate at turn end if still blurred. | Same shape, but 90s default + an extra trigger: turn ends while blurred (debounced 3s). Multi-tab agent workflows context-switch faster than CC's 5 min assumes. |
+| Idle fallback | None — focus state `unknown` (no DECSET 1004) = feature off. | Kept, but only armed when the terminal has *not* demonstrated focus support (no `ESC[I`/`ESC[O` seen this session). |
+| Output | Persistent dim `※` transcript system message (`away_summary` subtype), excluded from API context. | Transient widget above the editor (pi-idiomatic, non-polluting), cleared on next input. |
+| Model | `getSmallFastModel()` — Haiku or `ANTHROPIC_SMALL_FAST_MODEL`. Never the active model. | Active model (no auth surprises across custom providers) + `--recap-model` override. See trade-off below. |
+| Context | Last **30 raw messages** + session memory, instruction appended as a user message, `skipCacheWrite: true`. | Two-tier compact text transcript (~12k char cap). 30 raw messages is only affordable at Haiku pricing; on the active model it could be 30–80k tokens per throwaway hint. |
+| Prompt | "Write exactly 1-3 short sentences. Start by stating the high-level task — what they are building or debugging, not implementation details. Next: the concrete next step. **Skip status reports and commit recaps.**" | Adopted near-verbatim. This was v0.1's biggest miss — our old prompt asked for a status report, which is exactly what CC bans. |
+| Dedupe | Max one summary per user turn (`hasSummarySinceLastUserTurn`). | Branch-leaf-id stamping (equivalent effect). |
+| In-flight abort on refocus | Yes — summary appended to transcript late would be weird. | No — a widget landing moments after return is exactly when it helps. |
+
+## Triggers (v0.2)
 
 | Trigger | Detection | Behaviour |
 |---|---|---|
-| Terminal focus out → in | DECSET `?1004` → `ESC[O` / `ESC[I` on stdin | Draft a recap in background on focus-out; reveal on focus-in if the out-duration ≥ `--recap-focus-min-seconds` (default 3s). |
-| Idle after turn ends | `setTimeout(idleMs)` armed on `turn_end` | Generate and immediately show after `--recap-idle-seconds` (default 45s) of no user input. Idle path is the fallback for terminals without focus reporting. |
-| `/resume` (and `/fork`) | `session_start { reason: "resume" \| "fork" }` | Auto-recap the prior session so you know where you left off. |
+| Away timer | DECSET `?1004` focus-out, then `--recap-away-seconds` (default 90) of continuous blur | Generate and show; the widget is parked above the editor for when you return. |
+| Turn ends while away | `turn_end` while blurred, debounced `3s` | The prime multi-tab moment: the agent finished while you were in another tab. Debounce lets mid-loop `turn_end`→`turn_start` pairs pass without drafting. |
+| Idle fallback | `setTimeout` armed on `turn_end`, **only when focus reporting is unproven** | Generate after `--recap-idle-seconds` (default 120) of no input. Covers terminals without `?1004`. Disarmed permanently once a real focus event is seen. |
+| `/resume` / `/fork` | `session_start { reason: "resume" \| "fork" }` | Auto-recap the prior session so you know where you left off. |
 | Manual | `/recap` command | Generate now, bypass the activity gate. |
 
-All four cancel each other cleanly via an `AbortController`; the next `input`,
-`agent_start`, or new turn clears the widget.
+All triggers share one in-flight slot (`AbortController`); the next `input`,
+`agent_start`, or `turn_start` cancels drafts and clears the widget.
+
+Removed from v0.1: draft-on-every-focus-out + reveal-on-focus-in with a
+min-away threshold (`--recap-focus-min-seconds`). That design fired a model
+call on every alt-tab and cancelled most of them; the blur-timer model spends
+one call only after a genuine absence, and the park/reveal/cancel machinery
+(`pendingRecap`, quick-glance suppression) disappears entirely.
+
+### Focus-out during long-running agent activity
+
+Unchanged from v0.1, and matches CC's pending bit: if an away/post-turn
+trigger fires while a turn is still loading, generation is deferred to
+`agent_end` (if still blurred). `--recap-during-active` opts back into
+mid-flight drafts.
 
 ## Display
 
 - `ctx.ui.setWidget("session-recap", [...], { placement: "aboveEditor" })`
-- Two lines: accent-bold `✦ recap` header + dim one-liner body.
+- Accent-bold `✦ recap` header + up to 4 dim wrapped lines (~100 cols).
 - Cleared on: user input, new turn start, session reload, session shutdown.
-- **No session persistence.** Recap lives only in the widget for the active session.
+- **No session persistence.** CC appends a transcript message instead; for pi
+  a widget is idiomatic and avoids polluting the session file.
 
-## Model selection — decision
+## Model selection — decision (unchanged from v0.1)
 
 Default must not surprise users with auth/login issues.
 
-**Decision:** default to the **currently active model**, but invoke it as a tiny throwaway completion: no tools, no Agent Skills, reasoning/thinking disabled, no prompt-cache retention, capped output. Trust the user's model choice — no auto-fallback to a cheap tier. If they're on Opus 4-7 the recap uses Opus 4-7. It's the only way to guarantee reliable generation across built-in + custom providers.
+**Decision:** default to the **currently active model**, invoked as a tiny
+throwaway completion: no tools, reasoning disabled, `cacheRetention: "none"`,
+`maxTokens: 256`. Any OAuth / env-var / custom-provider credential the user
+already has just works. No active model / failed auth resolution → skip
+silently.
 
-- Primary: `ctx.model` (whatever the user is running right now).
-- Reasoning: disabled for recap generation. Claude Code's away-summary path uses `thinkingConfig: { type: "disabled" }`; recap generation is similarly not worth reasoning tokens.
-- Cache: pass `cacheRetention: "none"` so providers do not add Anthropic cache-control markers or OpenAI prompt-cache session keys. We should not pay cache-write overhead for one-off recap prompts.
-- Output cap: `maxTokens: 256`. Avoid forcing `temperature: 0` because some reasoning/chat providers reject temperature on their Responses API even when we are not requesting reasoning.
-- Auth: `ctx.modelRegistry.getApiKeyAndHeaders(ctx.model)` — same primitive as every other pi call, so any OAuth / env-var / custom-provider credential the user already set up just works.
-- Custom / local models (via `pi.registerProvider`): same path. If the provider is registered and has a key, recap works. If not, we skip silently — never fail loudly.
-- No active model / no API key → skip silently, log to `console.error` for debugging.
+- CC uses Haiku here. We deliberately diverge: pi sessions run against
+  arbitrary providers and there is no universally-available cheap model we can
+  assume auth for. The cost envelope is protected by the transcript cap
+  (~3k input tokens) rather than by the model choice.
+- `apiKey` may legitimately be absent when `ok: true` (env/ambient-auth
+  providers such as Bedrock) — only bail when auth resolution itself fails,
+  and pass `env` through to `completeSimple`.
+- Escape hatch: `--recap-model "<provider>/<id>"`.
 
-**Escape hatch flag**
+> **Import note:** as of pi 0.80.x, `completeSimple`/`getModel` live in
+> `@earendil-works/pi-ai/compat` — the root export dropped them, which
+> silently broke v0.1.3 at runtime.
 
-- `--recap-model "<provider>/<id>"` — force a specific model (e.g. if the user wants Sonnet 4-6 for speed regardless of what they're chatting with).
+## Context fed to the model — two-tier transcript
 
-**Trade-off we're accepting**
+CC's insight: the recap's job is task re-orientation, and the task framing
+lives in the *conversation*, not in the last tool call. CC affords the last 30
+raw messages because it pays Haiku prices; we get the same orientation for
+~500 extra tokens by being selective:
 
-- If the user is on a heavy model (Opus 4-7, GPT-5.5), each recap uses that model for a small one-liner task. Still cheap in absolute terms because the prompt is capped at ~12k chars and the output is one line, but not the cheapest option. We prefer "no auth surprise" over "always-cheapest".
+**Tier 1 — task framing (cheap):**
+- Most recent compaction or branch-summary entry, trimmed to 600 chars —
+  already-distilled task context (pi's analog of CC's session memory).
+- Up to 4 user prompts *before* the latest one, trimmed to 300 chars each.
+  Old assistant text and tool results add cost, not orientation.
 
-## Context fed to the model
-
-**Current (v0.1):** transcript of the branch since the last user prompt:
-- User text (trimmed to 1200 chars)
-- Assistant text (trimmed to 1200 chars)
+**Tier 2 — recent detail (since the last user message, inclusive):**
+- User text (≤1200 chars), assistant text (≤1200 chars)
 - Tool calls as `- <name>(<JSON args, ≤280 chars>)`
 - Tool results as `Result(<name>): <text, ≤400 chars>`
-- Whole transcript capped at 12,000 chars.
 
-**TODO (v0.2+):** smarter context extraction. Options to explore:
-- [ ] User prompt + file diffs (from edit/write tool calls) only — compact, factual.
-- [ ] Tool-call list + brief summaries (skip raw file content).
-- [ ] Structured "files touched + what changed" block pre-built before the model call.
-- [ ] Keep last N message entries instead of trimming each.
-
-Trigger to revisit: recaps feel shallow, OR costs creep up on long sessions, OR we want to support much longer running tasks without a summariser pass.
+Whole transcript capped at 12,000 chars (~3k tokens), so worst-case cost is
+unchanged from v0.1. The same builder serves resume/fork recaps (v0.1 passed
+the whole branch for resume; tier 1 now covers that need).
 
 ## Prompt
 
-One user message, no system prompt, no tools. Verbatim:
+One user message plus a terse system prompt (some providers require a
+non-empty instruction string). Philosophy from CC: orient, don't report.
 
 ```
-You produce a single-line recap of what the coding agent just did, so the user
-can re-enter flow after switching focus back to this session.
+The user stepped away from this coding-agent session and is coming back.
+Write a short recap so they can re-enter flow.
 
 Rules:
-- Output ONE line, no preamble, no markdown.
-- Format: `recap: <what happened, past tense, concrete>. Next: <one-line next step>.`
-- If there is no meaningful next step, omit the `Next:` clause.
-- Use file/function names where relevant. Be concrete, not vague.
-- Max ~220 characters.
+- Write 1-3 short sentences of plain text. No preamble, no markdown, no bullets.
+- Start by stating the high-level task — what the user is building, fixing, or
+  debugging — not implementation minutiae.
+- End with the concrete next step, if there is one.
+- Skip status reports and commit recaps; orient the reader instead.
+- If the last turn was aborted or errored, say so explicitly (e.g. "aborted
+  during X", "errored at Y").
+- Use file/function names where they matter. Max ~400 characters.
 
 <transcript>
 …
 </transcript>
 ```
 
-Post-processing: keep only the first line of the response as a belt-and-braces
-guard against multi-line outputs.
+Post-processing: whitespace collapsed to single spaces, capped at 600 chars,
+soft-wrapped into ≤4 widget lines.
 
 ## Edge cases
 
-### 1. Focus-out during long-running agent activity
-
-Claude Code's `useAwaySummary` waits until the terminal has been blurred for a fixed delay. If that delay expires while `isLoading` is still true, it sets a pending bit and generates only after loading finishes, as long as the terminal is still blurred. On focus-in it cancels the timer, aborts in-flight generation, and clears the pending bit.
-
-Pi's recap extension mirrors that by default: `agent_start`/`agent_end` maintain `agentActive`; focus-out while active sets `focusDraftAfterAgent`; generation is deferred until `agent_end` (or a safe `turn_end` check) and is cancelled if the user refocuses or starts new input. This avoids drafting against a half-written branch during slow tool calls, which could otherwise show one recap and then replace it with a later one once tool results land.
-
-Escape hatch: `--recap-during-active` restores the older behavior and allows focus-triggered drafts while the agent turn is still running. This is useful for users who want a mid-flight "what's happened so far" peek and accept the possibility of stale/discarded duplicate drafts.
-
-### 2. Focus → defocus → focus again without user input
-
-**Current behaviour:** `handleFocusOut` re-enters `generateAndShow` if there is no in-flight request and no `draftingForFocus` flag, even if `pendingRecap` is still a perfectly valid recap for the same session state. Wasteful, and may overwrite a good recap with an identical one.
-
-**Fix (planned):**
-- Stamp each drafted recap with the current branch leaf id via `ctx.sessionManager.getLeafId()`.
-- On focus-out: if `pendingRecap` exists AND its stamp matches the current leaf, skip regen entirely.
-- Any new `turn_end` (or `input` / `agent_start`) invalidates the stamp.
-
-**Related:** also gate on "has any activity happened since the previous draft?" — if nothing, reuse; if yes, regenerate.
-
-### 3. Agent turn ends in error or abort
-
-**Question:** does `agent_end` fire reliably on user-Escape abort and on model/transport errors? Need to verify against pi's current behaviour. `turn_end` is documented as per-turn and should fire even on partial completion.
-
-**Fix (planned):**
-- Switch the idle-timer arming from `agent_end` → **`turn_end`**. `turn_end` fires after every turn regardless of outcome and is overwritten/cleared by the next `turn_start` or by `input`. This makes the idle fallback robust to errors and aborts without needing a separate error signal.
-- Focus-out path already works: `hasMeaningfulActivity` counts assistant words and tool calls, independent of success/failure. An aborted turn with partial work still qualifies.
-- Add a note in the recap prompt encouraging the model to mention "aborted" / "failed" state explicitly when present in the transcript, so the one-liner is honest (e.g. `recap: Started refactor of auth.ts; aborted before tests ran. Next: resume from middleware split.`).
-
-### 4. Terminal doesn't support DECSET ?1004
-
-Idle fallback covers it. `--recap-disable-focus` lets the user opt out explicitly (in case the escape sequences cause weird ghost characters in a less-compliant terminal).
-
-### 5. tmux without `focus-events on`
-
-tmux swallows focus events unless `set -g focus-events on` is set. Document in README. Idle fallback still works.
-
-### 6. Aborted-in-flight recap request
-
-Already handled: `AbortController` on every `complete()` call; cancelled on input / agent_start / session_shutdown / next trigger.
-
-### 7. Multiple pi sessions in the same terminal process
-
-Not applicable — pi is one process per terminal tab. The stdin listener we add is scoped to the process and cleaned up on `session_shutdown`.
+1. **Turn still running when a trigger fires** — deferred to `agent_end` via
+   the pending bit (CC-equivalent). `--recap-during-active` opts out.
+2. **Repeated blur/refocus with no new activity** — branch-leaf stamping skips
+   regeneration; the stamp is invalidated by `turn_end`, `turn_start`,
+   `input`, and `agent_start`.
+3. **Errored/aborted turns** — triggers arm on `turn_end`, which fires
+   regardless of outcome; the prompt asks the model to say so explicitly.
+4. **Terminal without DECSET `?1004`** — idle fallback covers it, and only
+   runs there: the first real focus event disarms the idle path for the
+   session. Caveat: on a supporting terminal where the user never switches
+   focus, the idle path stays armed (indistinguishable) — acceptable, since
+   the recap is then merely redundant, and the 120s default keeps it rare.
+5. **tmux** — needs `set -g focus-events on`; documented in README. Idle
+   fallback covers it otherwise.
+6. **User returns mid-draft** — the draft finishes and shows; it was triggered
+   by a genuine absence and lands at the "just got back" moment. Typing
+   cancels and clears as always.
+7. **Branch advances during a draft** — the leaf is snapshotted before the
+   model call; a stale draft is discarded rather than mis-stamped.
 
 ## Non-goals
 
-- Session persistence of recap history (not needed — the widget is transient by design).
+- Session persistence of recap history (CC does persist; see Display).
 - Multi-recap / rolling summary across many focus cycles.
-- Recap UI beyond the widget (no modal, no notifications by default).
+- Recap UI beyond the widget (no modal, no notifications).
+- Matching CC's small-fast-model choice (see Model selection).
 
-## Release checklist — v0.1.0
+## Follow-ups (v0.3+)
 
-### Code
-- [x] Extension lives at `session-recap/index.ts`.
-- [x] Default model = `ctx.model` via `completeSimple()` with no reasoning, no cache retention, capped output, and `--recap-model` override.
-- [x] Idle timer armed on `turn_end` (not `agent_end`) so error/abort turns still get a recap.
-- [x] `pendingRecap` + `lastDraftedLeafId` stamping; skip regen on focus-out if branch leaf hasn't changed.
-- [x] Prompt explicitly asks the model to mention aborted/errored turn state when present.
-- [x] `--recap-disable-focus` escape hatch in case DECSET `?1004` misbehaves.
-- [x] Cleanup: `\x1b[?1004l` + listener removal on `session_shutdown`.
-
-### Packaging
-- [x] `session-recap/package.json` (`@tmustier/pi-session-recap` v0.1.0).
-- [x] Added `./session-recap/index.ts` to root `package.json` → `pi.extensions`.
-- [x] Root version bumped.
-
-### Docs
-- [x] `session-recap/README.md` — features, install, flags, terminal compatibility table.
-- [x] `session-recap/CHANGELOG.md`.
-- [x] Row added to repo-root `README.md`.
-- [x] `DESIGN.md` retained as design-of-record.
-
-### Release
-- [ ] Follow `RELEASING.md`: commit, tag `session-recap/v0.1.0`, publish `@tmustier/pi-session-recap` + repo `pi-extensions`, push tag, GitHub release.
-
-## Follow-ups (v0.2+)
-
-- [ ] **Smarter context feeding**: try feeding user prompt + file diffs (from `edit`/`write` tool-call args) only, instead of the full trimmed transcript. Simpler, factual, likely cheaper. Alternative: pre-build a structured "files touched + what changed" block.
-- [ ] **Verify `turn_end` really fires on every abort path** (user Escape mid-stream, provider errors, transport failures). If there's a gap, add a belt-and-braces `session_before_compact` / `session_shutdown` fallback.
-- [ ] Optional: small e2e test harness to trigger fake `turn_end` / focus-in/out sequences and assert widget state transitions.
+- [ ] Optional e2e harness driving fake focus sequences + `turn_end` events
+      and asserting widget state transitions (manual tmux testing works but is
+      tedious).
+- [ ] Consider a provider-aware cheap-model default (e.g. Haiku when the
+      active provider is Anthropic) once pi exposes a reliable "sibling small
+      model" lookup.
+- [ ] Revisit widget wrap width — read the real terminal width from the TUI
+      instead of assuming ~100 cols.
