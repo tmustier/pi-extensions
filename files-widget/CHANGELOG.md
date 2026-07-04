@@ -8,6 +8,8 @@ All notable changes to this extension will be documented in this file.
 - `/readfiles` now supports browsing outside the current working directory. Press `u` to re-root to the parent, `.` to jump back to where you started, or pass an explicit starting path (`/readfiles <path>` or `/readfiles ~/somewhere`). The browser header shows the current root so you always know where you are, and comments on files outside the project use absolute paths so the agent can still find them.
 
 ### Fixed
+- Git status, diff stats, and untracked-file discovery now work when the browser root is a subdirectory of the git repository (e.g. after `u`, `.`, or `/readfiles <subdir>`, or when pi runs from a repo subdirectory). Previously repo-root-relative git paths were mixed with root-relative node keys, producing phantom tree entries, missing statuses, and unopenable nested paths.
+- Re-rooting the browser while a background directory scan or line-count batch is in flight no longer lets the stale batch mutate the new root's tree, node index, or scan state.
 - Use `where` instead of `which` on Windows to detect `bat`, `delta`, and `glow`, so the dependency check works when running from PowerShell or cmd.exe.
 
 ## [0.1.21] - 2026-05-07

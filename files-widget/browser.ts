@@ -315,6 +315,10 @@ export function createFileBrowser(
   const scanQueue: Array<{ node: FileNode; depth: number }> = [];
   const scanQueued = new Set<string>();
   let scanTimer: ReturnType<typeof setTimeout> | null = null;
+  // Incremented on every (re-)root. In-flight async scan/line-count batches
+  // capture the value when they start and bail after each await if it changed,
+  // so work belonging to an old root can never mutate state for the new one.
+  let rootGeneration = 0;
 
   const normalizeGitPath = (path: string): string => path.split(sep).join("/");
 
@@ -376,15 +380,19 @@ export function createFileBrowser(
   async function processLineCountBatch(): Promise<void> {
     lineCountTimer = null;
     if (!browser.root) return;
+    const generation = rootGeneration;
     const batch = lineCountQueue.splice(0, LINE_COUNT_BATCH_SIZE);
     if (batch.length === 0) return;
 
     await Promise.all(
       batch.map(async node => {
         await updateLineCount(node);
-        lineCountPending.delete(node.path);
+        if (generation === rootGeneration) {
+          lineCountPending.delete(node.path);
+        }
       })
     );
+    if (generation !== rootGeneration) return;
 
     updateTreeStats(browser.root);
     browser.stats = getTreeStats(browser.root);
@@ -436,9 +444,10 @@ export function createFileBrowser(
     }
   }
 
-  async function scanDirectory(node: FileNode, depth: number): Promise<void> {
+  async function scanDirectory(node: FileNode, depth: number, generation: number): Promise<void> {
     try {
       const entries = await readdir(node.path, { withFileTypes: true });
+      if (generation !== rootGeneration) return;
       const sorted = [...entries].sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
 
       if (node.path === rootPath && browser.scanState.mode === "full" && sorted.length >= SAFE_MODE_ENTRY_THRESHOLD) {
@@ -457,11 +466,13 @@ export function createFileBrowser(
         const childDepth = depth + 1;
 
         if (entry.isDirectory()) {
+          const dirRealPath = await realpath(fullPath).catch(() => resolve(fullPath));
+          if (generation !== rootGeneration) return;
           const dirNode: FileNode = {
             name: entry.name,
             path: fullPath,
             isDirectory: true,
-            realPath: await realpath(fullPath).catch(() => resolve(fullPath)),
+            realPath: dirRealPath,
             parent: node,
             children: undefined,
             expanded: childDepth < 1,
@@ -477,6 +488,7 @@ export function createFileBrowser(
 
         if (entry.isSymbolicLink()) {
           const pathInfo = await getPathInfo(fullPath, true);
+          if (generation !== rootGeneration) return;
           if (pathInfo.isDirectory) {
             const isCycle = pathInfo.realPath ? hasAncestorRealPath(node, pathInfo.realPath) : false;
             const dirNode: FileNode = {
@@ -526,16 +538,21 @@ export function createFileBrowser(
 
       node.children = [...dirs, ...files];
     } catch {
-      node.children = [];
+      if (generation === rootGeneration) {
+        node.children = [];
+      }
     } finally {
-      node.loading = false;
-      scanQueued.delete(node.path);
+      if (generation === rootGeneration) {
+        node.loading = false;
+        scanQueued.delete(node.path);
+      }
     }
   }
 
   async function processScanBatch(): Promise<void> {
     scanTimer = null;
     if (!browser.root) return;
+    const generation = rootGeneration;
     const batch = scanQueue.splice(0, getScanBatchSize());
     if (batch.length === 0) {
       browser.scanState.isScanning = false;
@@ -544,7 +561,8 @@ export function createFileBrowser(
     }
 
     for (const item of batch) {
-      await scanDirectory(item.node, item.depth);
+      await scanDirectory(item.node, item.depth, generation);
+      if (generation !== rootGeneration) return;
     }
 
     browser.scanState.pending = scanQueue.length;
@@ -732,6 +750,7 @@ export function createFileBrowser(
   }
 
   function loadRoot(newRoot: string): void {
+    rootGeneration += 1;
     rootPath = resolve(newRoot);
 
     repo = isGitRepo(rootPath);
