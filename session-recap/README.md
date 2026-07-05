@@ -96,7 +96,7 @@ Filter to just this extension in `~/.pi/agent/settings.json`:
 ## Behaviour notes
 
 - **Uses `turn_end`, not `agent_end`**, to arm triggers, so a turn that errors or is aborted still gets recapped — and the prompt asks the model to say so explicitly.
-- **No duplicate drafts**: the last-drafted branch-leaf is stamped; blur/refocus churn without new session activity reuses the recap rather than regenerating.
+- **No duplicate drafts**: the last-drafted recap prompt is fingerprinted; blur/refocus churn or session metadata-only changes reuse the recap rather than regenerating.
 - **Defers during active work by default**: if a trigger fires while a turn is still loading, the draft waits for the agent to finish, matching Claude Code's away-summary pending behaviour. Use `--recap-during-active` to allow mid-flight recaps.
 - **Aborts on new input**: any in-flight recap request is cancelled when you start typing or a new turn begins.
 - **No session persistence**: the recap lives only in the widget for the active session — nothing is stored.

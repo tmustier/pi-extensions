@@ -44,6 +44,7 @@
  *   /recap                     Force-generate a recap right now
  */
 
+import { createHash } from "node:crypto";
 import { completeSimple, getModel } from "@earendil-works/pi-ai/compat";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
@@ -83,6 +84,11 @@ const POST_TURN_DEBOUNCE_MS = 3000;
 const EARLIER_USER_PROMPTS = 4;
 const EARLIER_PROMPT_CHARS = 300;
 const COMPACTION_SUMMARY_CHARS = 600;
+
+// Model input cap. The dedupe fingerprint hashes exactly this capped prompt
+// payload, so irrelevant session metadata or over-cap transcript changes do
+// not spend another recap call.
+const TRANSCRIPT_CHAR_CAP = 12000;
 
 // Widget body wrapping.
 const WRAP_WIDTH = 100;
@@ -205,6 +211,10 @@ function buildTranscript(entries: Entry[]): string {
 	return lines.join("\n");
 }
 
+function recapStateKey(transcript: string): string {
+	return createHash("sha256").update(transcript.slice(0, TRANSCRIPT_CHAR_CAP)).digest("hex");
+}
+
 /**
  * Only draft a recap if there has been real agent activity since the last user
  * message: at least one tool call, or ~30+ words of assistant text.
@@ -294,7 +304,7 @@ async function generateRecap(
 		'(e.g. "aborted during X", "errored at Y").\n' +
 		"- Use file/function names where they matter. Max ~400 characters.\n\n" +
 		"<transcript>\n" +
-		transcript.slice(0, 12000) +
+		transcript.slice(0, TRANSCRIPT_CHAR_CAP) +
 		"\n</transcript>";
 
 	const response = await completeSimple(
@@ -405,9 +415,11 @@ export default function (pi: ExtensionAPI) {
 	// demonstrably supports focus reporting, so the idle fallback is redundant.
 	let focusEventsSeen = false;
 
-	// Leaf-id of the branch state we last drafted for. Lets us skip regen when
-	// nothing has happened in the session since the last recap.
-	let lastDraftedLeafId: string | undefined;
+	// Fingerprint of the recap-relevant transcript we last drafted. This is more
+	// precise than the raw branch leaf: Pi appends metadata entries such as
+	// session names, model/thinking changes, labels, or leaf markers that can
+	// advance the leaf without changing the recap prompt at all.
+	let lastDraftedStateKey: string | undefined;
 
 	const awayMs = (): number => {
 		const n = Number(pi.getFlag("recap-away-seconds") ?? DEFAULT_AWAY_SECONDS);
@@ -457,14 +469,6 @@ export default function (pi: ExtensionAPI) {
 	const idleFallbackEligible = (): boolean =>
 		!focusEnabled || isFocusDisabled() || !focusEventsSeen;
 
-	const getLeafId = (ctx: ExtensionContext): string | undefined => {
-		try {
-			return ctx.sessionManager.getLeafId() ?? undefined;
-		} catch {
-			return undefined;
-		}
-	};
-
 	const generateAndShow = async (ctx: ExtensionContext, opts: { reason: RecapReason }) => {
 		const entries = ctx.sessionManager.getBranch() as Entry[];
 		if (!hasMeaningfulActivity(entries) && opts.reason !== "manual") return;
@@ -472,10 +476,11 @@ export default function (pi: ExtensionAPI) {
 		const transcript = buildTranscript(entries);
 		if (!transcript.trim()) return;
 
-		// Snapshot the leaf we're summarising BEFORE we await. If the branch
-		// advances while the model call is in flight, the recap reflects stale
-		// content — we must discard it rather than stamp the wrong leaf.
-		const startLeaf = getLeafId(ctx);
+		// Snapshot the exact recap prompt we're summarising BEFORE we await. If
+		// recap-relevant content changes while the model call is in flight, discard
+		// the stale draft; metadata-only leaf changes should not invalidate it.
+		const startStateKey = recapStateKey(transcript);
+		if (opts.reason !== "manual" && lastDraftedStateKey === startStateKey) return;
 
 		// Take ownership of the active-request slot. Any prior request is
 		// cancelled; we'll only clear shared state in the finally if we're
@@ -492,12 +497,15 @@ export default function (pi: ExtensionAPI) {
 		try {
 			const recap = await generateRecap(transcript, ctx, modelOverride(), controller.signal);
 			if (!recap || controller.signal.aborted) return;
-			// Discard the recap if the branch moved on while we were drafting.
-			if (getLeafId(ctx) !== startLeaf) return;
+			// Discard the recap if the recap prompt changed while we were drafting.
+			// If only session metadata changed, the prompt key stays the same and the
+			// draft remains valid.
+			const currentTranscript = buildTranscript(ctx.sessionManager.getBranch() as Entry[]);
+			if (recapStateKey(currentTranscript) !== startStateKey) return;
 
-			// Stamp with the leaf we actually summarised, not the live one.
-			lastDraftedLeafId = startLeaf;
-			// Another trigger has produced a recap for this leaf — kill the
+			// Stamp the prompt we actually summarised, not the live branch leaf.
+			lastDraftedStateKey = startStateKey;
+			// Another trigger has produced a recap for this content — kill the
 			// other timers so we don't issue a second call later.
 			clearIdleTimer();
 			clearPostTurnTimer();
@@ -528,10 +536,8 @@ export default function (pi: ExtensionAPI) {
 		}
 		if (activeController) return; // one request at a time
 
-		// Skip regen if we already drafted for exactly this session state.
-		const leaf = getLeafId(ctx);
-		if (lastDraftedLeafId && leaf === lastDraftedLeafId) return;
-
+		// generateAndShow fingerprints the recap prompt and returns before the
+		// model call when we have already drafted for the same session content.
 		void generateAndShow(ctx, { reason: "focus" });
 	};
 
@@ -645,8 +651,6 @@ export default function (pi: ExtensionAPI) {
 	// and are cleared by anything that indicates new activity or input.
 
 	pi.on("turn_end", async (_event, ctx) => {
-		// A new turn (successful or not) invalidates any prior draft.
-		lastDraftedLeafId = undefined;
 		if (isDisabled() || !ctx.hasUI) return;
 
 		// Prime multi-tab moment: the agent produced output while the user is
@@ -667,11 +671,11 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("turn_start", async () => {
 		// Another turn is starting in the same agent loop — any armed trigger
-		// or in-flight draft is stale.
+		// or in-flight draft is stale. The dedupe stamp itself is content-based,
+		// so it does not need manual invalidation.
 		clearIdleTimer();
 		clearPostTurnTimer();
 		cancelActive();
-		lastDraftedLeafId = undefined;
 	});
 
 	pi.on("input", async (_event, ctx) => {
@@ -680,7 +684,6 @@ export default function (pi: ExtensionAPI) {
 		clearAwayTimer();
 		cancelActive();
 		focusDraftAfterAgent = false;
-		lastDraftedLeafId = undefined;
 		clearRecap(ctx);
 	});
 
@@ -689,7 +692,6 @@ export default function (pi: ExtensionAPI) {
 		clearIdleTimer();
 		clearPostTurnTimer();
 		cancelActive();
-		lastDraftedLeafId = undefined;
 		clearRecap(ctx);
 	});
 

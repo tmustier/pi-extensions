@@ -1,6 +1,6 @@
 # session-recap — design & plan
 
-> Status: **v0.2.0 — away-recap redesign**  ·  Lives in `tmustier/pi-extensions/session-recap/`
+> Status: **v0.2.1 — away-recap redesign + metadata-stable dedupe**  ·  Lives in `tmustier/pi-extensions/session-recap/`
 > v0.1 guessed at Claude Code's recap design; v0.2 is informed by the actual
 > implementation from the leaked Claude Code source (`tmustier/cc-inv`,
 > 2026-03-31): `src/services/awaySummary.ts` + `src/hooks/useAwaySummary.ts`.
@@ -29,7 +29,7 @@ line 142.
 | Model | `getSmallFastModel()` — Haiku or `ANTHROPIC_SMALL_FAST_MODEL`. Never the active model. | Active model (no auth surprises across custom providers) + `--recap-model` override. See trade-off below. |
 | Context | Last **30 raw messages** + session memory, instruction appended as a user message, `skipCacheWrite: true`. | Two-tier compact text transcript (~12k char cap). 30 raw messages is only affordable at Haiku pricing; on the active model it could be 30–80k tokens per throwaway hint. |
 | Prompt | "Write exactly 1-3 short sentences. Start by stating the high-level task — what they are building or debugging, not implementation details. Next: the concrete next step. **Skip status reports and commit recaps.**" | Adopted near-verbatim. This was v0.1's biggest miss — our old prompt asked for a status report, which is exactly what CC bans. |
-| Dedupe | Max one summary per user turn (`hasSummarySinceLastUserTurn`). | Branch-leaf-id stamping (equivalent effect). |
+| Dedupe | Max one summary per user turn (`hasSummarySinceLastUserTurn`). | Recap-prompt fingerprinting (same prompt = no new model call, even if Pi appends metadata entries). |
 | In-flight abort on refocus | Yes — summary appended to transcript late would be weird. | No — a widget landing moments after return is exactly when it helps. |
 
 ## Triggers (v0.2)
@@ -142,9 +142,10 @@ soft-wrapped into ≤4 widget lines.
 
 1. **Turn still running when a trigger fires** — deferred to `agent_end` via
    the pending bit (CC-equivalent). `--recap-during-active` opts out.
-2. **Repeated blur/refocus with no new activity** — branch-leaf stamping skips
-   regeneration; the stamp is invalidated by `turn_end`, `turn_start`,
-   `input`, and `agent_start`.
+2. **Repeated blur/refocus with no new activity** — recap-prompt fingerprinting skips
+   regeneration. The fingerprint is derived from the capped transcript sent to
+   the model, not from the raw session leaf, so metadata-only entries do not
+   spend another call.
 3. **Errored/aborted turns** — triggers arm on `turn_end`, which fires
    regardless of outcome; the prompt asks the model to say so explicitly.
 4. **Terminal without DECSET `?1004`** — idle fallback covers it, and only
@@ -157,8 +158,9 @@ soft-wrapped into ≤4 widget lines.
 6. **User returns mid-draft** — the draft finishes and shows; it was triggered
    by a genuine absence and lands at the "just got back" moment. Typing
    cancels and clears as always.
-7. **Branch advances during a draft** — the leaf is snapshotted before the
-   model call; a stale draft is discarded rather than mis-stamped.
+7. **Branch advances during a draft** — the recap prompt fingerprint is
+   snapshotted before the model call; stale drafts are discarded only when the
+   recap-relevant transcript changed. Metadata-only leaf changes remain valid.
 
 ## Non-goals
 

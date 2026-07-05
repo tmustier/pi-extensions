@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.2.1] - 2026-07-05
+
+### Fixed
+- Avoid redundant automatic recap generation when the recap prompt has not changed, even if Pi has advanced the session leaf with metadata-only entries (for example session info, model/thinking changes, labels, or leaf markers). Dedupe now uses a fingerprint of the capped recap transcript rather than the raw branch leaf id.
+
 ## [0.2.0] - 2026-07-04
 
 Away-recap redesign informed by Claude Code's actual away-summary implementation (from the leaked source in `tmustier/cc-inv`: `services/awaySummary.ts` + `hooks/useAwaySummary.ts`). See DESIGN.md for the full comparison.
