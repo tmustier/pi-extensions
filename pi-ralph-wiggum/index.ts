@@ -77,6 +77,7 @@ interface LoopState {
 	startedAt: string;
 	completedAt?: string;
 	lastReflectionAt: number; // Last iteration we reflected at
+	ownerSessionId?: string; // Session that currently owns automatic prompt injection for this loop
 }
 
 const STATUS_ICONS: Record<LoopStatus, string> = { active: "▶", paused: "⏸", completed: "✓" };
@@ -89,6 +90,7 @@ export default function (pi: ExtensionAPI) {
 	const ralphDir = (ctx: ExtensionContext) => path.resolve(ctx.cwd, RALPH_DIR);
 	const archiveDir = (ctx: ExtensionContext) => path.join(ralphDir(ctx), "archive");
 	const sanitize = (name: string) => name.replace(/[^a-zA-Z0-9_-]/g, "_").replace(/_+/g, "_");
+	const sessionId = (ctx: ExtensionContext) => ctx.sessionManager?.getSessionId?.();
 
 	function getPath(ctx: ExtensionContext, name: string, ext: string, archived = false): string {
 		const dir = archived ? archiveDir(ctx) : ralphDir(ctx);
@@ -349,6 +351,7 @@ export default function (pi: ExtensionAPI) {
 				status: "active",
 				startedAt: existing?.startedAt || new Date().toISOString(),
 				lastReflectionAt: 0,
+				ownerSessionId: sessionId(ctx),
 			};
 
 			saveState(ctx, state);
@@ -405,6 +408,7 @@ export default function (pi: ExtensionAPI) {
 
 			state.status = "active";
 			state.active = true;
+			state.ownerSessionId = sessionId(ctx);
 			state.iteration++;
 			saveState(ctx, state);
 			currentLoop = loopName;
@@ -665,6 +669,7 @@ Examples:
 				status: "active",
 				startedAt: new Date().toISOString(),
 				lastReflectionAt: 0,
+				ownerSessionId: sessionId(ctx),
 			};
 
 			saveState(ctx, state);
@@ -814,14 +819,14 @@ Examples:
 
 	pi.on("session_start", async (_event, ctx) => {
 		const active = listLoops(ctx).filter((l) => l.status === "active");
+		const currentSessionId = sessionId(ctx);
+		const owned = currentSessionId ? active.filter((l) => l.ownerSessionId === currentSessionId) : [];
 
-		// Rehydrate currentLoop from disk. The module is re-initialized on
-		// session reload (including auto-compaction and /compact), which would
-		// otherwise leave `currentLoop` null and silently break ralph_done,
-		// agent_end, and before_agent_start. Pick the most-recently-updated
-		// active loop when there are multiple, using the state file mtime.
-		if (!currentLoop && active.length > 0) {
-			const mostRecent = active.reduce((best, candidate) => {
+		// Rehydrate only loops that are owned by this Pi session. Older state
+		// files do not have ownerSessionId, so a new unrelated session must use
+		// /ralph resume <name> before Ralph injects loop instructions.
+		if (!currentLoop && owned.length > 0) {
+			const mostRecent = owned.reduce((best, candidate) => {
 				const bestMtime = safeMtimeMs(getPath(ctx, best.name, ".state.json"));
 				const candidateMtime = safeMtimeMs(getPath(ctx, candidate.name, ".state.json"));
 				return candidateMtime > bestMtime ? candidate : best;
