@@ -53,11 +53,11 @@ Recommended loop:
 
 The extension uses cmux's own browser profiles/data stores. Sign in normally in the visible native pane, or use `browser_session` state/profile operations for supported continuity. The extension never reads Chrome, Safari, Codex, or system credential stores.
 
-Do not commit browser state files: they can contain authenticated site state. Store them outside repositories and protect them like credentials.
+Browser state, cookie/storage exports, and profile artifacts can contain authenticated site state, bearer material, or personal data. Store them outside repositories, restrict filesystem access, never paste them into prompts/logs/issues, and protect them like credentials. The extension redacts sensitive command arguments from failures and tool metadata, but it cannot make an exported artifact safe.
 
 ### Uploads
 
-`browser_session { action: "upload", path, selector }` asks for interactive approval, then reads one explicit local regular file (maximum 25 MiB), creates a DOM `File` in the current page through cmux's supported eval operation, and dispatches `input`/`change` on the selected `<input type="file">`. Non-interactive uploads are rejected, and file contents are not included in the tool result.
+`browser_session { action: "upload", path, selector }` asks for interactive approval, then reads one explicit local regular file (maximum 25 MiB), creates a DOM `File` in the current page through cmux's supported eval operation, and dispatches `input`/`change` on the selected `<input type="file">`. Non-interactive uploads are rejected. File paths, contents, encoded chunks, and eval payloads are omitted from failures and tool-result metadata; only safe command/surface/exit diagnostics are retained.
 
 Some sites deliberately reject synthetic file-input events. For those sites, drag the file into the visible cmux browser pane; cmux supports native HTML5 file drop.
 

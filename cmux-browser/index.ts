@@ -306,7 +306,7 @@ export default function cmuxBrowserExtension(pi: ExtensionAPI) {
 					`${absolutePath}\n\nTarget: ${params.selector}`,
 				);
 				if (!approved) throw new Error("Browser upload cancelled by user.");
-				return toolResult(params.action, await client.upload(params.surface, params.selector, params.path, ctx.cwd, signal), absolutePath);
+				return toolResult(params.action, await client.upload(params.surface, params.selector, params.path, ctx.cwd, signal));
 			}
 			if (params.action === "profile_delete") {
 				if (!params.name) throw new Error("name is required for profile_delete");
@@ -352,7 +352,7 @@ export default function cmuxBrowserExtension(pi: ExtensionAPI) {
 			const result = isProfileAction
 				? await client.run(["browser", ...args], signal, timeout)
 				: await client.browser(params.surface, args, signal, timeout);
-			return toolResult(params.action, result, params.path);
+			return toolResult(params.action, result);
 		},
 		renderCall: renderCall("session"),
 		renderResult,

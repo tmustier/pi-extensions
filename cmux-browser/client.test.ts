@@ -79,6 +79,56 @@ test("upload sends bounded page-eval chunks, dispatches file events, and never e
 	assert.equal(JSON.stringify(result).includes(secretFixture), false);
 });
 
+test("failed upload chunks never expose source content or base64 while preserving safe diagnostics", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "pi-cmux-browser-test-"));
+	const path = join(directory, "UPLOAD_SECRET_SENTINEL_53.txt");
+	await writeFile(path, "UPLOAD_SECRET_SENTINEL_53");
+	const { exec } = recorder([
+		{},
+		{ code: 23, stderr: "cmux eval rejected script globalThis.__piCmuxUploadBase64 += \\\"VVBMT0FEX1NFQ1JFVF9TRU5USU5FTF81Mw==\\\"" },
+		{},
+	]);
+	const client = new CmuxBrowserClient(exec, "surface-uuid");
+	await assert.rejects(
+		() => client.upload(undefined, "#upload", path, directory),
+		(error: Error) => {
+			assert.match(error.message, /cmux browser <surface> eval failed \(exit 23\)/);
+			assert.match(error.message, /cmux eval rejected script/);
+			assert.equal(error.message.includes("UPLOAD_SECRET_SENTINEL_53"), false);
+			assert.equal(error.message.includes("VVBMT0FEX1NFQ1JFVF9TRU5USU5FTF81Mw=="), false);
+			return true;
+		},
+	);
+});
+
+test("sensitive argv is absent from failures and successful command metadata", async () => {
+	const cases = [
+		["eval", "--script", "EVAL_SECRET_53"],
+		["addscript", "--script", "SCRIPT_SECRET_53"],
+		["addinitscript", "--script", "INIT_SECRET_53"],
+		["cookies", "set", "--name", "session", "--value", "COOKIE_SECRET_53"],
+		["cookies", "set", "--name", "structural-value", "--value", "open"],
+		["storage", "local", "set", "auth", "STORAGE_SECRET_53"],
+		["state", "load", "/tmp/STATE_SECRET_53.json"],
+	];
+	for (const args of cases) {
+		const secret = args.at(-1)!;
+		const failed = recorder([{ code: 9, stderr: `safe diagnostic: rejected ${secret}` }]);
+		const client = new CmuxBrowserClient(failed.exec, "surface-uuid");
+		await assert.rejects(() => client.browser(undefined, args), (error: Error) => {
+			assert.match(error.message, /safe diagnostic: rejected \[REDACTED\]/);
+			assert.match(error.message, /exit 9/);
+			assert.equal(error.message.includes(secret), false);
+			return true;
+		});
+
+		const succeeded = recorder([{ stdout: JSON.stringify({ diagnostic: secret }) }]);
+		const result = await new CmuxBrowserClient(succeeded.exec, "surface-uuid").browser(undefined, args);
+		assert.equal(JSON.stringify(result).includes(secret), false);
+		assert.equal(result.stdout.includes("[REDACTED]"), true);
+	}
+});
+
 test("upload rejects directories and oversized files before browser execution", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "pi-cmux-browser-test-"));
 	const { calls, exec } = recorder();

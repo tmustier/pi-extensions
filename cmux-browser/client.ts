@@ -57,17 +57,65 @@ function parseJson(stdout: string): unknown | undefined {
 	}
 }
 
+const STRUCTURAL_ARGS = new Set([
+	"browser", "open", "open-split", "new", "status", "goto", "navigate", "back", "forward", "reload",
+	"snapshot", "eval", "wait", "click", "dblclick", "hover", "focus", "fill", "type", "press", "key",
+	"keydown", "keyup", "select", "scroll", "scroll-into-view", "screenshot", "get", "is", "find", "frame",
+	"dialog", "download", "profiles", "cookies", "storage", "tab", "console", "errors", "highlight", "state",
+	"addinitscript", "addscript", "addstyle", "viewport", "geolocation", "geo", "offline", "trace", "network",
+	"screencast", "input", "close-surface", "list", "save", "load", "add", "rename", "delete", "clear",
+]);
+
+function safeCommand(args: string[]): string[] {
+	const browserIndex = args.indexOf("browser");
+	if (browserIndex < 0) return args.slice(0, 1).filter((arg) => STRUCTURAL_ARGS.has(arg));
+	const safe = ["browser"];
+	const first = args[browserIndex + 1];
+	if (!first) return safe;
+	if (STRUCTURAL_ARGS.has(first)) return [...safe, first];
+	safe.push("<surface>");
+	const command = args[browserIndex + 2];
+	if (command && STRUCTURAL_ARGS.has(command)) safe.push(command);
+	return safe;
+}
+
+const VALUE_BEARING_COMMANDS = new Set([
+	"open", "goto", "navigate", "eval", "wait", "click", "dblclick", "hover", "focus", "fill", "type",
+	"press", "key", "keydown", "keyup", "select", "scroll", "scroll-into-view", "screenshot", "get", "find",
+	"frame", "dialog", "download", "profiles", "cookies", "storage", "highlight", "state", "addinitscript",
+	"addscript", "addstyle", "geolocation", "geo", "trace", "network", "input",
+]);
+
+function redactArgv(text: string, args: string[]): string {
+	let redacted = text;
+	const sensitive = new Set<string>();
+	const valueCommandIndex = args.findIndex((arg) => VALUE_BEARING_COMMANDS.has(arg));
+	for (const [index, arg] of args.entries()) {
+		if (!arg || arg === "true" || arg === "false") continue;
+		const commandValue = valueCommandIndex >= 0 && index > valueCommandIndex && !arg.startsWith("--");
+		if (!commandValue && (STRUCTURAL_ARGS.has(arg) || arg.startsWith("--"))) continue;
+		sensitive.add(arg);
+		for (const token of arg.match(/[A-Za-z0-9+/]{16,}={0,2}/g) ?? []) sensitive.add(token);
+	}
+	for (const value of [...sensitive].sort((a, b) => b.length - a.length)) {
+		redacted = redacted.split(value).join("[REDACTED]");
+		redacted = redacted.split(JSON.stringify(value).slice(1, -1)).join("[REDACTED]");
+	}
+	return redacted;
+}
+
 function formatFailure(args: string[], result: ExecResult): Error {
-	const detail = (result.stderr || result.stdout || `exit ${result.code}`).trim();
+	const command = safeCommand(args).join(" ") || "command";
+	const detail = redactArgv(result.stderr || result.stdout || `exit ${result.code}`, args).trim();
 	if (/broken pipe|failed to write to socket|connection refused|no such file/i.test(detail)) {
 		return new Error(
-			`cmux browser is unavailable (${detail}). Confirm Pi is running inside a live cmux workspace, run \`cmux ping\`, and retry.`,
+			`cmux browser is unavailable (exit ${result.code}: ${detail}). Confirm Pi is running inside a live cmux workspace, run \`cmux ping\`, and retry.`,
 		);
 	}
 	if (/not[_ -]supported/i.test(detail)) {
-		return new Error(`cmux/WKWebView does not support this operation: ${detail}`);
+		return new Error(`cmux/WKWebView does not support ${command} (exit ${result.code}): ${detail}`);
 	}
-	return new Error(`cmux ${args.join(" ")} failed: ${detail}`);
+	return new Error(`cmux ${command} failed (exit ${result.code}): ${detail}`);
 }
 
 export class CmuxBrowserClient {
@@ -100,10 +148,12 @@ export class CmuxBrowserClient {
 		const fullArgs = ["--json", "--id-format", "uuids", ...args];
 		const result = await this.execCmux(fullArgs, { signal, timeout });
 		if (result.code !== 0) throw formatFailure(args, result);
-		const json = parseJson(result.stdout);
+		const stdout = redactArgv(result.stdout, args);
+		const stderr = redactArgv(result.stderr, args);
+		const json = parseJson(stdout);
 		const surface = findSurface(json);
 		if (surface) this.activeSurface = surface;
-		return { args, stdout: result.stdout, stderr: result.stderr, json, surface: surface ?? this.activeSurface };
+		return { args: safeCommand(args), stdout, stderr, json, surface: surface ?? this.activeSurface };
 	}
 
 	async open(url: string, workspace: string | undefined, signal?: AbortSignal): Promise<BrowserCommandResult> {
@@ -131,12 +181,22 @@ export class CmuxBrowserClient {
 		signal?: AbortSignal,
 	): Promise<BrowserCommandResult> {
 		const absolutePath = resolve(cwd, path.replace(/^@/, ""));
-		const info = await stat(absolutePath);
-		if (!info.isFile()) throw new Error(`Upload path is not a regular file: ${absolutePath}`);
+		let info;
+		try {
+			info = await stat(absolutePath);
+		} catch {
+			throw new Error("Upload file could not be inspected. Confirm that the approved path exists and is readable.");
+		}
+		if (!info.isFile()) throw new Error("Upload path is not a regular file.");
 		if (info.size > MAX_UPLOAD_BYTES) {
 			throw new Error(`Upload is ${info.size} bytes; the safe DOM upload limit is ${MAX_UPLOAD_BYTES} bytes.`);
 		}
-		const data = (await readFile(absolutePath)).toString("base64");
+		let data: string;
+		try {
+			data = (await readFile(absolutePath)).toString("base64");
+		} catch {
+			throw new Error("Upload file could not be read. Confirm permissions and retry.");
+		}
 		const target = this.requireSurface(surface);
 		const evalScript = (script: string) => this.browser(target, ["eval", "--script", script], signal, 30_000);
 		await evalScript("globalThis.__piCmuxUploadBase64 = ''");
