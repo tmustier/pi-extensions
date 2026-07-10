@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- Add a native cmux browser extension for Pi with backgrounded browser surfaces, structured navigation/inspection/interaction/session tools, approval-gated uploads, screenshots, downloads, lifecycle recovery, tests, and rollback documentation.
+
 ## [0.1.42] - 2026-05-13
 
 ### Changed

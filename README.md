@@ -13,6 +13,7 @@ Personal extensions for the [Pi coding agent](https://github.com/badlogic/pi-mon
 | [/usage](usage-extension/) | 📊 Usage statistics dashboard. See cost, tokens, and messages by provider/model across Today, This Week, Last Week, and All Time — with a compact view for narrow terminals |
 | [/paste](raw-paste/) | Paste editable text, not [paste #1 +21 lines]. Running `/paste` with optional keybinding |
 | [/code](code-actions/) | Pick code blocks or inline snippets from assistant messages to copy, insert, or run with `/code` |
+| [cmux-browser](cmux-browser/) | Native in-workspace cmux browser panes for Pi: navigation, snapshots, interaction, tabs/auth state, files, screenshots, and debugging without focus theft |
 | [session-recap](session-recap/) | While-you-were-away recap above the editor when you return to a session. Keeps you in flow while multi-clauding |
 | [arcade](arcade/) | Play minigames while your tests run: 👾 sPIce-invaders, 👻 picman, 🏓 ping, 🧩 tetris, 🍄 mario-not |
 
@@ -51,6 +52,7 @@ If you keep a local clone, add extensions to your `~/.pi/agent/settings.json`:
 {
   "extensions": [
     "~/pi-extensions/files-widget",
+    "~/pi-extensions/cmux-browser/index.ts",
     "~/pi-extensions/tab-status/tab-status.ts",
     "~/pi-extensions/arcade/spice-invaders.ts",
     "~/pi-extensions/arcade/ping.ts",
