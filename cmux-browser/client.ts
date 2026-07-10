@@ -63,7 +63,7 @@ const STRUCTURAL_ARGS = new Set([
 	"keydown", "keyup", "select", "scroll", "scroll-into-view", "screenshot", "get", "is", "find", "frame",
 	"dialog", "download", "profiles", "cookies", "storage", "tab", "console", "errors", "highlight", "state",
 	"addinitscript", "addscript", "addstyle", "viewport", "geolocation", "geo", "offline", "trace", "network",
-	"screencast", "input", "close-surface", "list", "save", "load", "add", "rename", "delete", "clear",
+	"screencast", "input", "close-surface", "upload", "list", "save", "load", "add", "rename", "delete", "clear",
 ]);
 
 function safeCommand(args: string[]): string[] {
@@ -106,15 +106,19 @@ function redactArgv(text: string, args: string[]): string {
 
 function formatFailure(args: string[], result: ExecResult): Error {
 	const command = safeCommand(args).join(" ") || "command";
-	const detail = redactArgv(result.stderr || result.stdout || `exit ${result.code}`, args).trim();
-	if (/broken pipe|failed to write to socket|connection refused|no such file/i.test(detail)) {
+	const raw = result.stderr || result.stdout;
+	if (/broken pipe|failed to write to socket|connection refused|no such file/i.test(raw)) {
 		return new Error(
-			`cmux browser is unavailable (exit ${result.code}: ${detail}). Confirm Pi is running inside a live cmux workspace, run \`cmux ping\`, and retry.`,
+			`cmux browser is unavailable (${command}, exit ${result.code}). Confirm Pi is running inside a live cmux workspace, run \`cmux ping\`, and retry.`,
 		);
 	}
-	if (/not[_ -]supported/i.test(detail)) {
-		return new Error(`cmux/WKWebView does not support ${command} (exit ${result.code}): ${detail}`);
+	if (/not[_ -]supported/i.test(raw)) {
+		return new Error(`cmux/WKWebView does not support ${command} (exit ${result.code}).`);
 	}
+	if (args.some((arg) => VALUE_BEARING_COMMANDS.has(arg))) {
+		return new Error(`cmux ${command} failed (exit ${result.code}); cmux diagnostics were suppressed because this invocation contained sensitive arguments.`);
+	}
+	const detail = redactArgv(raw || `exit ${result.code}`, args).trim();
 	return new Error(`cmux ${command} failed (exit ${result.code}): ${detail}`);
 }
 
@@ -219,7 +223,14 @@ export class CmuxBrowserClient {
 				input.dispatchEvent(new Event('change', { bubbles: true }));
 				return { name: file.name, size: file.size, files: input.files?.length ?? 0 };
 			})()`;
-			return await evalScript(script);
+			await evalScript(script);
+			return {
+				args: ["browser", "<surface>", "upload"],
+				stdout: JSON.stringify({ ok: true, uploaded: true }),
+				stderr: "",
+				json: { ok: true, uploaded: true },
+				surface: target,
+			};
 		} finally {
 			await evalScript("delete globalThis.__piCmuxUploadBase64").catch(() => undefined);
 		}

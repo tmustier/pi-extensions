@@ -77,6 +77,12 @@ test("upload sends bounded page-eval chunks, dispatches file events, and never e
 	assert.ok(scripts.some((script) => script.includes("dispatchEvent(new Event('change'")));
 	assert.ok(scripts.some((script) => script.includes("delete globalThis.__piCmuxUploadBase64")));
 	assert.equal(JSON.stringify(result).includes(secretFixture), false);
+	assert.equal(JSON.stringify(result).includes(path), false);
+	assert.equal(JSON.stringify(result).includes("hello.txt"), false);
+	assert.deepEqual(Object.keys(result).sort(), ["args", "json", "stderr", "stdout", "surface"].sort());
+	assert.deepEqual(result.args, ["browser", "<surface>", "upload"]);
+	assert.deepEqual(result.json, { ok: true, uploaded: true });
+	assert.equal(result.stdout, JSON.stringify({ ok: true, uploaded: true }));
 });
 
 test("failed upload chunks never expose source content or base64 while preserving safe diagnostics", async () => {
@@ -93,7 +99,8 @@ test("failed upload chunks never expose source content or base64 while preservin
 		() => client.upload(undefined, "#upload", path, directory),
 		(error: Error) => {
 			assert.match(error.message, /cmux browser <surface> eval failed \(exit 23\)/);
-			assert.match(error.message, /cmux eval rejected script/);
+			assert.match(error.message, /diagnostics were suppressed/);
+			assert.equal(error.message.includes("cmux eval rejected script"), false);
 			assert.equal(error.message.includes("UPLOAD_SECRET_SENTINEL_53"), false);
 			assert.equal(error.message.includes("VVBMT0FEX1NFQ1JFVF9TRU5USU5FTF81Mw=="), false);
 			return true;
@@ -116,7 +123,8 @@ test("sensitive argv is absent from failures and successful command metadata", a
 		const failed = recorder([{ code: 9, stderr: `safe diagnostic: rejected ${secret}` }]);
 		const client = new CmuxBrowserClient(failed.exec, "surface-uuid");
 		await assert.rejects(() => client.browser(undefined, args), (error: Error) => {
-			assert.match(error.message, /safe diagnostic: rejected \[REDACTED\]/);
+			assert.match(error.message, /diagnostics were suppressed/);
+			assert.equal(error.message.includes("safe diagnostic"), false);
 			assert.match(error.message, /exit 9/);
 			assert.equal(error.message.includes(secret), false);
 			return true;
@@ -127,6 +135,20 @@ test("sensitive argv is absent from failures and successful command metadata", a
 		assert.equal(JSON.stringify(result).includes(secret), false);
 		assert.equal(result.stdout.includes("[REDACTED]"), true);
 	}
+});
+
+test("sensitive failures suppress transformed or escaped raw diagnostics by construction", async () => {
+	const transformed = "U\\u0050LOAD_SECRET_ SENTINEL_53 :: VVBMT0FEX1NFQ1JF\\nVF9TRU5USU5FTF81Mw==";
+	const { exec } = recorder([{ code: 17, stderr: transformed }]);
+	const client = new CmuxBrowserClient(exec, "surface-uuid");
+	await assert.rejects(() => client.browser(undefined, ["eval", "--script", "UPLOAD_SECRET_SENTINEL_53"]), (error: Error) => {
+		assert.match(error.message, /browser <surface> eval failed \(exit 17\)/);
+		assert.match(error.message, /diagnostics were suppressed/);
+		for (const fragment of ["U\\u0050LOAD", "SENTINEL_53", "VVBMT0FEX1NFQ1JF", "VF9TRU5USU5FTF81Mw=="]) {
+			assert.equal(error.message.includes(fragment), false);
+		}
+		return true;
+	});
 });
 
 test("upload rejects directories and oversized files before browser execution", async () => {
