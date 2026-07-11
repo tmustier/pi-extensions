@@ -13,11 +13,8 @@ export interface NavigationTarget {
 }
 
 const MAX_TOOL_OUTPUT_BYTES = 50 * 1024;
-const SENSITIVE_QUERY_KEY = /(?:^|[_-])(auth|authorization|code|credential|key|password|secret|session|sig|signature|token)(?:$|[_-])/i;
-const SENSITIVE_COMPACT_KEY = /(?:token|secret|password|credential|authorization|session|signature)/i;
-const SENSITIVE_EXACT_KEY = new Set(["apikey", "auth", "code", "key", "sig"]);
 const SAFE_SYNTHETIC_KEYS = new Set([
-	"ok", "opened", "navigated", "closed", "interacted", "updated", "download_ready",
+	"ok", "opened", "navigated", "closed", "interacted", "download_ready",
 ]);
 
 export const INSPECTION_ATTRIBUTES = [
@@ -47,11 +44,6 @@ export function inspectionArguments(property: string, target: string, attribute?
 	throw new Error("Unsupported inspection property.");
 }
 
-function isSensitiveParameterKey(key: string): boolean {
-	const compact = key.replace(/[^a-z0-9]/gi, "").toLowerCase();
-	return SENSITIVE_QUERY_KEY.test(key) || SENSITIVE_COMPACT_KEY.test(compact) || SENSITIVE_EXACT_KEY.has(compact);
-}
-
 export function navigationTarget(raw: string): NavigationTarget {
 	let url: URL;
 	try {
@@ -64,35 +56,17 @@ export function navigationTarget(raw: string): NavigationTarget {
 		throw new Error("Only http:, https:, and exactly about:blank are allowed. Open local/custom schemes manually in cmux.");
 	}
 	if (url.username || url.password) throw new Error("URLs containing credentials are not allowed; authenticate in the native pane.");
-	for (const key of url.searchParams.keys()) {
-		if (isSensitiveParameterKey(key)) {
-			throw new Error("URLs with credential-like parameters are not allowed; navigate manually in the native pane.");
-		}
+	if (url.pathname !== "/" || url.search || url.hash) {
+		throw new Error("Model navigation is limited to an origin root with no path, query, or fragment; navigate deeper manually in the native pane.");
 	}
-	if (url.hash) {
-		let fragment: string;
-		try {
-			fragment = decodeURIComponent(url.hash.slice(1));
-		} catch {
-			throw new Error("Navigation URL fragments must use valid percent encoding.");
-		}
-		for (const part of fragment.split(/[?&;]/)) {
-			const equals = part.indexOf("=");
-			if (equals >= 0 && isSensitiveParameterKey(part.slice(0, equals).replace(/^.*\//, ""))) {
-				throw new Error("URLs with credential-like parameters are not allowed; navigate manually in the native pane.");
-			}
-		}
-	}
-	return { url: url.href, origin: url.origin };
+	return { url: `${url.origin}/`, origin: url.origin };
 }
 
 export function compactOutput(result: BrowserCommandResult): string {
 	if (result.exposure === "synthetic") {
-		const safe: Record<string, boolean | number> = {};
-		if (result.json && typeof result.json === "object" && !Array.isArray(result.json)) {
-			for (const [key, value] of Object.entries(result.json)) {
-				if (SAFE_SYNTHETIC_KEYS.has(key) && (typeof value === "boolean" || typeof value === "number")) safe[key] = value;
-			}
+		const safe: Record<string, boolean> = {};
+		for (const [key, value] of Object.entries(result.output)) {
+			if (SAFE_SYNTHETIC_KEYS.has(key) && typeof value === "boolean") safe[key] = value;
 		}
 		return JSON.stringify(Object.keys(safe).length > 0 ? safe : { ok: true });
 	}

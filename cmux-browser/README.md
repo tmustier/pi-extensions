@@ -4,7 +4,7 @@ Control a real cmux `WKWebView` pane from Pi through cmux's documented CLI. The 
 
 ## Requirements
 
-- macOS with [cmux](https://cmux.com) 0.64.13 or newer
+- macOS with exactly [cmux](https://cmux.com) 0.64.13 (the extension checks this before every model operation)
 - cmux browser automation enabled (`cmux browser enable`)
 - Pi launched directly from a cmux terminal, with access to the live cmux workspace and socket
 
@@ -28,25 +28,18 @@ Then, from a fresh Pi session inside cmux:
 /browser https://example.com
 ```
 
-The user-supplied slash command authorizes that initial origin. Model-initiated origin changes require confirmation in Pi. Navigation permits only absolute `http:`/`https:` URLs or exactly `about:blank`; URL credentials and credential-like query parameters are rejected.
+The user-supplied slash command authorizes that initial origin. Model-initiated origin changes require confirmation in Pi. To keep all credentials and signed links out of process arguments by construction, navigation accepts only an `http(s)` origin root (for example, `https://example.com/`) or exactly `about:blank`. Any non-root path, query, fragment, or URL userinfo is rejected; navigate deeper manually in the visible pane.
 
 ## Model tools
 
 | Tool | Exposed operations |
 |---|---|
-| `browser_navigate` | Open, go to an approved URL, reload, read the approved origin, close |
-| `browser_inspect` | Accessibility snapshot; bounded text/count/box/safe-attribute reads; screenshot; console/errors; highlight |
-| `browser_interact` | Click/double-click/hover/focus, allowlisted key press, check/uncheck, bounded scroll, ref/load-state wait |
-| `browser_download` | Wait for a cmux-managed download; returns readiness only, never a host path |
+| `browser_navigate` | Open/go to an approved origin root, read the current origin, close |
+| `browser_inspect` | Bounded, element-name-redacted structural accessibility snapshot tied atomically to its reported origin |
 
-Recommended loop:
+The public cmux 0.64.13 CLI cannot atomically require an expected origin before an interaction, screenshot, generic property read, console/error read, reload, or download wait. A page could navigate between a separate origin check and those operations. They are therefore not model tools: perform interactions, reloads, credential entry, downloads, screenshots, and debugging manually in the visible native pane.
 
-1. Open or navigate.
-2. Request an interactive snapshot.
-3. Act on a fresh snapshot ref such as `e3`.
-4. Re-snapshot after navigation or a substantial DOM change.
-
-Arbitrary CSS selectors, JavaScript evaluation, automated text/value entry, file upload, tabs, cookie/storage access, state import/export, profile mutation, and caller-selected host paths are intentionally not exposed. Enter text, passwords, tokens, one-time codes, selections, and file choices directly in the visible native pane.
+Arbitrary selectors, JavaScript evaluation, automated text/value entry, file operations, tabs, cookie/storage access, state import/export, profile mutation, and caller-selected host paths are intentionally not exposed.
 
 ## Authentication and profile boundary
 
@@ -57,12 +50,12 @@ For stronger separation, cancel the prompt, select a dedicated profile in cmux, 
 ## Ownership, output, and files
 
 - A client may control only the strict top-level UUID returned by its own successful `browser open` call.
-- Only one extension-owned surface is active. There is no tab enumeration, arbitrary surface/workspace parameter, stale-handle recovery, or session resurrection.
+- Only one extension-owned surface is active. Client operations are queued and all model tools execute sequentially, preventing parallel opens or shared-state races. An uncertain/interrupted open blocks retries. Close discards ownership only after a non-interrupted cmux 0.64.13 response repeats the exact owned top-level `surface_id`; failure or malformed output retains ownership. A process-wide fail-closed marker carries unresolved lifecycle state across `/reload`, `/new`, resume, and fork. There is no tab enumeration, arbitrary surface/workspace parameter, stale-handle recovery, or session resurrection.
 - Command failures expose fixed operation/exit metadata only; raw cmux stdout/stderr and raw argv are never copied into tool errors or session details.
-- Successful mutation results are fixed synthetic metadata. Only explicit read operations can return bounded captured output.
-- Snapshot refs must match `e` followed by a positive decimal integer. Arbitrary selectors are rejected before cmux invocation.
-- Screenshots are written under a private per-session temporary directory, opened with `O_NOFOLLOW`, checked as a regular file with restrictive permissions, bounded to 10 MiB, and deleted after display.
-- Download waiting returns `{ "ok": true, "download_ready": true }`; destination handling remains in cmux and no path is returned to the model.
+- Successful mutation results use a synthetic result variant that cannot contain subprocess stdout, stderr, or parsed output; this is redaction by construction. Only explicit read operations can return bounded captured page output.
+- Raw cmux snapshot JSON is never forwarded: the extension projects only bounded accessibility snapshot text and authoritative ref keys, discarding `page.text`, `page.html`, full URL, the standalone title field, ref metadata, and other fields.
+- cmux 0.64.13 may use a live input value as an accessibility name even when an input declares a misleading ARIA role. Every ref-bearing accessible name and the document title are therefore removed before output. Structural roles and body-text fallback remain, but element labels are intentionally absent.
+- Each snapshot's top-level URL is privately reduced to an origin from the same cmux response. Unapproved origins require confirmation; after a new approval, a fresh same-origin snapshot is required before any text is released.
 
 ## Public cmux limits
 
@@ -70,7 +63,7 @@ The WKWebView backend reports several CDP-only operations as unsupported, includ
 
 ## Recovery and rollback
 
-The owned surface exists only for the current Pi extension instance. If cmux restarts, the pane closes, or the Pi session reloads, open a new surface explicitly. The extension never adopts an existing pane or silently opens a replacement.
+The owned surface exists only for the current Pi extension instance and is closed best-effort on shutdown. The extension never adopts an existing pane or silently opens a replacement. If an open is uncertain, or shutdown cannot confirm the exact surface closed, the process-wide lifecycle marker prevents replacement extension instances from opening another pane. Close any possibly unowned native pane manually and restart Pi to reset that fail-closed state.
 
 For socket failures:
 
@@ -101,4 +94,4 @@ From a fresh Pi launched directly inside a healthy cmux workspace:
 scripts/test-cmux-browser-e2e.sh
 ```
 
-The E2E uses a local synthetic page and a private temporary directory. See [ARCHITECTURE.md](ARCHITECTURE.md) for the route audit and security design.
+The E2E pins cmux 0.64.13 and uses a local synthetic page to prove background native open, atomically origin-bound structural accessibility snapshot, and exact acknowledged cleanup. See [ARCHITECTURE.md](ARCHITECTURE.md) for the route audit and security design.

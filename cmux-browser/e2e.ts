@@ -1,32 +1,16 @@
 import { execFile } from "node:child_process";
-import { constants } from "node:fs";
-import { open as openFile, rm } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
-import { join } from "node:path";
 import { promisify } from "node:util";
 import { CmuxBrowserClient, type ExecCmux } from "./client.ts";
-import { snapshotRef } from "./policy.ts";
 
 const execFileAsync = promisify(execFile);
 
-function refFor(payload: unknown, label: string): string {
-	const snapshot = payload && typeof payload === "object" && !Array.isArray(payload)
-		? (payload as Record<string, unknown>).snapshot
-		: undefined;
-	if (typeof snapshot !== "string") throw new Error("snapshot response did not contain documented snapshot text");
-	const line = snapshot.split("\n").find((candidate) => candidate.includes(label));
-	const ref = line?.match(/\bref=(e[1-9][0-9]*)\b/)?.[1];
-	return snapshotRef(ref, `find ${label}`);
-}
-
 async function main() {
 	const baseUrl = process.argv[2];
-	const fixtureDir = process.argv[3];
-	if (!baseUrl || !fixtureDir) throw new Error("usage: npx tsx e2e.ts <base-url> <fixture-dir>");
+	if (!baseUrl) throw new Error("usage: npx tsx e2e.ts <base-url>");
 
 	const execCmux: ExecCmux = async (args, { signal, timeout }) => {
 		try {
-			const { stdout, stderr } = await execFileAsync("cmux", args, { signal, timeout, maxBuffer: 2 * 1024 * 1024 });
+			const { stdout, stderr } = await execFileAsync("cmux", args, { signal, timeout, maxBuffer: 12 * 1024 * 1024 });
 			return { stdout, stderr, code: 0 };
 		} catch (error: any) {
 			return {
@@ -38,38 +22,39 @@ async function main() {
 		}
 	};
 
+	const version = await execCmux(["--version"], { timeout: 5_000 });
+	if (version.killed || version.code !== 0 || !/^cmux 0\.64\.13(?:\s|$)/.test(version.stdout.trim())) {
+		throw new Error("E2E requires exactly cmux 0.64.13");
+	}
+
 	const client = new CmuxBrowserClient(execCmux);
-	const screenshotPath = join(fixtureDir, `${randomUUID()}.png`);
+	let verifiedSnapshot = false;
 	try {
 		const opened = await client.open(baseUrl);
-		if (!opened.surface || opened.exposure !== "synthetic") throw new Error("open returned no synthetic owned-surface result");
-		await client.browser(["wait", "--load-state", "complete", "--timeout-ms", "15000"], undefined, 20_000);
-
-		const before = await client.browser(["snapshot", "--interactive"], undefined, 20_000, { capture: true });
-		if (before.exposure !== "captured") throw new Error("snapshot was not classified as captured output");
-		const buttonRef = refFor(before.json, "Say hello");
-		await client.browser(["click", buttonRef]);
-
-		const after = await client.browser(["snapshot"], undefined, 20_000, { capture: true });
-		if (!after.stdout.includes("Clicked")) throw new Error("ref click did not update the native page");
-
-		await client.browser(["screenshot", "--out", screenshotPath], undefined, 30_000);
-		let handle;
-		try {
-			handle = await openFile(screenshotPath, constants.O_RDONLY | constants.O_NOFOLLOW);
-			const metadata = await handle.stat();
-			if (!metadata.isFile() || metadata.size === 0) throw new Error("screenshot is empty or not a regular file");
-		} finally {
-			await handle?.close().catch(() => undefined);
+		if (!opened.surface || opened.exposure !== "synthetic") {
+			throw new Error("open returned no synthetic owned-surface result");
 		}
 
-		await client.browser(["console", "list"], undefined, 20_000, { capture: true });
-		await client.browser(["errors", "list"], undefined, 20_000, { capture: true });
-		console.log(JSON.stringify({ ok: true, surface: "owned", native_ref_click: true, screenshot: true }));
+		let snapshotText = "";
+		let observedOrigin: string | undefined;
+		for (let attempt = 0; attempt < 20; attempt += 1) {
+			const snapshot = await client.browser(["snapshot", "--interactive"], undefined, 20_000, { captureSnapshot: true });
+			if (snapshot.exposure !== "captured") throw new Error("snapshot was not classified as captured output");
+			snapshotText = snapshot.stdout;
+			observedOrigin = snapshot.observedOrigin;
+			if (/\bbutton\b.*\[ref=e[1-9][0-9]*\]/.test(snapshotText)) break;
+			await new Promise((resolve) => setTimeout(resolve, 250));
+		}
+		if (!/\bbutton\b.*\[ref=e[1-9][0-9]*\]/.test(snapshotText)) {
+			throw new Error("native accessibility snapshot did not load the fixture structure");
+		}
+		if (observedOrigin !== new URL(baseUrl).origin) throw new Error("snapshot origin did not match the fixture origin");
+		verifiedSnapshot = true;
 	} finally {
-		await client.closeAll();
-		await rm(screenshotPath, { force: true }).catch(() => undefined);
+		if (!await client.closeAll()) throw new Error("native surface cleanup was not exactly acknowledged");
 	}
+	if (!verifiedSnapshot) throw new Error("native snapshot verification did not complete");
+	console.log(JSON.stringify({ ok: true, surface: "closed", native_accessibility_snapshot: true, cleanup_confirmed: true }));
 }
 
 main().catch((error) => {

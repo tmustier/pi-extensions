@@ -1,16 +1,44 @@
-import { chmod, mkdtemp, rm } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { CmuxBrowserClient, type BrowserCommandResult } from "./client.ts";
-import { INSPECTION_ATTRIBUTES, inspectionArguments, navigationTarget, snapshotRef, toolResult, type BrowserDetails, type NavigationTarget } from "./policy.ts";
-import { readPrivateImage } from "./private-image.ts";
+import { CmuxBrowserClient, type BrowserCommandResult, type BrowserLifecycleBlock, type ExecCmux } from "./client.ts";
+import { navigationTarget, toolResult, type BrowserDetails, type NavigationTarget } from "./policy.ts";
 
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_CMUX_OUTPUT_BYTES = 10 * 1024 * 1024;
+const BOUNDED_CMUX_RUNNER = String.raw`
+const { spawn } = require("node:child_process");
+const child = spawn("cmux", process.argv.slice(1), { stdio: ["ignore", "pipe", "pipe"] });
+const limit = ${MAX_CMUX_OUTPUT_BYTES};
+let written = 0;
+let exceeded = false;
+const forward = (source, target) => source.on("data", (chunk) => {
+	if (exceeded) return;
+	const remaining = limit - written;
+	if (chunk.length > remaining) {
+		if (remaining > 0) target.write(chunk.subarray(0, remaining));
+		written = limit;
+		exceeded = true;
+		child.kill("SIGKILL");
+		return;
+	}
+	written += chunk.length;
+	target.write(chunk);
+});
+forward(child.stdout, process.stdout);
+forward(child.stderr, process.stderr);
+const stop = () => child.kill("SIGKILL");
+process.on("SIGTERM", stop);
+process.on("SIGINT", stop);
+child.on("error", () => process.exit(127));
+child.on("close", (code, signal) => process.exit(exceeded ? 124 : signal ? 125 : (code ?? 1)));
+`;
+const PROCESS_LIFECYCLE_KEY = Symbol.for("pi-extensions.cmux-browser.lifecycle-block.v1");
+
+function sharedLifecycleBlock(): BrowserLifecycleBlock {
+	const registry = globalThis as unknown as Record<symbol, BrowserLifecycleBlock | undefined>;
+	return registry[PROCESS_LIFECYCLE_KEY] ??= { blocked: false };
+}
 
 function renderCall(name: string) {
 	return (args: { action?: string }, theme: any) =>
@@ -32,24 +60,25 @@ function renderResult(result: { details?: BrowserDetails }, options: { expanded:
 }
 
 export default function cmuxBrowserExtension(pi: ExtensionAPI) {
-	const client = new CmuxBrowserClient((args, options) => pi.exec("cmux", args, options));
+	const execCmux: ExecCmux = (args, options) => pi.exec(
+		process.execPath,
+		["-e", BOUNDED_CMUX_RUNNER, "--", ...args],
+		options,
+	);
+	const client = new CmuxBrowserClient(execCmux, sharedLifecycleBlock());
 	const approvedOrigins = new Set<string>();
 	let sharedProfileApproved = false;
-	let privateRootPromise: Promise<string> | undefined;
 
-	async function privateRoot(): Promise<string> {
-		privateRootPromise ??= mkdtemp(join(tmpdir(), "pi-cmux-browser-")).then(async (path) => {
-			await chmod(path, 0o700);
-			return path;
-		});
-		return privateRootPromise;
-	}
-
-	async function cleanupPrivateRoot(): Promise<void> {
-		if (!privateRootPromise) return;
-		const root = await privateRootPromise.catch(() => undefined);
-		if (root) await rm(root, { recursive: true, force: true }).catch(() => undefined);
-		privateRootPromise = undefined;
+	async function requireExactCmuxVersion(signal?: AbortSignal): Promise<void> {
+		let result;
+		try {
+			result = await execCmux(["--version"], { signal, timeout: 5_000 });
+		} catch {
+			throw new Error("Could not verify the required cmux 0.64.13 runtime; operation refused.");
+		}
+		if (result.killed || result.code !== 0 || !/^cmux 0\.64\.13(?:\s|$)/.test(result.stdout.trim())) {
+			throw new Error("This extension requires exactly cmux 0.64.13; operation refused before browser access.");
+		}
 	}
 
 	async function approveSharedProfile(ctx: any): Promise<void> {
@@ -79,24 +108,32 @@ export default function cmuxBrowserExtension(pi: ExtensionAPI) {
 		await approveOrigin(ctx, { url: origin, origin }, purpose);
 		const revalidatedOrigin = await client.currentOrigin(signal);
 		if (revalidatedOrigin !== origin) {
-			throw new Error("The browser origin changed while approval was pending; action refused. Review the native pane and retry.");
+			throw new Error("The browser origin changed while approval was pending; operation refused. Review the native pane and retry.");
 		}
 		return origin;
 	}
 
-	async function approveSensitiveAction(ctx: any, signal: AbortSignal | undefined, action: string): Promise<string> {
-		const origin = await currentApprovedOrigin(ctx, signal, action);
-		if (!ctx.hasUI) throw new Error("Consequential browser actions require approval in Pi TUI mode.");
-		const approved = await ctx.ui.confirm(
-			`Allow browser action: ${action}?`,
-			`${origin}\n\nReview the native browser pane first. Do not approve credential entry, purchases, submissions, deletions, permission changes, or other external side effects unless you explicitly requested them.`,
-		);
-		if (!approved) throw new Error(`Browser action ${action} was not approved.`);
-		const revalidatedOrigin = await client.currentOrigin(signal);
-		if (revalidatedOrigin !== origin) {
-			throw new Error("The browser origin changed while approval was pending; action refused. Review the native pane and retry.");
+	async function captureApprovedSnapshot(
+		ctx: any,
+		args: string[],
+		signal: AbortSignal | undefined,
+	): Promise<BrowserCommandResult> {
+		let result = await client.browser(args, signal, 20_000, { captureSnapshot: true });
+		if (result.exposure !== "captured" || !result.observedOrigin) {
+			throw new Error("Could not bind the accessibility snapshot to a browser origin; operation refused.");
 		}
-		return origin;
+		const observedOrigin = result.observedOrigin;
+		const wasApproved = approvedOrigins.has(observedOrigin);
+		await approveOrigin(ctx, { url: observedOrigin, origin: observedOrigin }, "inspect the accessibility snapshot");
+		if (!wasApproved) {
+			// The first snapshot remains private while approval is pending. Capture again so
+			// the released text and its origin come from one cmux operation after approval.
+			result = await client.browser(args, signal, 20_000, { captureSnapshot: true });
+			if (result.exposure !== "captured" || result.observedOrigin !== observedOrigin) {
+				throw new Error("The browser origin changed while approval was pending; snapshot refused.");
+			}
+		}
+		return result;
 	}
 
 	pi.on("session_start", (_event, ctx) => {
@@ -105,7 +142,6 @@ export default function cmuxBrowserExtension(pi: ExtensionAPI) {
 
 	pi.on("session_shutdown", async (_event, ctx) => {
 		await client.closeAll();
-		await cleanupPrivateRoot();
 		approvedOrigins.clear();
 		sharedProfileApproved = false;
 		if (ctx.hasUI) ctx.ui.setStatus("cmux-browser", undefined);
@@ -115,17 +151,19 @@ export default function cmuxBrowserExtension(pi: ExtensionAPI) {
 		name: "browser_navigate",
 		label: "Browser Navigate",
 		description:
-			"Open and navigate one extension-owned native cmux browser pane. New origins require approval, new panes never steal focus, and local/custom URL schemes are refused.",
+			"Open or navigate one extension-owned native cmux browser pane to an approved origin root. Paths, queries, fragments, local/custom schemes, and focus theft are refused.",
 		promptSnippet: "Open or navigate the owned native cmux browser pane without stealing focus",
 		promptGuidelines: [
 			"Use action=open once; later calls reuse only this Pi session's owned surface.",
 			"Never put credentials, tokens, signed secrets, or local-file URLs in navigation parameters; ask the user to enter them in the native pane.",
 		],
 		parameters: Type.Object({
-			action: StringEnum(["open", "goto", "reload", "origin", "close"] as const),
-			url: Type.Optional(Type.String({ description: "Absolute http(s) URL or exactly about:blank" })),
+			action: StringEnum(["open", "goto", "origin", "close"] as const),
+			url: Type.Optional(Type.String({ description: "Absolute http(s) origin root (no path/query/fragment) or exactly about:blank" })),
 		}),
+		executionMode: "sequential",
 		async execute(_id, params, signal, _update, ctx) {
+			await requireExactCmuxVersion(signal);
 			let result: BrowserCommandResult;
 			switch (params.action) {
 				case "open": {
@@ -140,13 +178,9 @@ export default function cmuxBrowserExtension(pi: ExtensionAPI) {
 					if (!params.url) throw new Error("url is required for goto");
 					const target = navigationTarget(params.url);
 					await approveOrigin(ctx, target, "navigate the active surface");
-					result = await client.browser(["goto", target.url], signal, 30_000, { success: { ok: true, navigated: true } });
+					result = await client.browser(["goto", target.url], signal, 30_000, { success: "navigated" });
 					break;
 				}
-				case "reload":
-					await currentApprovedOrigin(ctx, signal, "reload the active page");
-					result = await client.browser(["reload"], signal, 30_000, { success: { ok: true, navigated: true } });
-					break;
 				case "origin": {
 					const origin = await currentApprovedOrigin(ctx, signal, "read the active page origin");
 					result = {
@@ -169,143 +203,27 @@ export default function cmuxBrowserExtension(pi: ExtensionAPI) {
 		name: "browser_inspect",
 		label: "Browser Inspect",
 		description:
-			"Inspect the approved origin on the owned native cmux browser surface: accessibility/DOM snapshot, bounded property reads, screenshots, console, errors, or highlight. Arbitrary page JavaScript is intentionally not exposed.",
-		promptSnippet: "Snapshot, inspect, screenshot, or debug the owned native cmux browser",
+			"Read a bounded, element-name-redacted structural accessibility snapshot from one atomically reported and approved origin. Raw page text, HTML, URLs, screenshots, console output, and arbitrary page JavaScript are not exposed.",
+		promptSnippet: "Read the approved native cmux page's accessibility snapshot",
 		promptGuidelines: [
-			"Use snapshot with interactive=true before browser_interact; obtain fresh refs after DOM or navigation changes.",
-			"Screenshots require explicit approval, are capped at 10 MiB, and are deleted from the private temp root immediately after reading.",
+			"Snapshot is read-only. Perform interactions, credential entry, downloads, and screenshots manually in the visible native pane.",
 		],
 		parameters: Type.Object({
-			action: StringEnum(["snapshot", "get", "screenshot", "console", "errors", "highlight"] as const),
+			action: StringEnum(["snapshot"] as const),
 			interactive: Type.Optional(Type.Boolean({ default: true })),
 			compact: Type.Optional(Type.Boolean()),
 			max_depth: Type.Optional(Type.Integer({ minimum: 1, maximum: 20 })),
-			target: Type.Optional(Type.String({ description: "Fresh snapshot ref such as e3" })),
-			property: Type.Optional(StringEnum(["text", "attr", "count", "box"] as const)),
-			attribute: Type.Optional(StringEnum(INSPECTION_ATTRIBUTES, { description: "Allowlisted non-value metadata attribute when property=attr." })),
 		}),
+		executionMode: "sequential",
 		async execute(_id, params, signal, _update, ctx) {
-			if (params.action === "screenshot") await approveSensitiveAction(ctx, signal, "share a screenshot with the model");
-			else await currentApprovedOrigin(ctx, signal, `inspect page (${params.action})`);
-			let args: string[];
-			let capture = true;
-			let screenshotPath: string | undefined;
-			switch (params.action) {
-				case "snapshot":
-					args = ["snapshot"];
-					if (params.interactive !== false) args.push("--interactive");
-					if (params.compact) args.push("--compact");
-					if (params.max_depth) args.push("--max-depth", String(params.max_depth));
-					break;
-				case "get":
-					if (!params.property) throw new Error("property is required for get");
-					args = inspectionArguments(params.property, params.target ?? "", params.attribute);
-					break;
-				case "screenshot":
-					screenshotPath = join(await privateRoot(), `${randomUUID()}.png`);
-					args = ["screenshot", "--out", screenshotPath];
-					capture = false;
-					break;
-				case "console":
-				case "errors":
-					args = [params.action, "list"];
-					break;
-				case "highlight":
-					args = ["highlight", "--selector", snapshotRef(params.target, "highlight")];
-					capture = false;
-					break;
-			}
-			try {
-				const result = await client.browser(args, signal, params.action === "screenshot" ? 30_000 : 20_000, capture ? { capture: true } : undefined);
-				const response = toolResult(params.action, result);
-				if (screenshotPath) {
-					const data = await readPrivateImage(screenshotPath, MAX_IMAGE_BYTES);
-					response.content.push({ type: "image" as const, data, mimeType: "image/png" } as any);
-				}
-				return response;
-			} finally {
-				if (screenshotPath) await rm(screenshotPath, { force: true }).catch(() => undefined);
-			}
+			await requireExactCmuxVersion(signal);
+			const args = ["snapshot"];
+			if (params.interactive !== false) args.push("--interactive");
+			if (params.compact) args.push("--compact");
+			if (params.max_depth) args.push("--max-depth", String(params.max_depth));
+			return toolResult(params.action, await captureApprovedSnapshot(ctx, args, signal));
 		},
 		renderCall: renderCall("inspect"),
-		renderResult,
-	});
-
-	pi.registerTool({
-		name: "browser_interact",
-		label: "Browser Interact",
-		description:
-			"Interact with fresh snapshot refs on the approved origin. Text/value entry and arbitrary CSS selectors are intentionally absent so credentials and other values never enter process arguments; enter them manually in the native pane.",
-		promptSnippet: "Interact with fresh snapshot refs on the owned native cmux browser",
-		promptGuidelines: [
-			"Use fresh snapshot refs and re-snapshot after navigation or major DOM changes.",
-			"Ask the user to enter all text, selections, credentials, tokens, and one-time codes directly in the native pane.",
-		],
-		parameters: Type.Object({
-			action: StringEnum(["click", "dblclick", "hover", "focus", "press", "check", "uncheck", "scroll", "scroll_into_view", "wait"] as const),
-			target: Type.Optional(Type.String({ description: "Fresh snapshot ref such as e3" })),
-			key: Type.Optional(StringEnum(["Enter", "Tab", "Escape", "Backspace", "Delete", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown", "Space"] as const)),
-			dx: Type.Optional(Type.Number({ minimum: -10000, maximum: 10000 })),
-			dy: Type.Optional(Type.Number({ minimum: -10000, maximum: 10000 })),
-			load_state: Type.Optional(StringEnum(["interactive", "complete"] as const)),
-			timeout_ms: Type.Optional(Type.Integer({ minimum: 1, maximum: 120_000, default: 15_000 })),
-		}),
-		async execute(_id, params, signal, _update, ctx) {
-			const consequential = ["click", "dblclick", "press", "check", "uncheck"].includes(params.action);
-			if (consequential) await approveSensitiveAction(ctx, signal, params.action);
-			else await currentApprovedOrigin(ctx, signal, params.action);
-			let args: string[];
-			const simpleTarget = ["click", "dblclick", "hover", "focus", "check", "uncheck", "scroll_into_view"].includes(params.action);
-			if (simpleTarget) {
-				const target = snapshotRef(params.target, params.action);
-				args = [params.action === "scroll_into_view" ? "scroll-into-view" : params.action, target];
-			} else if (params.action === "press") {
-				if (!params.key) throw new Error("key is required for press");
-				args = ["press", "--key", params.key];
-			} else if (params.action === "scroll") {
-				args = ["scroll"];
-				if (params.target) args.push("--selector", snapshotRef(params.target, "scroll"));
-				if (params.dx !== undefined) args.push("--dx", String(params.dx));
-				if (params.dy !== undefined) args.push("--dy", String(params.dy));
-			} else {
-				args = ["wait"];
-				if (params.target) args.push("--selector", snapshotRef(params.target, "wait"));
-				if (params.load_state) args.push("--load-state", params.load_state);
-				if (args.length === 1) throw new Error("wait requires target or load_state");
-				args.push("--timeout-ms", String(params.timeout_ms ?? 15_000));
-			}
-			const timeout = params.action === "wait" ? (params.timeout_ms ?? 15_000) + 5_000 : 30_000;
-			return toolResult(params.action, await client.browser(args, signal, timeout, { success: { ok: true, interacted: true } }));
-		},
-		renderCall: renderCall("interact"),
-		renderResult,
-	});
-
-	pi.registerTool({
-		name: "browser_download",
-		label: "Browser Download",
-		description:
-			"Wait for a download managed by the owned native cmux browser. Download host paths and raw cmux output are intentionally not returned.",
-		promptSnippet: "Wait for a user-approved download on the owned browser",
-		promptGuidelines: [
-			"Ask the user to handle uploads, credentials, and any downloaded-file opening directly in the native pane or filesystem.",
-		],
-		parameters: Type.Object({
-			action: StringEnum(["wait"] as const),
-			timeout_ms: Type.Optional(Type.Integer({ minimum: 1, maximum: 120_000, default: 30_000 })),
-		}),
-		async execute(_id, params, signal, _update, ctx) {
-			await approveSensitiveAction(ctx, signal, "wait for a cmux-managed download");
-			const timeout = (params.timeout_ms ?? 30_000) + 5_000;
-			const result = await client.browser(
-				["download", "wait", "--timeout-ms", String(params.timeout_ms ?? 30_000)],
-				signal,
-				timeout,
-				{ success: { ok: true, download_ready: true } },
-			);
-			return toolResult(params.action, result);
-		},
-		renderCall: renderCall("download"),
 		renderResult,
 	});
 
@@ -313,11 +231,12 @@ export default function cmuxBrowserExtension(pi: ExtensionAPI) {
 		description: "Open or navigate the owned native cmux browser pane without moving focus",
 		handler: async (args, ctx) => {
 			try {
+				await requireExactCmuxVersion();
 				const target = navigationTarget(args.trim() || "about:blank");
 				await approveSharedProfile(ctx);
 				approvedOrigins.add(target.origin); // Direct slash-command input is explicit user authorization for this origin.
 				if (client.getActiveSurface()) {
-					await client.browser(["goto", target.url], undefined, 30_000, { success: { ok: true, navigated: true } });
+					await client.browser(["goto", target.url], undefined, 30_000, { success: "navigated" });
 				} else {
 					await client.open(target.url);
 				}

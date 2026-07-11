@@ -1,3 +1,5 @@
+import { navigationTarget } from "./policy.ts";
+
 export interface ExecResult {
 	stdout: string;
 	stderr: string;
@@ -10,25 +12,67 @@ export type ExecCmux = (
 	options: { signal?: AbortSignal; timeout: number },
 ) => Promise<ExecResult>;
 
-export interface BrowserCommandResult {
+export interface SyntheticBrowserOutput {
+	ok: true;
+	opened?: true;
+	navigated?: true;
+	closed?: true;
+	interacted?: true;
+	download_ready?: true;
+}
+
+export type SyntheticOutcome = "ok" | "opened" | "navigated" | "closed" | "interacted" | "download_ready";
+
+const SYNTHETIC_OUTPUTS: Readonly<Record<SyntheticOutcome, Readonly<SyntheticBrowserOutput>>> = Object.freeze({
+	ok: Object.freeze({ ok: true }),
+	opened: Object.freeze({ ok: true, opened: true }),
+	navigated: Object.freeze({ ok: true, navigated: true }),
+	closed: Object.freeze({ ok: true, closed: true }),
+	interacted: Object.freeze({ ok: true, interacted: true }),
+	download_ready: Object.freeze({ ok: true, download_ready: true }),
+});
+
+interface BrowserCommandResultBase {
 	command: string[];
+	surface?: string;
+}
+
+export interface CapturedBrowserCommandResult extends BrowserCommandResultBase {
+	/** Bounded stdout from an explicitly read-only operation; intentionally model-visible. */
+	exposure: "captured";
 	stdout: string;
 	json?: unknown;
-	surface?: string;
-	/** Captured output is intentionally model-visible; synthetic output is fixed extension metadata. */
-	exposure: "captured" | "synthetic";
+	/** Internally verified snapshot origin; tool rendering never forwards this field. */
+	observedOrigin?: string;
 }
+
+export interface SyntheticBrowserCommandResult extends BrowserCommandResultBase {
+	/** Fixed extension-owned metadata. Raw subprocess stdout/stderr cannot inhabit this variant. */
+	exposure: "synthetic";
+	output: Readonly<SyntheticBrowserOutput>;
+}
+
+export type BrowserCommandResult = CapturedBrowserCommandResult | SyntheticBrowserCommandResult;
 
 export interface RunOptions {
 	/** Retain bounded stdout for explicitly read-only inspection operations. */
 	capture?: boolean;
 	/** Parse exactly the documented top-level browser-open surface_id field. */
 	captureOpenedSurface?: boolean;
-	/** Safe synthetic result used when raw command output is intentionally discarded. */
-	success?: Record<string, boolean | number>;
+	/** Project a raw cmux snapshot response to accessibility text and authoritative refs only. */
+	captureSnapshot?: boolean;
+	/** Require close output to confirm this exact owned top-level surface_id. */
+	confirmClosedSurface?: string;
+	/** Select one fixed extension-owned result when raw command output is discarded. */
+	success?: SyntheticOutcome;
+}
+
+export interface BrowserLifecycleBlock {
+	blocked: boolean;
 }
 
 const MAX_CAPTURE_BYTES = 50 * 1024;
+const MAX_SNAPSHOT_RESPONSE_BYTES = 10 * 1024 * 1024;
 const SURFACE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const BROWSER_COMMANDS = new Set([
@@ -42,8 +86,9 @@ const REF_TARGET_OPERATIONS = new Set([
 const REF_INVALIDATING_OPERATIONS = new Set([
 	"goto", "reload", "wait", "click", "dblclick", "hover", "focus", "press", "check", "uncheck", "scroll", "scroll-into-view",
 ]);
-const SNAPSHOT_REF_MARKER = /\bref=(e[1-9][0-9]*)\b/g;
 const SNAPSHOT_REF_VALUE = /^e[1-9][0-9]*$/;
+const REFERENCED_SNAPSHOT_NAME = /^(\s*-\s+[^\s]+)\s+"[^"]*"(\s+\[ref=e[1-9][0-9]*\].*)$/gm;
+const DOCUMENT_SNAPSHOT_NAME = /^(\s*-\s+document)\s+"[^"]*"\s*$/gm;
 const SAFE_KEY = new Set([
 	"Enter", "Tab", "Escape", "Backspace", "Delete", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight",
 	"Home", "End", "PageUp", "PageDown", "Space",
@@ -52,41 +97,16 @@ const SAFE_ATTRIBUTE = new Set([
 	"role", "aria-label", "aria-checked", "aria-disabled", "aria-expanded", "aria-hidden", "aria-selected",
 	"alt", "name", "title", "type",
 ]);
-const SENSITIVE_QUERY_KEY = /(?:^|[_-])(auth|authorization|code|credential|key|password|secret|session|sig|signature|token)(?:$|[_-])/i;
-const SENSITIVE_COMPACT_KEY = /(?:token|secret|password|credential|authorization|session|signature)/i;
-const SENSITIVE_EXACT_KEY = new Set(["apikey", "auth", "code", "key", "sig"]);
-
 function invalidArguments(): never {
 	throw new Error("Invalid browser arguments; only the extension's fixed documented command shapes are allowed.");
 }
 
-function isSensitiveParameterKey(key: string): boolean {
-	const compact = key.replace(/[^a-z0-9]/gi, "").toLowerCase();
-	return SENSITIVE_QUERY_KEY.test(key) || SENSITIVE_COMPACT_KEY.test(compact) || SENSITIVE_EXACT_KEY.has(compact);
-}
-
 function assertSafeNavigationUrl(raw: string | undefined): void {
 	if (!raw) invalidArguments();
-	let url: URL;
 	try {
-		url = new URL(raw);
+		navigationTarget(raw);
 	} catch {
 		invalidArguments();
-	}
-	if (url.protocol === "about:" && url.href === "about:blank") return;
-	if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username || url.password) invalidArguments();
-	for (const key of url.searchParams.keys()) if (isSensitiveParameterKey(key)) invalidArguments();
-	if (url.hash) {
-		let fragment: string;
-		try {
-			fragment = decodeURIComponent(url.hash.slice(1));
-		} catch {
-			invalidArguments();
-		}
-		for (const part of fragment.split(/[?&;]/)) {
-			const equals = part.indexOf("=");
-			if (equals >= 0 && isSensitiveParameterKey(part.slice(0, equals).replace(/^.*\//, ""))) invalidArguments();
-		}
 	}
 }
 
@@ -217,14 +237,77 @@ function openedSurface(json: unknown): string | undefined {
 	return typeof value === "string" && SURFACE_UUID.test(value) ? value : undefined;
 }
 
+function confirmsClosedSurface(json: unknown, expected: string): boolean {
+	if (!json || typeof json !== "object" || Array.isArray(json)) return false;
+	return (json as Record<string, unknown>).surface_id === expected;
+}
+
+function projectSnapshot(raw: string): {
+	stdout: string;
+	json: { snapshot: string; refs: string[] };
+	observedOrigin: string;
+} {
+	if (Buffer.byteLength(raw, "utf8") > MAX_SNAPSHOT_RESPONSE_BYTES) {
+		throw new Error("cmux snapshot response exceeded the private processing limit; raw output was suppressed.");
+	}
+	const parsed = parseJson(raw);
+	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+		throw new Error("cmux snapshot returned no valid top-level accessibility payload; raw output was suppressed.");
+	}
+	const payload = parsed as Record<string, unknown>;
+	if (typeof payload.snapshot !== "string") {
+		throw new Error("cmux snapshot returned no valid top-level accessibility text; raw output was suppressed.");
+	}
+	if (typeof payload.url !== "string") {
+		throw new Error("cmux snapshot returned no valid top-level URL for origin verification; raw output was suppressed.");
+	}
+	let observedOrigin: string;
+	try {
+		const url = new URL(payload.url);
+		if (url.href === "about:blank") observedOrigin = "about:blank";
+		else if ((url.protocol === "http:" || url.protocol === "https:") && url.origin !== "null") observedOrigin = url.origin;
+		else throw new Error("unsupported snapshot origin");
+	} catch {
+		throw new Error("cmux snapshot returned an unsupported top-level URL; raw output was suppressed.");
+	}
+	// cmux 0.64.13 may use an input's live value as its accessibility name even
+	// when the input declares a misleading explicit ARIA role. Remove every
+	// ref-bearing name (and the document title) rather than trusting page roles.
+	const sanitizedSnapshot = payload.snapshot
+		.replace(REFERENCED_SNAPSHOT_NAME, "$1$2")
+		.replace(DOCUMENT_SNAPSHOT_NAME, "$1");
+	const snapshot = utf8Prefix(sanitizedSnapshot, MAX_CAPTURE_BYTES);
+	const refsObject = payload.refs && typeof payload.refs === "object" && !Array.isArray(payload.refs)
+		? payload.refs as Record<string, unknown>
+		: {};
+	const refs = Object.keys(refsObject).filter((ref) => SNAPSHOT_REF_VALUE.test(ref));
+	return { stdout: snapshot, json: { snapshot, refs }, observedOrigin };
+}
+
 export class CmuxBrowserClient {
 	private activeSurface?: string;
 	private readonly ownedSurfaces = new Set<string>();
 	private readonly freshSnapshotRefs = new Set<string>();
 	private readonly execCmux: ExecCmux;
+	private operationTail: Promise<void> = Promise.resolve();
+	private openLifecycleUncertain: boolean;
+	private readonly lifecycleBlock?: BrowserLifecycleBlock;
 
-	constructor(execCmux: ExecCmux) {
+	constructor(execCmux: ExecCmux, lifecycleBlock?: BrowserLifecycleBlock) {
 		this.execCmux = execCmux;
+		this.lifecycleBlock = lifecycleBlock;
+		this.openLifecycleUncertain = lifecycleBlock?.blocked ?? false;
+	}
+
+	private withExclusiveOperation<T>(operation: () => Promise<T>): Promise<T> {
+		const result = this.operationTail.then(operation, operation);
+		this.operationTail = result.then(() => undefined, () => undefined);
+		return result;
+	}
+
+	private blockFutureOpens(): void {
+		this.openLifecycleUncertain = true;
+		if (this.lifecycleBlock) this.lifecycleBlock.blocked = true;
 	}
 
 	getActiveSurface(): string | undefined {
@@ -259,10 +342,13 @@ export class CmuxBrowserClient {
 
 	private recordSnapshotRefs(result: BrowserCommandResult): void {
 		this.freshSnapshotRefs.clear();
+		if (result.exposure !== "captured") return;
 		if (!result.json || typeof result.json !== "object" || Array.isArray(result.json)) return;
-		const snapshot = (result.json as Record<string, unknown>).snapshot;
-		if (typeof snapshot !== "string") return;
-		for (const match of snapshot.matchAll(SNAPSHOT_REF_MARKER)) this.freshSnapshotRefs.add(match[1]!);
+		const refs = (result.json as Record<string, unknown>).refs;
+		if (!Array.isArray(refs)) return;
+		for (const ref of refs) {
+			if (typeof ref === "string" && SNAPSHOT_REF_VALUE.test(ref)) this.freshSnapshotRefs.add(ref);
+		}
 	}
 
 	private async run(args: string[], signal?: AbortSignal, timeout = 20_000, options: RunOptions = {}): Promise<BrowserCommandResult> {
@@ -272,6 +358,7 @@ export class CmuxBrowserClient {
 		} catch {
 			throw lifecycleFailure(args, "could not be invoked");
 		}
+		if (result.killed) throw lifecycleFailure(args, "was interrupted before completion could be confirmed");
 		if (result.code !== 0) throw formatFailure(args, result);
 
 		let surface = this.activeSurface;
@@ -286,34 +373,57 @@ export class CmuxBrowserClient {
 			surface = opened;
 		}
 
+		if (options.confirmClosedSurface) {
+			const parsed = parseJson(utf8Prefix(result.stdout, 8 * 1024));
+			if (!confirmsClosedSurface(parsed, options.confirmClosedSurface)) {
+				throw new Error("cmux close succeeded without confirming the exact owned surface_id; raw output was suppressed.");
+			}
+		}
+
+		if (options.captureSnapshot) {
+			const projected = projectSnapshot(result.stdout);
+			return { command: safeCommand(args), ...projected, surface, exposure: "captured" };
+		}
+
 		if (options.capture) {
 			const stdout = utf8Prefix(result.stdout, MAX_CAPTURE_BYTES);
 			return { command: safeCommand(args), stdout, json: parseJson(stdout), surface, exposure: "captured" };
 		}
 
-		const json = options.success ?? { ok: true };
 		return {
 			command: safeCommand(args),
-			stdout: JSON.stringify(json),
-			json,
+			output: SYNTHETIC_OUTPUTS[options.success ?? "ok"],
 			surface,
 			exposure: "synthetic",
 		};
 	}
 
 	async open(url: string, signal?: AbortSignal): Promise<BrowserCommandResult> {
-		if (this.activeSurface) throw new Error("An extension-owned browser surface is already active; close it before opening another.");
-		assertSafeNavigationUrl(url);
-		this.freshSnapshotRefs.clear();
-		return this.run(
-			["browser", "open", url, "--focus", "false"],
-			signal,
-			30_000,
-			{ captureOpenedSurface: true, success: { ok: true, opened: true } },
-		);
+		return this.withExclusiveOperation(async () => {
+			if (this.openLifecycleUncertain) {
+				throw new Error("Browser open lifecycle is uncertain after an earlier failed or malformed response. Close any unowned native pane manually and restart Pi before opening another.");
+			}
+			if (this.activeSurface) throw new Error("An extension-owned browser surface is already active; close it before opening another.");
+			assertSafeNavigationUrl(url);
+			this.freshSnapshotRefs.clear();
+			try {
+				return await this.run(
+					["browser", "open", url, "--focus", "false"],
+					signal,
+					30_000,
+					{ captureOpenedSurface: true, success: "opened" },
+				);
+			} catch (error) {
+				// cmux may create the pane before an abort, timeout, transport failure,
+				// or malformed response prevents us from learning its UUID. Refuse all
+				// later opens in this instance rather than risk orphaning a second pane.
+				this.blockFutureOpens();
+				throw error;
+			}
+		});
 	}
 
-	async browser(
+	private async browserUnlocked(
 		args: string[],
 		signal?: AbortSignal,
 		timeout = 20_000,
@@ -325,8 +435,14 @@ export class CmuxBrowserClient {
 			throw new Error("Unsupported browser operation; only the extension's fixed capability set is allowed.");
 		}
 		validateBrowserArguments(args);
-		if (options.capture && !CAPTURED_BROWSER_READS.has(operation)) {
+		if ((options.capture || options.captureSnapshot) && !CAPTURED_BROWSER_READS.has(operation)) {
 			throw new Error("Captured output is allowed only for browser snapshot/get/console/errors reads.");
+		}
+		if (operation === "snapshot" && !options.captureSnapshot) {
+			throw new Error("Snapshot output must use the accessibility-only projection.");
+		}
+		if (operation !== "snapshot" && options.captureSnapshot) {
+			throw new Error("The accessibility-only projection is valid only for snapshots.");
 		}
 		const referenced = this.referencedSnapshotRef(args);
 		if (referenced !== undefined && !this.freshSnapshotRefs.has(referenced)) {
@@ -338,56 +454,77 @@ export class CmuxBrowserClient {
 		return result;
 	}
 
+	async browser(
+		args: string[],
+		signal?: AbortSignal,
+		timeout = 20_000,
+		options: RunOptions = {},
+	): Promise<BrowserCommandResult> {
+		return this.withExclusiveOperation(() => this.browserUnlocked(args, signal, timeout, options));
+	}
+
 	async currentOrigin(signal?: AbortSignal): Promise<string> {
-		const result = await this.browser(["get", "url"], signal, 20_000, { capture: true });
-		const parsed = result.json;
-		const raw = parsed && typeof parsed === "object" && !Array.isArray(parsed)
-			? (parsed as Record<string, unknown>).url
-			: undefined;
-		if (typeof raw !== "string") {
-			throw new Error("Could not verify an approved http(s) browser origin; operation refused.");
-		}
-		try {
-			const url = new URL(raw);
-			if (url.href === "about:blank") return "about:blank";
-			if ((url.protocol === "http:" || url.protocol === "https:") && url.origin !== "null") return url.origin;
-			throw new Error("unsupported browser origin");
-		} catch {
-			throw new Error("Could not verify an approved http(s) browser origin; operation refused.");
-		}
+		return this.withExclusiveOperation(async () => {
+			const result = await this.browserUnlocked(["get", "url"], signal, 20_000, { capture: true });
+			if (result.exposure !== "captured") {
+				throw new Error("Could not verify an approved http(s) browser origin; operation refused.");
+			}
+			const parsed = result.json;
+			const raw = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+				? (parsed as Record<string, unknown>).url
+				: undefined;
+			if (typeof raw !== "string") {
+				throw new Error("Could not verify an approved http(s) browser origin; operation refused.");
+			}
+			try {
+				const url = new URL(raw);
+				if (url.href === "about:blank") return "about:blank";
+				if ((url.protocol === "http:" || url.protocol === "https:") && url.origin !== "null") return url.origin;
+				throw new Error("unsupported browser origin");
+			} catch {
+				throw new Error("Could not verify an approved http(s) browser origin; operation refused.");
+			}
+		});
 	}
 
 	async closeActive(signal?: AbortSignal): Promise<BrowserCommandResult> {
-		const target = this.requireOwnedSurface();
-		// Relinquish ownership before the subprocess call so an aborted or failed
-		// close can never resurrect a stale handle in this extension instance.
-		this.ownedSurfaces.delete(target);
-		this.activeSurface = undefined;
-		this.freshSnapshotRefs.clear();
-		const result = await this.run(
-			["close-surface", "--surface", target],
-			signal,
-			20_000,
-			{ success: { ok: true, closed: true } },
-		);
-		return { ...result, surface: undefined };
+		return this.withExclusiveOperation(async () => {
+			const target = this.requireOwnedSurface();
+			// Keep ownership until cmux confirms success. A failed or aborted close
+			// may have left the pane alive, so forgetting it would permit a second open.
+			const result = await this.run(
+				["close-surface", "--surface", target],
+				signal,
+				20_000,
+				{ confirmClosedSurface: target, success: "closed" },
+			);
+			this.ownedSurfaces.delete(target);
+			this.activeSurface = undefined;
+			this.freshSnapshotRefs.clear();
+			return { ...result, surface: undefined };
+		});
 	}
 
-	async closeAll(): Promise<void> {
-		for (const surface of [...this.ownedSurfaces]) {
-			try {
-				await this.run(
-					["close-surface", "--surface", surface],
-					undefined,
-					5_000,
-					{ success: { ok: true, closed: true } },
-				);
-			} catch {
-				// Shutdown cleanup is best-effort and deliberately does not retain raw diagnostics.
+	async closeAll(): Promise<boolean> {
+		return this.withExclusiveOperation(async () => {
+			for (const surface of [...this.ownedSurfaces]) {
+				try {
+					await this.run(
+						["close-surface", "--surface", surface],
+						undefined,
+						5_000,
+						{ confirmClosedSurface: surface, success: "closed" },
+					);
+					this.ownedSurfaces.delete(surface);
+				} catch {
+					// Shutdown cleanup is best-effort and deliberately does not retain raw diagnostics.
+					// Preserve ownership so an explicit retry in this instance cannot open a second pane.
+				}
 			}
-			this.ownedSurfaces.delete(surface);
-		}
-		this.activeSurface = undefined;
-		this.freshSnapshotRefs.clear();
+			if (this.activeSurface && !this.ownedSurfaces.has(this.activeSurface)) this.activeSurface = undefined;
+			if (this.ownedSurfaces.size > 0) this.blockFutureOpens();
+			this.freshSnapshotRefs.clear();
+			return this.ownedSurfaces.size === 0;
+		});
 	}
 }
