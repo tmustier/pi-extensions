@@ -13,7 +13,6 @@ export type ExecCmux = (
 export interface BrowserCommandResult {
 	command: string[];
 	stdout: string;
-	stderr: string;
 	json?: unknown;
 	surface?: string;
 	/** Captured output is intentionally model-visible; synthetic output is fixed extension metadata. */
@@ -21,7 +20,7 @@ export interface BrowserCommandResult {
 }
 
 export interface RunOptions {
-	/** Retain bounded stdout/stderr for explicitly read-only inspection operations. */
+	/** Retain bounded stdout for explicitly read-only inspection operations. */
 	capture?: boolean;
 	/** Parse exactly the documented top-level browser-open surface_id field. */
 	captureOpenedSurface?: boolean;
@@ -289,14 +288,13 @@ export class CmuxBrowserClient {
 
 		if (options.capture) {
 			const stdout = utf8Prefix(result.stdout, MAX_CAPTURE_BYTES);
-			return { command: safeCommand(args), stdout, stderr: "", json: parseJson(stdout), surface, exposure: "captured" };
+			return { command: safeCommand(args), stdout, json: parseJson(stdout), surface, exposure: "captured" };
 		}
 
 		const json = options.success ?? { ok: true };
 		return {
 			command: safeCommand(args),
 			stdout: JSON.stringify(json),
-			stderr: "",
 			json,
 			surface,
 			exposure: "synthetic",

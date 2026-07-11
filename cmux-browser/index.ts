@@ -150,7 +150,7 @@ export default function cmuxBrowserExtension(pi: ExtensionAPI) {
 				case "origin": {
 					const origin = await currentApprovedOrigin(ctx, signal, "read the active page origin");
 					result = {
-						command: ["browser", "get"], stdout: origin, stderr: "", surface: client.getActiveSurface(), exposure: "captured",
+						command: ["browser", "get"], stdout: origin, surface: client.getActiveSurface(), exposure: "captured",
 					};
 					break;
 				}

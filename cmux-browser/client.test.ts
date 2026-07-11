@@ -187,7 +187,7 @@ test("explicit read capture bounds stdout, suppresses successful stderr, and doe
 	await client.open("about:blank");
 	const result = await client.browser(["snapshot"], undefined, 20_000, { capture: true });
 	assert.ok(Buffer.byteLength(result.stdout) < 52 * 1024);
-	assert.equal(result.stderr, "");
+	assert.equal("stderr" in result, false);
 	assert.equal(result.stdout.includes("END_SECRET"), false);
 	assert.equal(result.json, undefined);
 	assert.equal(result.exposure, "captured");
@@ -254,14 +254,15 @@ test("current origin refuses non-contract output without reflecting it into diag
 
 test("synthetic tool results persist only allowlisted metadata, never raw output or values", () => {
 	const secret = "PASSWORD_123456";
-	const result = toolResult("click", {
+	const hostileResult = {
 		command: ["browser", "<owned-surface>", "click"],
 		stdout: `raw-${secret}`,
 		stderr: `stderr-${secret}`,
 		json: { ok: true, interacted: true, diagnostic: `transformed-${secret}` },
 		surface: SURFACE_A,
 		exposure: "synthetic",
-	});
+	} as unknown as Parameters<typeof toolResult>[1];
+	const result = toolResult("click", hostileResult);
 	assert.deepEqual(Object.keys(result.details).sort(), ["action", "command", "output", "surface"].sort());
 	assert.deepEqual(result.details.command, ["browser", "<owned-surface>", "click"]);
 	assert.deepEqual(result.content, [{ type: "text", text: JSON.stringify({ ok: true, interacted: true }) }]);

@@ -97,7 +97,7 @@ export function compactOutput(result: BrowserCommandResult): string {
 		return JSON.stringify(Object.keys(safe).length > 0 ? safe : { ok: true });
 	}
 
-	const raw = result.stdout.trim() || result.stderr.trim() || "ok";
+	const raw = result.stdout.trim() || "ok";
 	const bytes = Buffer.from(raw, "utf8");
 	if (bytes.length <= MAX_TOOL_OUTPUT_BYTES) return raw;
 	return `${bytes.subarray(0, MAX_TOOL_OUTPUT_BYTES).toString("utf8")}\n\n[Output truncated at ${MAX_TOOL_OUTPUT_BYTES} bytes]`;
