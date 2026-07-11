@@ -6,6 +6,11 @@
   "keywords": [
     "pi-package"
   ],
+  "scripts": {
+    "test:cmux-browser": "tsx --test cmux-browser/client.test.ts && node --no-warnings --test cmux-browser/extension.test.ts",
+    "typecheck:cmux-browser": "tsc --noEmit --allowImportingTsExtensions --moduleResolution bundler --module preserve --target es2022 --skipLibCheck cmux-browser/*.ts",
+    "test:cmux-browser:e2e": "scripts/test-cmux-browser-e2e.sh"
+  },
   "pi": {
     "extensions": [
       "./agent-guidance/agent-guidance.ts",

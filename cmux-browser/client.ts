@@ -1,6 +1,3 @@
-import { readFile, stat } from "node:fs/promises";
-import { basename, resolve } from "node:path";
-
 export interface ExecResult {
 	stdout: string;
 	stderr: string;
@@ -14,225 +11,385 @@ export type ExecCmux = (
 ) => Promise<ExecResult>;
 
 export interface BrowserCommandResult {
-	args: string[];
+	command: string[];
 	stdout: string;
 	stderr: string;
 	json?: unknown;
 	surface?: string;
+	/** Captured output is intentionally model-visible; synthetic output is fixed extension metadata. */
+	exposure: "captured" | "synthetic";
 }
 
-const SURFACE_KEYS = new Set(["surface", "surfaceId", "surface_id", "surfaceUUID", "surface_uuid"]);
-const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
-const UPLOAD_CHUNK_CHARS = 64 * 1024;
-
-function findSurface(value: unknown): string | undefined {
-	if (!value || typeof value !== "object") return undefined;
-	if (Array.isArray(value)) {
-		for (const item of value) {
-			const found = findSurface(item);
-			if (found) return found;
-		}
-		return undefined;
-	}
-	for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-		if (SURFACE_KEYS.has(key) && typeof item === "string" && item.trim()) return item;
-		if (key === "surface" && item && typeof item === "object") {
-			const nested = item as Record<string, unknown>;
-			const id = nested.id ?? nested.uuid ?? nested.surface_id ?? nested.surfaceId;
-			if (typeof id === "string" && id.trim()) return id;
-		}
-		const found = findSurface(item);
-		if (found) return found;
-	}
-	return undefined;
+export interface RunOptions {
+	/** Retain bounded stdout/stderr for explicitly read-only inspection operations. */
+	capture?: boolean;
+	/** Parse exactly the documented top-level browser-open surface_id field. */
+	captureOpenedSurface?: boolean;
+	/** Safe synthetic result used when raw command output is intentionally discarded. */
+	success?: Record<string, boolean | number>;
 }
 
-function parseJson(stdout: string): unknown | undefined {
-	const text = stdout.trim();
-	if (!text) return undefined;
+const MAX_CAPTURE_BYTES = 50 * 1024;
+const SURFACE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const BROWSER_COMMANDS = new Set([
+	"open", "goto", "reload", "snapshot", "wait", "click", "dblclick", "hover", "focus", "press",
+	"check", "uncheck", "scroll", "scroll-into-view", "screenshot", "get", "console", "errors", "highlight", "download",
+]);
+const CAPTURED_BROWSER_READS = new Set(["snapshot", "get", "console", "errors"]);
+const REF_TARGET_OPERATIONS = new Set([
+	"click", "dblclick", "hover", "focus", "check", "uncheck", "scroll-into-view",
+]);
+const REF_INVALIDATING_OPERATIONS = new Set([
+	"goto", "reload", "wait", "click", "dblclick", "hover", "focus", "press", "check", "uncheck", "scroll", "scroll-into-view",
+]);
+const SNAPSHOT_REF_MARKER = /\bref=(e[1-9][0-9]*)\b/g;
+const SNAPSHOT_REF_VALUE = /^e[1-9][0-9]*$/;
+const SAFE_KEY = new Set([
+	"Enter", "Tab", "Escape", "Backspace", "Delete", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight",
+	"Home", "End", "PageUp", "PageDown", "Space",
+]);
+const SAFE_ATTRIBUTE = new Set([
+	"role", "aria-label", "aria-checked", "aria-disabled", "aria-expanded", "aria-hidden", "aria-selected",
+	"alt", "name", "title", "type",
+]);
+const SENSITIVE_QUERY_KEY = /(?:^|[_-])(auth|authorization|code|credential|key|password|secret|session|sig|signature|token)(?:$|[_-])/i;
+const SENSITIVE_COMPACT_KEY = /(?:token|secret|password|credential|authorization|session|signature)/i;
+const SENSITIVE_EXACT_KEY = new Set(["apikey", "auth", "code", "key", "sig"]);
+
+function invalidArguments(): never {
+	throw new Error("Invalid browser arguments; only the extension's fixed documented command shapes are allowed.");
+}
+
+function isSensitiveParameterKey(key: string): boolean {
+	const compact = key.replace(/[^a-z0-9]/gi, "").toLowerCase();
+	return SENSITIVE_QUERY_KEY.test(key) || SENSITIVE_COMPACT_KEY.test(compact) || SENSITIVE_EXACT_KEY.has(compact);
+}
+
+function assertSafeNavigationUrl(raw: string | undefined): void {
+	if (!raw) invalidArguments();
+	let url: URL;
 	try {
-		return JSON.parse(text);
+		url = new URL(raw);
+	} catch {
+		invalidArguments();
+	}
+	if (url.protocol === "about:" && url.href === "about:blank") return;
+	if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username || url.password) invalidArguments();
+	for (const key of url.searchParams.keys()) if (isSensitiveParameterKey(key)) invalidArguments();
+	if (url.hash) {
+		let fragment: string;
+		try {
+			fragment = decodeURIComponent(url.hash.slice(1));
+		} catch {
+			invalidArguments();
+		}
+		for (const part of fragment.split(/[?&;]/)) {
+			const equals = part.indexOf("=");
+			if (equals >= 0 && isSensitiveParameterKey(part.slice(0, equals).replace(/^.*\//, ""))) invalidArguments();
+		}
+	}
+}
+
+function isFiniteNumber(value: string | undefined, minimum: number, maximum: number): boolean {
+	if (value === undefined || value.trim() === "") return false;
+	const parsed = Number(value);
+	return Number.isFinite(parsed) && parsed >= minimum && parsed <= maximum;
+}
+
+function isInteger(value: string | undefined, minimum: number, maximum: number): boolean {
+	return value !== undefined && /^\d+$/.test(value) && Number(value) >= minimum && Number(value) <= maximum;
+}
+
+function validateOptions(args: string[], allowed: Record<string, (value?: string) => boolean>): void {
+	const seen = new Set<string>();
+	for (let index = 1; index < args.length;) {
+		const flag = args[index]!;
+		const accepts = allowed[flag];
+		if (!accepts || seen.has(flag)) invalidArguments();
+		seen.add(flag);
+		if (accepts()) {
+			index += 1;
+		} else {
+			if (!accepts(args[index + 1])) invalidArguments();
+			index += 2;
+		}
+	}
+}
+
+function validateBrowserArguments(args: string[]): void {
+	const operation = args[0];
+	if (!operation) invalidArguments();
+	if (operation === "goto") {
+		if (args.length !== 2) invalidArguments();
+		assertSafeNavigationUrl(args[1]);
+		return;
+	}
+	if (operation === "reload") {
+		if (args.length !== 1) invalidArguments();
+		return;
+	}
+	if (operation === "snapshot") {
+		validateOptions(args, {
+			"--interactive": (value) => value === undefined,
+			"--compact": (value) => value === undefined,
+			"--max-depth": (value) => isInteger(value, 1, 20),
+		});
+		return;
+	}
+	if (["click", "dblclick", "hover", "focus", "check", "uncheck", "scroll-into-view"].includes(operation)) {
+		if (args.length !== 2 || !SNAPSHOT_REF_VALUE.test(args[1] ?? "")) invalidArguments();
+		return;
+	}
+	if (operation === "press") {
+		if (args.length !== 3 || args[1] !== "--key" || !SAFE_KEY.has(args[2] ?? "")) invalidArguments();
+		return;
+	}
+	if (operation === "scroll") {
+		validateOptions(args, {
+			"--selector": (value) => value !== undefined && SNAPSHOT_REF_VALUE.test(value),
+			"--dx": (value) => isFiniteNumber(value, -10_000, 10_000),
+			"--dy": (value) => isFiniteNumber(value, -10_000, 10_000),
+		});
+		if (args.length === 1) invalidArguments();
+		return;
+	}
+	if (operation === "wait") {
+		validateOptions(args, {
+			"--selector": (value) => value !== undefined && SNAPSHOT_REF_VALUE.test(value),
+			"--load-state": (value) => value === "interactive" || value === "complete",
+			"--timeout-ms": (value) => isInteger(value, 1, 120_000),
+		});
+		if (args.length < 5 || !args.includes("--timeout-ms") || (!args.includes("--selector") && !args.includes("--load-state"))) invalidArguments();
+		return;
+	}
+	if (operation === "get") {
+		if ((args[1] === "url" || args[1] === "title") && args.length === 2) return;
+		if (["text", "count", "box"].includes(args[1] ?? "") && args.length === 4 && args[2] === "--selector" && SNAPSHOT_REF_VALUE.test(args[3] ?? "")) return;
+		if (args[1] === "attr" && args.length === 6 && args[2] === "--selector" && SNAPSHOT_REF_VALUE.test(args[3] ?? "") && args[4] === "--attr" && SAFE_ATTRIBUTE.has(args[5] ?? "")) return;
+		invalidArguments();
+	}
+	if ((operation === "console" || operation === "errors") && args.length === 2 && args[1] === "list") return;
+	if (operation === "highlight" && args.length === 3 && args[1] === "--selector" && SNAPSHOT_REF_VALUE.test(args[2] ?? "")) return;
+	if (operation === "screenshot" && args.length === 3 && args[1] === "--out" && Boolean(args[2])) return;
+	if (operation === "download" && args.length === 4 && args[1] === "wait" && args[2] === "--timeout-ms" && isInteger(args[3], 1, 120_000)) return;
+	invalidArguments();
+}
+
+function parseJson(text: string): unknown | undefined {
+	const trimmed = text.trim();
+	if (!trimmed) return undefined;
+	try {
+		return JSON.parse(trimmed);
 	} catch {
 		return undefined;
 	}
 }
 
-const STRUCTURAL_ARGS = new Set([
-	"browser", "open", "open-split", "new", "status", "goto", "navigate", "back", "forward", "reload",
-	"snapshot", "eval", "wait", "click", "dblclick", "hover", "focus", "fill", "type", "press", "key",
-	"keydown", "keyup", "select", "scroll", "scroll-into-view", "screenshot", "get", "is", "find", "frame",
-	"dialog", "download", "profiles", "cookies", "storage", "tab", "console", "errors", "highlight", "state",
-	"addinitscript", "addscript", "addstyle", "viewport", "geolocation", "geo", "offline", "trace", "network",
-	"screencast", "input", "close-surface", "upload", "list", "save", "load", "add", "rename", "delete", "clear",
-]);
-
-function safeCommand(args: string[]): string[] {
-	const browserIndex = args.indexOf("browser");
-	if (browserIndex < 0) return args.slice(0, 1).filter((arg) => STRUCTURAL_ARGS.has(arg));
-	const safe = ["browser"];
-	const first = args[browserIndex + 1];
-	if (!first) return safe;
-	if (STRUCTURAL_ARGS.has(first)) return [...safe, first];
-	safe.push("<surface>");
-	const command = args[browserIndex + 2];
-	if (command && STRUCTURAL_ARGS.has(command)) safe.push(command);
-	return safe;
+function utf8Prefix(text: string, maxBytes: number): string {
+	const bytes = Buffer.from(text, "utf8");
+	if (bytes.length <= maxBytes) return text;
+	return `${bytes.subarray(0, maxBytes).toString("utf8")}\n[output truncated at ${maxBytes} bytes]`;
 }
 
-const VALUE_BEARING_COMMANDS = new Set([
-	"open", "goto", "navigate", "eval", "wait", "click", "dblclick", "hover", "focus", "fill", "type",
-	"press", "key", "keydown", "keyup", "select", "scroll", "scroll-into-view", "screenshot", "get", "find",
-	"frame", "dialog", "download", "profiles", "cookies", "storage", "highlight", "state", "addinitscript",
-	"addscript", "addstyle", "geolocation", "geo", "trace", "network", "input",
-]);
+/** Return only fixed operation labels. No URL, selector, text, path, script, or handle is retained. */
+function safeCommand(args: string[]): string[] {
+	if (args[0] === "close-surface") return ["close-surface"];
+	if (args[0] !== "browser") return ["cmux"];
+	if (args[1] && BROWSER_COMMANDS.has(args[1])) return ["browser", args[1]];
+	if (args[2] && BROWSER_COMMANDS.has(args[2])) return ["browser", "<owned-surface>", args[2]];
+	return ["browser"];
+}
 
-function redactArgv(text: string, args: string[]): string {
-	let redacted = text;
-	const sensitive = new Set<string>();
-	const valueCommandIndex = args.findIndex((arg) => VALUE_BEARING_COMMANDS.has(arg));
-	for (const [index, arg] of args.entries()) {
-		if (!arg || arg === "true" || arg === "false") continue;
-		const commandValue = valueCommandIndex >= 0 && index > valueCommandIndex && !arg.startsWith("--");
-		if (!commandValue && (STRUCTURAL_ARGS.has(arg) || arg.startsWith("--"))) continue;
-		sensitive.add(arg);
-		for (const token of arg.match(/[A-Za-z0-9+/]{16,}={0,2}/g) ?? []) sensitive.add(token);
-	}
-	for (const value of [...sensitive].sort((a, b) => b.length - a.length)) {
-		redacted = redacted.split(value).join("[REDACTED]");
-		redacted = redacted.split(JSON.stringify(value).slice(1, -1)).join("[REDACTED]");
-	}
-	return redacted;
+function lifecycleFailure(args: string[], outcome: string): Error {
+	const command = safeCommand(args).join(" ");
+	return new Error(
+		`cmux ${command} ${outcome}. Raw diagnostics were suppressed. If cmux may be unavailable, confirm Pi is running inside a live cmux workspace and run \`cmux ping\`.`,
+	);
 }
 
 function formatFailure(args: string[], result: ExecResult): Error {
-	const command = safeCommand(args).join(" ") || "command";
-	const raw = result.stderr || result.stdout;
-	if (/broken pipe|failed to write to socket|connection refused|no such file/i.test(raw)) {
-		return new Error(
-			`cmux browser is unavailable (${command}, exit ${result.code}). Confirm Pi is running inside a live cmux workspace, run \`cmux ping\`, and retry.`,
-		);
-	}
-	if (/not[_ -]supported/i.test(raw)) {
-		return new Error(`cmux/WKWebView does not support ${command} (exit ${result.code}).`);
-	}
-	if (args.some((arg) => VALUE_BEARING_COMMANDS.has(arg))) {
-		return new Error(`cmux ${command} failed (exit ${result.code}); cmux diagnostics were suppressed because this invocation contained sensitive arguments.`);
-	}
-	const detail = redactArgv(raw || `exit ${result.code}`, args).trim();
-	return new Error(`cmux ${command} failed (exit ${result.code}): ${detail}`);
+	return lifecycleFailure(args, `failed (exit ${result.code})`);
+}
+
+function openedSurface(json: unknown): string | undefined {
+	if (!json || typeof json !== "object" || Array.isArray(json)) return undefined;
+	const value = (json as Record<string, unknown>).surface_id;
+	return typeof value === "string" && SURFACE_UUID.test(value) ? value : undefined;
 }
 
 export class CmuxBrowserClient {
 	private activeSurface?: string;
+	private readonly ownedSurfaces = new Set<string>();
+	private readonly freshSnapshotRefs = new Set<string>();
+	private readonly execCmux: ExecCmux;
 
-	constructor(
-		private readonly execCmux: ExecCmux,
-		initialSurface?: string,
-	) {
-		this.activeSurface = initialSurface;
+	constructor(execCmux: ExecCmux) {
+		this.execCmux = execCmux;
 	}
 
 	getActiveSurface(): string | undefined {
 		return this.activeSurface;
 	}
 
-	setActiveSurface(surface: string | undefined): void {
-		this.activeSurface = surface?.trim() || undefined;
+	getOwnedSurfaceCount(): number {
+		return this.ownedSurfaces.size;
 	}
 
-	private requireSurface(surface?: string): string {
-		const resolved = surface?.trim() || this.activeSurface;
-		if (!resolved) {
-			throw new Error("No browser surface is active. Call browser_navigate with action=open first, or pass surface explicitly.");
+	private requireOwnedSurface(): string {
+		const surface = this.activeSurface;
+		if (!surface || !this.ownedSurfaces.has(surface)) {
+			throw new Error("No extension-owned browser surface is active. Call browser_navigate with action=open first.");
 		}
-		return resolved;
+		return surface;
 	}
 
-	async run(args: string[], signal?: AbortSignal, timeout = 20_000): Promise<BrowserCommandResult> {
-		const fullArgs = ["--json", "--id-format", "uuids", ...args];
-		const result = await this.execCmux(fullArgs, { signal, timeout });
+	private referencedSnapshotRef(args: string[]): string | undefined {
+		const operation = args[0] ?? "";
+		if (REF_TARGET_OPERATIONS.has(operation)) return args[1];
+		if (operation === "get" && args[1] !== "url") {
+			const index = args.indexOf("--selector");
+			return index >= 0 ? args[index + 1] : undefined;
+		}
+		if (operation === "highlight" || operation === "wait" || operation === "scroll") {
+			const index = args.indexOf("--selector");
+			return index >= 0 ? args[index + 1] : undefined;
+		}
+		return undefined;
+	}
+
+	private recordSnapshotRefs(result: BrowserCommandResult): void {
+		this.freshSnapshotRefs.clear();
+		if (!result.json || typeof result.json !== "object" || Array.isArray(result.json)) return;
+		const snapshot = (result.json as Record<string, unknown>).snapshot;
+		if (typeof snapshot !== "string") return;
+		for (const match of snapshot.matchAll(SNAPSHOT_REF_MARKER)) this.freshSnapshotRefs.add(match[1]!);
+	}
+
+	private async run(args: string[], signal?: AbortSignal, timeout = 20_000, options: RunOptions = {}): Promise<BrowserCommandResult> {
+		let result: ExecResult;
+		try {
+			result = await this.execCmux(["--json", "--id-format", "uuids", ...args], { signal, timeout });
+		} catch {
+			throw lifecycleFailure(args, "could not be invoked");
+		}
 		if (result.code !== 0) throw formatFailure(args, result);
-		const stdout = redactArgv(result.stdout, args);
-		const stderr = redactArgv(result.stderr, args);
-		const json = parseJson(stdout);
-		const surface = findSurface(json);
-		if (surface) this.activeSurface = surface;
-		return { args: safeCommand(args), stdout, stderr, json, surface: surface ?? this.activeSurface };
+
+		let surface = this.activeSurface;
+		if (options.captureOpenedSurface) {
+			const parsed = parseJson(utf8Prefix(result.stdout, 8 * 1024));
+			const opened = openedSurface(parsed);
+			if (!opened) {
+				throw new Error("cmux browser open succeeded but returned no valid top-level surface_id UUID; raw output was suppressed.");
+			}
+			this.ownedSurfaces.add(opened);
+			this.activeSurface = opened;
+			surface = opened;
+		}
+
+		if (options.capture) {
+			const stdout = utf8Prefix(result.stdout, MAX_CAPTURE_BYTES);
+			return { command: safeCommand(args), stdout, stderr: "", json: parseJson(stdout), surface, exposure: "captured" };
+		}
+
+		const json = options.success ?? { ok: true };
+		return {
+			command: safeCommand(args),
+			stdout: JSON.stringify(json),
+			stderr: "",
+			json,
+			surface,
+			exposure: "synthetic",
+		};
 	}
 
-	async open(url: string, workspace: string | undefined, signal?: AbortSignal): Promise<BrowserCommandResult> {
-		const args = ["browser", "open", url, "--focus", "false"];
-		if (workspace?.trim()) args.push("--workspace", workspace.trim());
-		return this.run(args, signal, 30_000);
+	async open(url: string, signal?: AbortSignal): Promise<BrowserCommandResult> {
+		if (this.activeSurface) throw new Error("An extension-owned browser surface is already active; close it before opening another.");
+		assertSafeNavigationUrl(url);
+		this.freshSnapshotRefs.clear();
+		return this.run(
+			["browser", "open", url, "--focus", "false"],
+			signal,
+			30_000,
+			{ captureOpenedSurface: true, success: { ok: true, opened: true } },
+		);
 	}
 
-	async browser(surface: string | undefined, args: string[], signal?: AbortSignal, timeout?: number): Promise<BrowserCommandResult> {
-		return this.run(["browser", this.requireSurface(surface), ...args], signal, timeout);
+	async browser(
+		args: string[],
+		signal?: AbortSignal,
+		timeout = 20_000,
+		options: RunOptions = {},
+	): Promise<BrowserCommandResult> {
+		const surface = this.requireOwnedSurface();
+		const operation = args[0] ?? "";
+		if (!BROWSER_COMMANDS.has(operation) || operation === "open") {
+			throw new Error("Unsupported browser operation; only the extension's fixed capability set is allowed.");
+		}
+		validateBrowserArguments(args);
+		if (options.capture && !CAPTURED_BROWSER_READS.has(operation)) {
+			throw new Error("Captured output is allowed only for browser snapshot/get/console/errors reads.");
+		}
+		const referenced = this.referencedSnapshotRef(args);
+		if (referenced !== undefined && !this.freshSnapshotRefs.has(referenced)) {
+			throw new Error("The requested element ref is not present in the latest successful snapshot; take a fresh snapshot first.");
+		}
+		if (operation === "snapshot" || REF_INVALIDATING_OPERATIONS.has(operation)) this.freshSnapshotRefs.clear();
+		const result = await this.run(["browser", surface, ...args], signal, timeout, options);
+		if (operation === "snapshot") this.recordSnapshotRefs(result);
+		return result;
 	}
 
-	async closeSurface(surface: string | undefined, signal?: AbortSignal): Promise<BrowserCommandResult> {
-		const target = this.requireSurface(surface);
-		const result = await this.run(["close-surface", "--surface", target], signal);
-		if (target === this.activeSurface) this.activeSurface = undefined;
+	async currentOrigin(signal?: AbortSignal): Promise<string> {
+		const result = await this.browser(["get", "url"], signal, 20_000, { capture: true });
+		const parsed = result.json;
+		const raw = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+			? (parsed as Record<string, unknown>).url
+			: undefined;
+		if (typeof raw !== "string") {
+			throw new Error("Could not verify an approved http(s) browser origin; operation refused.");
+		}
+		try {
+			const url = new URL(raw);
+			if (url.href === "about:blank") return "about:blank";
+			if ((url.protocol === "http:" || url.protocol === "https:") && url.origin !== "null") return url.origin;
+			throw new Error("unsupported browser origin");
+		} catch {
+			throw new Error("Could not verify an approved http(s) browser origin; operation refused.");
+		}
+	}
+
+	async closeActive(signal?: AbortSignal): Promise<BrowserCommandResult> {
+		const target = this.requireOwnedSurface();
+		// Relinquish ownership before the subprocess call so an aborted or failed
+		// close can never resurrect a stale handle in this extension instance.
+		this.ownedSurfaces.delete(target);
+		this.activeSurface = undefined;
+		this.freshSnapshotRefs.clear();
+		const result = await this.run(
+			["close-surface", "--surface", target],
+			signal,
+			20_000,
+			{ success: { ok: true, closed: true } },
+		);
 		return { ...result, surface: undefined };
 	}
 
-	async upload(
-		surface: string | undefined,
-		selector: string,
-		path: string,
-		cwd: string,
-		signal?: AbortSignal,
-	): Promise<BrowserCommandResult> {
-		const absolutePath = resolve(cwd, path.replace(/^@/, ""));
-		let info;
-		try {
-			info = await stat(absolutePath);
-		} catch {
-			throw new Error("Upload file could not be inspected. Confirm that the approved path exists and is readable.");
-		}
-		if (!info.isFile()) throw new Error("Upload path is not a regular file.");
-		if (info.size > MAX_UPLOAD_BYTES) {
-			throw new Error(`Upload is ${info.size} bytes; the safe DOM upload limit is ${MAX_UPLOAD_BYTES} bytes.`);
-		}
-		let data: string;
-		try {
-			data = (await readFile(absolutePath)).toString("base64");
-		} catch {
-			throw new Error("Upload file could not be read. Confirm permissions and retry.");
-		}
-		const target = this.requireSurface(surface);
-		const evalScript = (script: string) => this.browser(target, ["eval", "--script", script], signal, 30_000);
-		await evalScript("globalThis.__piCmuxUploadBase64 = ''");
-		try {
-			for (let offset = 0; offset < data.length; offset += UPLOAD_CHUNK_CHARS) {
-				const chunk = data.slice(offset, offset + UPLOAD_CHUNK_CHARS);
-				await evalScript(`globalThis.__piCmuxUploadBase64 += ${JSON.stringify(chunk)}`);
+	async closeAll(): Promise<void> {
+		for (const surface of [...this.ownedSurfaces]) {
+			try {
+				await this.run(
+					["close-surface", "--surface", surface],
+					undefined,
+					5_000,
+					{ success: { ok: true, closed: true } },
+				);
+			} catch {
+				// Shutdown cleanup is best-effort and deliberately does not retain raw diagnostics.
 			}
-			const script = `(() => {
-				const input = document.querySelector(${JSON.stringify(selector)});
-				if (!(input instanceof HTMLInputElement) || input.type !== 'file') throw new Error('selector must resolve to <input type="file">');
-				const raw = atob(globalThis.__piCmuxUploadBase64 || '');
-				const bytes = new Uint8Array(raw.length);
-				for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
-				const file = new File([bytes], ${JSON.stringify(basename(absolutePath))}, { type: 'application/octet-stream' });
-				const transfer = new DataTransfer();
-				transfer.items.add(file);
-				input.files = transfer.files;
-				input.dispatchEvent(new Event('input', { bubbles: true }));
-				input.dispatchEvent(new Event('change', { bubbles: true }));
-				return { name: file.name, size: file.size, files: input.files?.length ?? 0 };
-			})()`;
-			await evalScript(script);
-			return {
-				args: ["browser", "<surface>", "upload"],
-				stdout: JSON.stringify({ ok: true, uploaded: true }),
-				stderr: "",
-				json: { ok: true, uploaded: true },
-				surface: target,
-			};
-		} finally {
-			await evalScript("delete globalThis.__piCmuxUploadBase64").catch(() => undefined);
+			this.ownedSurfaces.delete(surface);
 		}
+		this.activeSurface = undefined;
+		this.freshSnapshotRefs.clear();
 	}
 }

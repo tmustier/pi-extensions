@@ -1,123 +1,104 @@
 # Native cmux browser for Pi
 
-Control the real cmux browser pane from Pi. The extension opens native `WKWebView` surfaces beside the calling Pi terminal, keeps focus in Pi, and gives the model structured tools for navigation, page interaction, tabs/state, files, screenshots, and diagnostics.
+Control a real cmux `WKWebView` pane from Pi through cmux's documented CLI. The extension owns one browser surface at a time, opens it without moving keyboard focus from Pi, and exposes a deliberately narrow set of model tools.
 
 ## Requirements
 
 - macOS with [cmux](https://cmux.com) 0.64.13 or newer
 - cmux browser automation enabled (`cmux browser enable`)
-- Pi launched from a cmux terminal so `CMUX_WORKSPACE_ID` and the cmux socket are available
+- Pi launched directly from a cmux terminal, with access to the live cmux workspace and socket
 
-No Codex installation, browser extension, CDP port, or extra npm runtime dependency is required.
+No Codex installation, browser extension, CDP port, or extra runtime dependency is required.
 
-## Install
-
-Install the repository package:
+## Install and open
 
 ```bash
 pi install git:github.com/tmustier/pi-extensions
 ```
 
-Or test only this extension from a checkout:
+To test only this extension from a checkout:
 
 ```bash
 pi --no-extensions -e ./cmux-browser/index.ts
 ```
 
-On a fresh Pi session inside cmux:
+Then, from a fresh Pi session inside cmux:
 
 ```text
 /browser https://example.com
 ```
 
-The browser opens in the originating workspace with `--focus false`. Pi remains ready for keyboard input while the page renders in its native pane.
+The user-supplied slash command authorizes that initial origin. Model-initiated origin changes require confirmation in Pi. Navigation permits only absolute `http:`/`https:` URLs or exactly `about:blank`; URL credentials and credential-like query parameters are rejected.
 
 ## Model tools
 
-| Tool | Purpose |
+| Tool | Exposed operations |
 |---|---|
-| `browser_navigate` | Open, navigate, history, reload, URL/title/status, close |
-| `browser_inspect` | Snapshot, DOM inspection, page eval, PNG screenshot, console/errors, highlight |
-| `browser_interact` | Click/fill/type/keys/select/check/scroll/wait using refs or CSS |
-| `browser_session` | Tabs, profiles, state save/load, upload, download wait |
+| `browser_navigate` | Open, go to an approved URL, reload, read the approved origin, close |
+| `browser_inspect` | Accessibility snapshot; bounded text/count/box/safe-attribute reads; screenshot; console/errors; highlight |
+| `browser_interact` | Click/double-click/hover/focus, allowlisted key press, check/uncheck, bounded scroll, ref/load-state wait |
+| `browser_download` | Wait for a cmux-managed download; returns readiness only, never a host path |
 
 Recommended loop:
 
-1. `browser_navigate { action: "open", url: "…" }`
-2. `browser_interact { action: "wait", load_state: "complete" }`
-3. `browser_inspect { action: "snapshot", interactive: true }`
-4. Act on a fresh ref with `browser_interact`.
-5. Re-snapshot after navigation or major DOM changes.
+1. Open or navigate.
+2. Request an interactive snapshot.
+3. Act on a fresh snapshot ref such as `e3`.
+4. Re-snapshot after navigation or a substantial DOM change.
 
-### Authentication and profiles
+Arbitrary CSS selectors, JavaScript evaluation, automated text/value entry, file upload, tabs, cookie/storage access, state import/export, profile mutation, and caller-selected host paths are intentionally not exposed. Enter text, passwords, tokens, one-time codes, selections, and file choices directly in the visible native pane.
 
-The extension uses cmux's own browser profiles/data stores. Sign in normally in the visible native pane, or use `browser_session` state/profile operations for supported continuity. The extension never reads Chrome, Safari, Codex, or system credential stores.
+## Authentication and profile boundary
 
-Browser state, cookie/storage exports, and profile artifacts can contain authenticated site state, bearer material, or personal data. Store them outside repositories, restrict filesystem access, never paste them into prompts/logs/issues, and protect them like credentials. The extension redacts sensitive command arguments from failures and tool metadata, but it cannot make an exported artifact safe.
+cmux 0.64.13 does not provide a documented per-open profile selector. An automation-opened pane therefore uses cmux's currently selected browser profile, which may be shared with other cmux panes. Pi requires explicit confirmation before the extension opens its first surface.
 
-### Uploads
+For stronger separation, cancel the prompt, select a dedicated profile in cmux, and retry. The extension does not list, read, create, switch, clear, delete, export, or import profiles, cookies, local storage, or browser state. It never reads Chrome, Safari, Codex, or system credential stores.
 
-`browser_session { action: "upload", path, selector }` asks for interactive approval, then reads one explicit local regular file (maximum 25 MiB), creates a DOM `File` in the current page through cmux's supported eval operation, and dispatches `input`/`change` on the selected `<input type="file">`. Non-interactive uploads are rejected. File paths, contents, encoded chunks, and eval payloads are omitted from failures and tool-result metadata; only safe command/surface/exit diagnostics are retained.
+## Ownership, output, and files
 
-Some sites deliberately reject synthetic file-input events. For those sites, drag the file into the visible cmux browser pane; cmux supports native HTML5 file drop.
+- A client may control only the strict top-level UUID returned by its own successful `browser open` call.
+- Only one extension-owned surface is active. There is no tab enumeration, arbitrary surface/workspace parameter, stale-handle recovery, or session resurrection.
+- Command failures expose fixed operation/exit metadata only; raw cmux stdout/stderr and raw argv are never copied into tool errors or session details.
+- Successful mutation results are fixed synthetic metadata. Only explicit read operations can return bounded captured output.
+- Snapshot refs must match `e` followed by a positive decimal integer. Arbitrary selectors are rejected before cmux invocation.
+- Screenshots are written under a private per-session temporary directory, opened with `O_NOFOLLOW`, checked as a regular file with restrictive permissions, bounded to 10 MiB, and deleted after display.
+- Download waiting returns `{ "ok": true, "download_ready": true }`; destination handling remains in cmux and no path is returned to the model.
 
-### Downloads
+## Public cmux limits
 
-Start the page download, then call `browser_session { action: "download_wait" }`. cmux returns its native download event/path. Download save prompts and destinations follow the user's cmux settings.
+The WKWebView backend reports several CDP-only operations as unsupported, including viewport/geolocation/offline emulation, tracing/screencast, network interception, and raw low-level input. This extension does not expose or claim those operations.
 
-## Supported boundaries
+## Recovery and rollback
 
-cmux's WKWebView backend currently reports these CDP-only operations as `not_supported`:
+The owned surface exists only for the current Pi extension instance. If cmux restarts, the pane closes, or the Pi session reloads, open a new surface explicitly. The extension never adopts an existing pane or silently opens a replacement.
 
-- viewport/geolocation/offline emulation
-- tracing and screencast recording
-- network interception/mocking
-- low-level raw mouse/keyboard/touch injection
-
-This extension does not expose or claim those operations. High-level DOM/ref interaction, screenshots, downloads, tabs, profiles, console, and page errors are supported.
-
-## Recovery
-
-The last successful surface UUID is persisted in Pi tool-result details and restored when the session resumes/reloads. If cmux restarted or the surface was closed, open a replacement explicitly:
-
-```text
-browser_navigate { action: "open", url: "https://example.com" }
-```
-
-For socket errors:
+For socket failures:
 
 ```bash
 cmux ping
 cmux browser status
-cmux browser enable   # only if status is disabled
+cmux browser enable   # only when status is disabled
 ```
 
-The extension does not silently open a replacement because that can put automation in the wrong workspace/profile.
-
-## Rollback
-
-Disable only this resource in the Pi package configuration, remove the local `-e`/extension setting, or uninstall the package:
+To roll back:
 
 ```bash
 pi remove git:github.com/tmustier/pi-extensions
 ```
 
-Then `/reload` or restart Pi. No Pi core, cmux binary/config, Codex installation, browser profile, signing identity, or macOS permission is modified by installation.
+Then run `/reload` or restart Pi. Installation does not modify Pi core, cmux binaries/configuration, Codex, browser profiles, signing identity, or macOS permissions.
 
 ## Verification
 
-Deterministic client tests:
-
 ```bash
-npx tsx --test cmux-browser/client.test.ts
+npm run test:cmux-browser
+npm run typecheck:cmux-browser
 ```
 
-Real E2E from a clean Pi inside a live cmux workspace:
+From a fresh Pi launched directly inside a healthy cmux workspace:
 
 ```bash
 scripts/test-cmux-browser-e2e.sh
 ```
 
-The E2E uses only a local synthetic page and temporary files; it does not use private/customer data.
-
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the public-surface audit and acceptance mapping.
+The E2E uses a local synthetic page and a private temporary directory. See [ARCHITECTURE.md](ARCHITECTURE.md) for the route audit and security design.

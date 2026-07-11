@@ -2,101 +2,102 @@
 
 Issue: [#53](https://github.com/tmustier/pi-extensions/issues/53)
 
-## User-visible behavior
+## Outcome and supported route
 
-A Pi session running in a cmux terminal can create and operate cmux's real browser surfaces without moving focus away from Pi. The model gets structured navigation, snapshot/inspection, interaction, session/tab, upload/download, screenshot, and diagnostics tools; the user sees the same native `WKWebView` browser pane used by cmux itself.
-
-## Evidence and route audit
-
-### Codex surfaces inspected
-
-- Codex CLI 0.143.0 publicly reports stable `browser_use`, `browser_use_external`, `browser_use_full_cdp_access`, `computer_use`, and `in_app_browser` feature keys.
-- `codex app-server generate-json-schema` succeeds, but its public v2 protocol contains configuration requirements for computer use, not a public browser-control request surface.
-- Codex's browser implementation is delivered through Codex Desktop/plugin runtime machinery. Reusing private bundled plugin scripts, internal pipes, credentials, signatures, or app identity would be unsupported and would cross the issue's explicit safety boundary.
-
-Conclusion: there is no supported public Codex browser protocol that a Pi extension can directly embed today. This extension must not load Codex-private plugin files or imitate app identity.
-
-### Pi public extension points inspected
-
-The current Pi README, `docs/extensions.md`, `docs/tui.md`, `docs/keybindings.md`, `docs/packages.md`, extension examples, and installed types support:
-
-- typed model-callable tools (`registerTool`), custom renderers, commands, and status UI;
-- abort-aware child processes through `pi.exec`;
-- session reconstruction from persisted tool-result `details`;
-- startup/shutdown hooks and package installation.
-
-Pi's TUI can render terminal components and images, but cannot host an AppKit `WKWebView`. A TUI browser would therefore be a reduced imitation and fails the requested native rendering/interaction outcome.
-
-### cmux public browser route
-
-cmux 0.64.13 exposes a documented, supported `cmux browser` CLI backed by the browser pane the user actually sees. It includes:
-
-- native surface creation with `--focus false`;
-- navigation and full WebKit rendering;
-- accessibility/DOM snapshots and ref-based interaction;
-- tabs, profiles, cookies/storage, state save/load;
-- screenshots, downloads, console/errors, highlighting, and JavaScript evaluation.
-
-The browser defaults to the caller's `CMUX_WORKSPACE_ID`, which keeps the pane beside the originating Pi session even if another workspace is focused. Its browser profile/data store preserves authentication according to cmux's supported profile behavior.
-
-Known public cmux/WKWebView limits are reported honestly: viewport/geolocation/offline emulation, tracing/screencast, network interception, and raw low-level input currently return `not_supported`. The extension does not claim CDP parity for those operations.
-
-## Selected architecture
-
-A normal Pi package extension delegates only allowlisted operations to the public `cmux browser` CLI:
+A Pi session launched directly in a cmux terminal can open and operate a visible native cmux `WKWebView` pane while keyboard focus remains in Pi. The implementation uses only public extension and CLI surfaces:
 
 ```text
-Pi model / user command
+Pi command / model tool
         │
         ▼
-strict TypeBox tool schema
+strict TypeBox schema + origin/profile approval
         │
         ▼
-argument builder (no shell, no arbitrary passthrough)
+fixed argv builder (no shell or passthrough)
         │
         ▼
-pi.exec(cmux, argv, { signal, timeout })
+pi.exec("cmux", argv, { signal, timeout })
         │
         ▼
-cmux socket API → native browser surface / WKWebView
+documented cmux browser CLI → owned native WKWebView surface
 ```
 
-Design constraints:
+## Route audit
 
-1. **Native, not simulated.** Rendering and direct user interaction stay in cmux's browser pane.
-2. **No focus theft.** Every surface-creation path explicitly passes `--focus false`; automation never calls `focus-webview`.
-3. **Origin workspace.** New surfaces rely on `CMUX_WORKSPACE_ID` or an explicit workspace argument, never the currently focused workspace.
-4. **Supported auth.** The extension uses cmux profiles/state/cookies APIs. It never reads browser or Codex credential stores and never returns cookie values unless the caller explicitly invokes the cookie-read operation.
-5. **Safe execution.** Commands are spawned as argv, not through a shell. Output is truncated before entering model context. File paths are resolved; upload requires an explicit regular file plus interactive approval, and profile deletion is also confirmed.
-6. **Lifecycle and recovery.** The last successful surface UUID is stored in tool-result details and reconstructed on `session_start`; commands can override it. Stale/missing surfaces fail with a recovery instruction rather than silently opening or focusing a replacement.
-7. **Rollback.** Remove/disable only `cmux-browser/index.ts` (or filter it from the package) and restart/reload Pi. The extension does not modify cmux, Codex, browser profiles, Pi core, or system settings.
+### Codex
 
-## Upload approach
+Codex CLI 0.143.0 advertises browser/computer-use feature keys, but its public app-server v2 protocol does not expose a supported browser-control request surface. The browser implementation is part of Codex Desktop/plugin runtime machinery. Loading bundled private scripts, connecting to internal pipes, copying credentials, imitating app identity, or patching a binary would be unsupported and violates issue #53's safety boundary.
 
-cmux supports native user drag/drop into file inputs but currently has no documented `browser upload` automation command. For agent-driven uploads, the extension uses the supported `browser eval` command to construct a DOM `File`, assign it through `DataTransfer`, and dispatch `input`/`change` on an explicitly selected file input. Bytes are transferred in bounded base64 chunks and the temporary page global is cleared in `finally`.
+### Pi
 
-This is normal page-level WebKit automation, not a permission bypass. It may not work on sites that intentionally reject synthetic file-input events; the tool reports that boundary. It never prints file contents.
+Pi's documented extension API provides typed model tools, commands, renderers, confirmation UI, abort-aware `pi.exec`, and lifecycle hooks. Its terminal UI cannot embed AppKit `WKWebView`. A terminal-only imitation would not provide the requested native renderer.
 
-## Acceptance mapping
+### cmux
 
-| Requirement | Route |
+cmux 0.64.13 documents a `cmux browser` CLI backed by the visible native pane. It supports background surface creation, navigation, accessibility snapshots and refs, DOM-level interaction, screenshots, downloads, console/errors, and other broader operations. This extension uses a security-reduced subset rather than exposing the CLI wholesale.
+
+The WKWebView backend does not claim full CDP parity. Viewport/geolocation/offline emulation, tracing/screencast, network interception, and raw input remain explicit non-goals.
+
+## Security design
+
+### Surface ownership
+
+`CmuxBrowserClient.open()` accepts only a documented top-level `surface_id` matching a strict UUID. Nested/fallback values are rejected. The client owns one surface at a time, never accepts caller-selected surface/workspace identifiers, never adopts an existing surface, and never restores a persisted handle. Close removes ownership before another surface can be used.
+
+### Profile boundary
+
+cmux 0.64.13 has no documented profile selector on `browser open`. A new pane uses cmux's currently selected profile and may share its data store with other cmux panes. The extension discloses this and requires Pi TUI confirmation before first use. Users needing stronger isolation must select a dedicated cmux profile before opening.
+
+The extension does not expose profile listing/mutation, cookies, storage, state save/load, tabs, or browser-state import/export.
+
+### Origin approval
+
+Navigation accepts only absolute `http:`/`https:` URLs or exactly `about:blank`. Userinfo and credential-like query keys are rejected. A slash-command URL is an explicit user authorization; model-originated new origins require Pi confirmation. Before inspect/interact actions, the extension reads the active URL internally, reduces it to an origin, and refuses unapproved, opaque, local, or custom-scheme origins. Cross-origin changes therefore stop automation until approved.
+
+### Ref and input restrictions
+
+Interaction and element inspection require fresh snapshot refs matching `^e[1-9][0-9]*$`. Arbitrary CSS selectors are rejected. Automated text/value entry, arbitrary keyboard input, selection, JavaScript evaluation, script injection, and upload are absent. Users enter sensitive values and choose files directly in the visible pane.
+
+### Output classification
+
+Every `BrowserCommandResult` is classified as:
+
+- `captured`: bounded output from an explicit read operation and intentionally model-visible; or
+- `synthetic`: fixed extension metadata whose raw cmux stdout/stderr is discarded.
+
+Only snapshot/get/console/errors operations may request capture in the client. Synthetic tool output is rebuilt from a small boolean/number key allowlist. Failures include a fixed operation label and exit code only; raw stdout/stderr, selectors, URLs, paths, scripts, and values are never interpolated into errors or retained command metadata.
+
+### File boundary
+
+The extension creates a private `0700` per-session directory with `mkdtemp`. Screenshot names are extension-generated UUIDs under that root. Reads use `O_NOFOLLOW`, require a regular single-link file owned by the current user, restrict it to mode `0600`, and enforce a 10 MiB limit. The temporary file is removed after rendering and the root is removed on shutdown. Callers cannot provide screenshot, download, state, or upload host paths.
+
+Download wait requires explicit confirmation and returns readiness metadata only. cmux owns destination selection; no destination path or event payload enters model context.
+
+## Exposed capability map
+
+| User outcome | Exposed route |
 |---|---|
-| Navigation/rendering | cmux native browser surface + navigation operations |
-| Interaction | snapshot refs/CSS plus click, fill, type, key, select, check, scroll, wait |
-| Sessions/tabs | surface UUID recovery; tabs; profile/state APIs |
-| Auth-preserving behavior | cmux profile/data store; state/cookie/storage operations |
-| Uploads/downloads | bounded DOM file upload; native download wait/path result |
-| Screenshots | cmux browser screenshot to explicit/default path |
-| Debug/inspect | snapshot/get/eval/console/errors/highlight |
-| Lifecycle/recovery | persisted surface details, lazy validation, actionable stale-surface errors |
-| Background behavior | `--focus false`; no webview focus command |
-| Fresh install | package manifest entry, no runtime dependency |
-| Rollback | disable/remove one manifest resource; no external mutations |
-| E2E | real cmux browser smoke from fresh Pi plus deterministic fake-cmux tests |
+| Native rendering | extension-owned cmux browser surface opened with `--focus false` |
+| Navigation | approved `http(s)`/`about:blank` open/goto; reload; approved-origin read; close |
+| Inspection | accessibility snapshot; ref-scoped text/safe attribute/count/box; screenshot; console/errors; highlight |
+| Interaction | fresh-ref click/double-click/hover/focus/check/uncheck/scroll; allowlisted key press; ref/load-state wait |
+| Authentication | manual entry in native pane; current cmux profile only after explicit shared-profile disclosure |
+| Downloads | native cmux wait with synthetic readiness result; no returned host path |
+| Lifecycle | one in-memory owned UUID; explicit open/close; best-effort shutdown cleanup |
+| Rollback | remove/disable one Pi resource; no cmux/Codex/system mutation |
 
-## Explicit non-goals and blockers
+Not exposed: eval/addscript/addinitscript, fill/type/select, arbitrary selectors/keys, tabs, profiles, cookies/storage, state files, upload, arbitrary paths/surfaces/workspaces, existing-surface adoption, or stale-handle recovery.
 
-- No reuse of Codex-private plugin scripts, internal pipes, credentials, or signing identity.
-- No binary patching, injection, TCC changes, or protective-measure bypass.
-- No claim that WKWebView offers unsupported CDP-only features.
-- No private/customer-data E2E fixture; tests use local/public synthetic pages.
+## Verification strategy
+
+Deterministic client tests use a fake cmux executor to prove strict top-level UUID parsing, single-surface ownership, fixed failure diagnostics, pre-subprocess rejection of removed value-bearing capabilities, captured-output bounds, synthetic-output allowlisting, terminal close behavior, origin reduction, navigation policy, snapshot-ref grammar, and absence of dangerous tool-schema fields. Separate entrypoint-level tests load the real extension and invoke registered tools to verify approval denial, exact cmux argv, origin-change refusal, bounded private screenshot handling, and cleanup.
+
+The real E2E must run from a fresh Pi process launched directly inside a healthy cmux workspace. It uses a local synthetic page to prove native open, load, snapshot/ref interaction, screenshot, console/errors, and cleanup. Passing fake-client tests alone is not end-to-end proof.
+
+## Explicit non-goals
+
+- No Codex-private runtime, socket, plugin, credential, or identity reuse.
+- No binary patching, process injection, TCC/config bypass, or permission weakening.
+- No claim of unsupported CDP features.
+- No private/customer-data fixture.
+- No silent profile, surface, workspace, or filesystem access.
