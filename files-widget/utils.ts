@@ -1,19 +1,34 @@
-import { accessSync, constants } from "node:fs";
-import { delimiter, join } from "node:path";
+import { accessSync, constants, statSync } from "node:fs";
+import { extname, join } from "node:path";
 
-export function hasCommand(cmd: string): boolean {
-  const pathEntries = (process.env.PATH ?? "").split(delimiter);
-  const extensions = process.platform === "win32"
-    ? (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";")
+export interface CommandLookupOptions {
+  platform?: NodeJS.Platform;
+  path?: string;
+  pathExt?: string;
+  cwd?: string;
+}
+
+export function hasCommand(cmd: string, options: CommandLookupOptions = {}): boolean {
+  const platform = options.platform ?? process.platform;
+  const pathValue = options.path ?? process.env.PATH ?? "";
+  const pathEntries = pathValue.split(platform === "win32" ? ";" : ":");
+  const searchDirectories = platform === "win32"
+    ? [options.cwd ?? process.cwd(), ...pathEntries]
+    : pathEntries;
+  const extensions = platform === "win32" && !extname(cmd)
+    ? (options.pathExt ?? process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean)
     : [""];
-  const accessMode = process.platform === "win32" ? constants.F_OK : constants.X_OK;
+  const accessMode = platform === "win32" ? constants.F_OK : constants.X_OK;
 
-  for (const rawEntry of pathEntries) {
-    const entry = rawEntry.replace(/^"|"$/g, "") || ".";
+  for (const rawDirectory of searchDirectories) {
+    const directory = platform === "win32" && rawDirectory.startsWith('"') && rawDirectory.endsWith('"')
+      ? rawDirectory.slice(1, -1)
+      : rawDirectory;
     for (const extension of extensions) {
       try {
-        accessSync(join(entry, `${cmd}${extension}`), accessMode);
-        return true;
+        const candidate = join(directory || ".", `${cmd}${extension}`);
+        accessSync(candidate, accessMode);
+        if (statSync(candidate).isFile()) return true;
       } catch {
         // Continue searching PATH.
       }
