@@ -10,7 +10,6 @@ import { statSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 
-import { createFileBrowser } from "./browser";
 import { POLL_INTERVAL_MS } from "./constants";
 import { formatCommentMessage } from "./comment";
 import { hasCommand } from "./utils";
@@ -57,6 +56,7 @@ export default function editorExtension(pi: ExtensionAPI): void {
         return;
       }
       const initialPath = resolved.path;
+      const { createFileBrowser } = await import("./browser");
 
       await ctx.ui.custom<void>((tui, theme, _kb, done) => {
         let pollInterval: ReturnType<typeof setInterval> | null = null;
