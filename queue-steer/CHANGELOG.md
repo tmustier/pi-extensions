@@ -1,11 +1,5 @@
 # Changelog
 
-## [0.1.1] - 2026-07-16
-
-### Fixed
-
-- Recompose around editor extensions installed later, including pi-session-hud and raw-paste.
-
 ## [0.1.0] - 2026-07-16
 
 ### Added

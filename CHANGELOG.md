@@ -1,10 +1,5 @@
 # Changelog
 
-## [0.1.48] - 2026-07-16
-
-### Fixed
-- Preserve queue-steer, raw-paste, and session HUD behavior when several extensions compose around Pi's editor.
-
 ## [0.1.47] - 2026-07-16
 
 ### Added

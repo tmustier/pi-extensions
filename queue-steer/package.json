@@ -1,6 +1,6 @@
 {
   "name": "@tmustier/pi-queue-steer",
-  "version": "0.1.1",
+  "version": "0.1.0",
   "description": "Visible, individually editable follow-up queue for Pi without changing steering or queue keybindings.",
   "type": "module",
   "license": "MIT",
