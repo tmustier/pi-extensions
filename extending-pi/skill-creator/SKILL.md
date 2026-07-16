@@ -97,12 +97,18 @@ SKILL.md is the agent's interface to the skill.
 
 ### 8) Validate and test
 
-- Run the bundled validator at `scripts/validate_skill.py` from this `skill-creator` directory (uses [`uv`](https://docs.astral.sh/uv/) via a PEP 723 shebang, so PyYAML is provisioned in an ephemeral environment — no system install needed):
+- Run the bundled validator at `scripts/validate_skill.py` from this `skill-creator` directory (uses [`uv`](https://docs.astral.sh/uv/) via a PEP 723 shebang, so PyYAML is provisioned in an ephemeral environment — no system install needed). A skill needs only `SKILL.md`; `README.md` remains optional:
 
 ```bash
 scripts/validate_skill.py /path/to/my-skill
 # or, equivalently:
 uv run scripts/validate_skill.py /path/to/my-skill
+```
+
+- Before publishing a human-facing package, opt into the stricter README and Installation-section checks:
+
+```bash
+scripts/validate_skill.py --require-readme /path/to/my-skill
 ```
 
 - Load only the skill in Pi to spot warnings:

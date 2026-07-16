@@ -2,6 +2,14 @@
 
 To share with Pi users, make the skill installable with `pi install` from an npm package, git repository, or local path.
 
+Before publishing a human-facing package, run:
+
+```bash
+scripts/validate_skill.py --require-readme /path/to/my-skill
+```
+
+This opt-in mode requires a non-empty `README.md` with an Installation section; ordinary Agent Skill validation keeps README optional.
+
 Pi can load skills from either:
 
 1. A `package.json` `pi.skills` manifest, or
