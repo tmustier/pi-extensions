@@ -6,6 +6,11 @@
   "keywords": [
     "pi-package"
   ],
+  "scripts": {
+    "test:cmux-browser": "tsx --test cmux-browser/client.test.ts && node --no-warnings --test cmux-browser/extension.test.ts",
+    "typecheck:cmux-browser": "tsc --noEmit --strict --allowImportingTsExtensions --moduleResolution bundler --module preserve --target es2022 --skipLibCheck cmux-browser/*.ts",
+    "test:cmux-browser:e2e": "scripts/test-cmux-browser-e2e.sh"
+  },
   "pi": {
     "extensions": [
       "./agent-guidance/agent-guidance.ts",
@@ -15,6 +20,7 @@
       "./arcade/tetris.ts",
       "./arcade/mario-not/mario-not.ts",
       "./code-actions/index.ts",
+      "./cmux-browser/index.ts",
       "./files-widget/index.ts",
       "./raw-paste/index.ts",
       "./pi-ralph-wiggum/index.ts",
@@ -38,6 +44,8 @@
     "@earendil-works/pi-agent-core": "^0.80.3",
     "@earendil-works/pi-ai": "^0.80.3",
     "@earendil-works/pi-coding-agent": "^0.80.3",
-    "@earendil-works/pi-tui": "^0.80.3"
+    "@earendil-works/pi-tui": "^0.80.3",
+    "tsx": "^4.23.0",
+    "typescript": "^7.0.2"
   }
 }

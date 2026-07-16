@@ -1,0 +1,48 @@
+name: cmux-browser
+
+on:
+  pull_request:
+    paths:
+      - "cmux-browser/**"
+      - "package.json"
+      - ".github/workflows/cmux-browser.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "cmux-browser/**"
+      - "package.json"
+      - ".github/workflows/cmux-browser.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: unit and typecheck
+    runs-on: macos-14
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install --no-package-lock --ignore-scripts
+
+      - name: Run deterministic tests
+        run: npm run test:cmux-browser
+
+      - name: Typecheck
+        run: npm run typecheck:cmux-browser
+
+      - name: Pi extension load smoke
+        run: |
+          isolated="$(mktemp -d)"
+          trap 'rm -rf "$isolated"' EXIT
+          PI_CODING_AGENT_DIR="$isolated" ./node_modules/.bin/pi --no-extensions -e ./cmux-browser/index.ts --list-models >/dev/null
