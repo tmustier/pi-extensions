@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.4] - 2026-07-16
+
+### Fixed
+- Compose with other custom editors instead of replacing them.
+- Recompose after late-installed editor chrome such as pi-session-hud.
+
 ## [0.1.3] - 2026-05-07
 
 ### Changed

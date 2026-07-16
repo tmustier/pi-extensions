@@ -10,6 +10,15 @@ import { truncateToWidth, visibleWidth, type Component } from "@earendil-works/p
 import { FollowUpQueue, type QueuedFollowUp } from "./queue-state";
 
 const WIDGET_ID = "queue-steer.follow-ups";
+const EDITOR_FEATURES = Symbol.for("@tmustier/pi-editor-features");
+const QUEUE_STEER_FEATURE = "queue-steer";
+
+type EditorFactory = NonNullable<ReturnType<ExtensionContext["ui"]["getEditorComponent"]>>;
+type ComposedEditorFactory = EditorFactory & { [EDITOR_FEATURES]?: ReadonlySet<string> };
+
+function editorFeatures(factory: EditorFactory | undefined): ReadonlySet<string> {
+	return (factory as ComposedEditorFactory | undefined)?.[EDITOR_FEATURES] ?? new Set();
+}
 
 function compactText(item: QueuedFollowUp<ImageContent>): string {
 	const text = item.text.replace(/\s+/g, " ").trim();
@@ -137,13 +146,14 @@ export default function queueSteerExtension(pi: ExtensionAPI) {
 		}
 	};
 
-	pi.on("session_start", (_event, ctx) => {
-		activeContext = ctx;
-		renderQueue(ctx);
+	const installEditor = (ctx: ExtensionContext): void => {
 		if (ctx.mode !== "tui") return;
 
 		const previousFactory = ctx.ui.getEditorComponent();
-		ctx.ui.setEditorComponent((tui, theme, keybindings) => {
+		const features = editorFeatures(previousFactory);
+		if (features.has(QUEUE_STEER_FEATURE)) return;
+
+		const factory = ((tui, theme, keybindings) => {
 			const editor = previousFactory?.(tui, theme, keybindings) ?? new CustomEditor(tui, theme, keybindings);
 			const handleInput = editor.handleInput.bind(editor);
 			editor.handleInput = (data: string): void => {
@@ -163,7 +173,20 @@ export default function queueSteerExtension(pi: ExtensionAPI) {
 				handleInput(data);
 			};
 			return editor;
-		});
+		}) as ComposedEditorFactory;
+		factory[EDITOR_FEATURES] = new Set([...features, QUEUE_STEER_FEATURE]);
+		ctx.ui.setEditorComponent(factory);
+	};
+
+	pi.on("session_start", (_event, ctx) => {
+		activeContext = ctx;
+		renderQueue(ctx);
+		installEditor(ctx);
+	});
+
+	// Recompose after late-installed editor chrome, such as pi-session-hud.
+	pi.on("agent_start", (_event, ctx) => {
+		installEditor(ctx);
 	});
 
 	pi.on("input", (event, ctx) => {
