@@ -1,6 +1,6 @@
 {
   "name": "pi-extensions",
-  "version": "0.1.46",
+  "version": "0.1.47",
   "license": "MIT",
   "private": false,
   "keywords": [
@@ -17,6 +17,7 @@
       "./code-actions/index.ts",
       "./files-widget/index.ts",
       "./raw-paste/index.ts",
+      "./queue-steer/index.ts",
       "./pi-ralph-wiggum/index.ts",
       "./session-recap/index.ts",
       "./tab-status/tab-status.ts",
