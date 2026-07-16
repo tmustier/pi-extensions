@@ -16,3 +16,9 @@ scripts/validate_skill.py /path/to/my-skill
 # or, equivalently:
 uv run scripts/validate_skill.py /path/to/my-skill
 ```
+
+`README.md` is optional for ordinary Agent Skill validation. For a publishable human-facing package, require a README with an Installation section explicitly:
+
+```bash
+scripts/validate_skill.py --require-readme /path/to/my-skill
+```

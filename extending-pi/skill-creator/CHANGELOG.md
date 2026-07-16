@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.3 - 2026-07-16
+- Keep `README.md` optional during ordinary Agent Skill validation, matching the documented Agent Skills format.
+- Add `--require-readme` for publishing workflows that require a README and Installation section.
+- Add regression tests for both validation modes.
+
 ## 0.3.2 - 2026-05-13
 - Rename artifact terminology from Pi skills to Agent Skills while keeping Pi-specific discovery and packaging guidance where relevant.
 - Refresh Pi discovery notes to include `.agents/skills` compatibility paths.

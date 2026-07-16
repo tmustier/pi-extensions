@@ -4,10 +4,10 @@
 # dependencies = ["pyyaml>=6"]
 # ///
 """
-Validate an Agent Skill directory for Agent Skills + README requirements.
+Validate an Agent Skill directory, with optional publishing README checks.
 
 Usage:
-  scripts/validate_skill.py <skill_directory>
+  scripts/validate_skill.py [--require-readme] <skill_directory>
 
 Requires `uv` (https://docs.astral.sh/uv/). The shebang above runs the script
 in an ephemeral uv-managed environment with PyYAML, so nothing is installed
@@ -18,6 +18,7 @@ into the system Python. You can also invoke it explicitly:
 
 from __future__ import annotations
 
+import argparse
 import re
 import sys
 from pathlib import Path
@@ -62,12 +63,14 @@ def read_frontmatter(skill_md: Path) -> tuple[dict | None, str | None]:
     return frontmatter, None
 
 
-def validate_readme(readme_path: Path) -> tuple[list[str], list[str]]:
+def validate_readme(
+    readme_path: Path, *, required: bool = False
+) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
 
     if not readme_path.exists():
-        return ["README.md not found"], warnings
+        return (["README.md not found"] if required else []), warnings
 
     content = readme_path.read_text().strip()
     if not content:
@@ -159,7 +162,9 @@ def validate_frontmatter(frontmatter: dict, skill_dir: Path) -> tuple[list[str],
     return errors, warnings
 
 
-def validate_skill(skill_path: Path) -> tuple[list[str], list[str]]:
+def validate_skill(
+    skill_path: Path, *, require_readme: bool = False
+) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
 
@@ -183,7 +188,9 @@ def validate_skill(skill_path: Path) -> tuple[list[str], list[str]]:
     errors.extend(fm_errors)
     warnings.extend(fm_warnings)
 
-    readme_errors, readme_warnings = validate_readme(skill_path / "README.md")
+    readme_errors, readme_warnings = validate_readme(
+        skill_path / "README.md", required=require_readme
+    )
     errors.extend(readme_errors)
     warnings.extend(readme_warnings)
 
@@ -191,12 +198,19 @@ def validate_skill(skill_path: Path) -> tuple[list[str], list[str]]:
 
 
 def main() -> None:
-    if len(sys.argv) != 2:
-        print("Usage: scripts/validate_skill.py <skill_directory>")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--require-readme",
+        action="store_true",
+        help="require a non-empty README.md with an Installation section",
+    )
+    parser.add_argument("skill_directory", type=Path)
+    args = parser.parse_args()
 
-    skill_path = Path(sys.argv[1]).resolve()
-    errors, warnings = validate_skill(skill_path)
+    skill_path = args.skill_directory.resolve()
+    errors, warnings = validate_skill(
+        skill_path, require_readme=args.require_readme
+    )
 
     if warnings:
         print("Warnings:")
