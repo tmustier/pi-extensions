@@ -3,33 +3,39 @@ import { CustomEditor, type ExtensionAPI, type ExtensionContext } from "@earendi
 const PASTE_START = "\x1b[200~";
 const PASTE_END = "\x1b[201~";
 const PASTE_END_LEN = PASTE_END.length;
+const EDITOR_FEATURES = Symbol.for("@tmustier/pi-editor-features");
+const RAW_PASTE_FEATURE = "raw-paste";
 
-class RawPasteEditor extends CustomEditor {
+type EditorFactory = NonNullable<ReturnType<ExtensionContext["ui"]["getEditorComponent"]>>;
+type ComposedEditorFactory = EditorFactory & { [EDITOR_FEATURES]?: ReadonlySet<string> };
+
+function editorFeatures(factory: EditorFactory | undefined): ReadonlySet<string> {
+	return (factory as ComposedEditorFactory | undefined)?.[EDITOR_FEATURES] ?? new Set();
+}
+
+class RawPasteController {
 	private rawPasteArmed = false;
 	private rawPasteBuffer = "";
 	private isInRawPaste = false;
-	private onArm?: () => void;
 
 	constructor(
-		tui: ConstructorParameters<typeof CustomEditor>[0],
-		theme: ConstructorParameters<typeof CustomEditor>[1],
-		keybindings: ConstructorParameters<typeof CustomEditor>[2],
-		onArm?: () => void,
-	) {
-		super(tui, theme, keybindings);
-		this.onArm = onArm;
-	}
+		private readonly sendInput: (data: string) => void,
+		private readonly insertText?: (text: string) => void,
+		private readonly onArm?: () => void,
+	) {}
 
-	armRawPaste(): void {
+	arm(): void {
 		this.rawPasteArmed = true;
 		this.onArm?.();
 	}
 
-	private flushRawPaste(content: string): void {
+	private flush(content: string): void {
 		const normalized = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-		for (const char of normalized) {
-			super.handleInput(char);
+		if (this.insertText) {
+			this.insertText(normalized);
+			return;
 		}
+		for (const char of normalized) this.sendInput(char);
 	}
 
 	private handleRawPasteInput(data: string): boolean {
@@ -52,12 +58,8 @@ class RawPasteEditor extends CustomEditor {
 				this.isInRawPaste = false;
 				this.rawPasteArmed = false;
 
-				if (pasteContent.length > 0) {
-					this.flushRawPaste(pasteContent);
-				}
-				if (remaining.length > 0) {
-					this.handleInput(remaining);
-				}
+				if (pasteContent.length > 0) this.flush(pasteContent);
+				if (remaining.length > 0 && !this.handleInput(remaining)) this.sendInput(remaining);
 			}
 			return true;
 		}
@@ -65,41 +67,62 @@ class RawPasteEditor extends CustomEditor {
 		return handled;
 	}
 
-	handleInput(data: string): void {
-		if (this.rawPasteArmed || this.isInRawPaste) {
-			if (this.handleRawPasteInput(data)) {
-				return;
-			}
-		}
-
-		super.handleInput(data);
+	handleInput(data: string): boolean {
+		return (this.rawPasteArmed || this.isInRawPaste) && this.handleRawPasteInput(data);
 	}
 }
 
 export default function (pi: ExtensionAPI) {
-	let editor: RawPasteEditor | null = null;
+	let controller: RawPasteController | undefined;
 
 	const notifyArmed = (ctx: ExtensionContext): void => {
-		if (!ctx.hasUI) return;
-		ctx.ui.notify("Raw paste armed. Paste now.", "info");
+		if (ctx.hasUI) ctx.ui.notify("Raw paste armed. Paste now.", "info");
+	};
+
+	const installEditor = (ctx: ExtensionContext): void => {
+		if (ctx.mode !== "tui") return;
+
+		const previousFactory = ctx.ui.getEditorComponent();
+		const features = editorFeatures(previousFactory);
+		if (features.has(RAW_PASTE_FEATURE)) return;
+
+		const factory = ((tui, theme, keybindings) => {
+			const editor = previousFactory?.(tui, theme, keybindings) ?? new CustomEditor(tui, theme, keybindings);
+			const handleInput = editor.handleInput.bind(editor);
+			controller = new RawPasteController(
+				handleInput,
+				editor.insertTextAtCursor?.bind(editor),
+				() => notifyArmed(ctx),
+			);
+			editor.handleInput = (data: string): void => {
+				if (!controller?.handleInput(data)) handleInput(data);
+			};
+			return editor;
+		}) as ComposedEditorFactory;
+		factory[EDITOR_FEATURES] = new Set([...features, RAW_PASTE_FEATURE]);
+		ctx.ui.setEditorComponent(factory);
 	};
 
 	const armRawPaste = (ctx: ExtensionContext): void => {
-		if (!editor) {
+		installEditor(ctx);
+		if (!controller) {
 			if (ctx.hasUI) ctx.ui.notify("Raw paste editor not ready.", "warning");
 			return;
 		}
-
-		editor.armRawPaste();
+		controller.arm();
 	};
 
 	pi.on("session_start", (_event, ctx) => {
-		if (!ctx.hasUI) return;
+		installEditor(ctx);
+	});
 
-		ctx.ui.setEditorComponent((tui, theme, keybindings) => {
-			editor = new RawPasteEditor(tui, theme, keybindings, () => notifyArmed(ctx));
-			return editor;
-		});
+	// Recompose after late-installed editor chrome, such as pi-session-hud.
+	pi.on("agent_start", (_event, ctx) => {
+		installEditor(ctx);
+	});
+
+	pi.on("session_shutdown", () => {
+		controller = undefined;
 	});
 
 	pi.registerCommand("paste", {
@@ -108,5 +131,4 @@ export default function (pi: ExtensionAPI) {
 			armRawPaste(ctx);
 		},
 	});
-
 }
