@@ -85,12 +85,13 @@ export interface UsageData {
 	today: TimeFilteredStats;
 	thisWeek: TimeFilteredStats;
 	lastWeek: TimeFilteredStats;
+	last30Days: TimeFilteredStats;
 	allTime: TimeFilteredStats;
 }
 
-export type TabName = "today" | "thisWeek" | "lastWeek" | "allTime";
+export type TabName = "today" | "thisWeek" | "lastWeek" | "last30Days" | "allTime";
 
-export const TAB_ORDER: TabName[] = ["today", "thisWeek", "lastWeek", "allTime"];
+export const TAB_ORDER: TabName[] = ["today", "thisWeek", "lastWeek", "last30Days", "allTime"];
 
 export interface SessionMessage {
 	provider: string;
@@ -396,6 +397,7 @@ function emptyUsageData(): UsageData {
 		today: emptyTimeFilteredStats(),
 		thisWeek: emptyTimeFilteredStats(),
 		lastWeek: emptyTimeFilteredStats(),
+		last30Days: emptyTimeFilteredStats(),
 		allTime: emptyTimeFilteredStats(),
 	};
 }
@@ -415,7 +417,13 @@ function accumulateStats(
 	target.tokens.cacheWrite += tokens.cacheWrite;
 }
 
-function getPeriodsForTimestamp(timestamp: number, todayMs: number, weekStartMs: number, lastWeekStartMs: number): TabName[] {
+function getPeriodsForTimestamp(
+	timestamp: number,
+	todayMs: number,
+	weekStartMs: number,
+	lastWeekStartMs: number,
+	last30DaysStartMs: number
+): TabName[] {
 	const periods: TabName[] = ["allTime"];
 	if (timestamp >= todayMs) periods.push("today");
 	if (timestamp >= weekStartMs) {
@@ -423,6 +431,7 @@ function getPeriodsForTimestamp(timestamp: number, todayMs: number, weekStartMs:
 	} else if (timestamp >= lastWeekStartMs) {
 		periods.push("lastWeek");
 	}
+	if (timestamp >= last30DaysStartMs) periods.push("last30Days");
 	return periods;
 }
 
@@ -433,10 +442,11 @@ function addMessagesToUsageData(
 	todayMs: number,
 	weekStartMs: number,
 	lastWeekStartMs: number,
+	last30DaysStartMs: number,
 	rawByPeriod: Record<TabName, PeriodRawData>,
 	globalSessionSpans: Map<string, GlobalSessionSpan>
 ): void {
-	const sessionContributed = { today: false, thisWeek: false, lastWeek: false, allTime: false };
+	const sessionContributed = { today: false, thisWeek: false, lastWeek: false, last30Days: false, allTime: false };
 
 	for (const msg of messages) {
 		// Track real per-session lifetime across every message we see, regardless of
@@ -451,7 +461,7 @@ function addMessagesToUsageData(
 			}
 		}
 
-		const periods = getPeriodsForTimestamp(msg.timestamp, todayMs, weekStartMs, lastWeekStartMs);
+		const periods = getPeriodsForTimestamp(msg.timestamp, todayMs, weekStartMs, lastWeekStartMs, last30DaysStartMs);
 		const tokens = {
 			// Count fresh tokens processed this turn.
 			// Include cacheWrite because those prompt tokens were newly written and billed.
@@ -503,6 +513,7 @@ function addMessagesToUsageData(
 	if (sessionContributed.today) data.today.totals.sessions++;
 	if (sessionContributed.thisWeek) data.thisWeek.totals.sessions++;
 	if (sessionContributed.lastWeek) data.lastWeek.totals.sessions++;
+	if (sessionContributed.last30Days) data.last30Days.totals.sessions++;
 	if (sessionContributed.allTime) data.allTime.totals.sessions++;
 }
 
@@ -548,6 +559,12 @@ export async function collectUsageData(options: CollectUsageOptions = {}): Promi
 	const startOfLastWeek = new Date(startOfWeek);
 	startOfLastWeek.setDate(startOfLastWeek.getDate() - 7);
 	const lastWeekStartMs = startOfLastWeek.getTime();
+
+	// Rolling 30-day window: the last 30 calendar days including today,
+	// i.e. from midnight 29 days before today. setDate handles DST correctly.
+	const startOfLast30Days = new Date(startOfToday);
+	startOfLast30Days.setDate(startOfLast30Days.getDate() - 29);
+	const last30DaysStartMs = startOfLast30Days.getTime();
 
 	// 1. Discover session files.
 	const filePaths = await getAllSessionFiles(sessionsDir, signal);
@@ -647,6 +664,7 @@ export async function collectUsageData(options: CollectUsageOptions = {}): Promi
 		today: emptyPeriodRawData(),
 		thisWeek: emptyPeriodRawData(),
 		lastWeek: emptyPeriodRawData(),
+		last30Days: emptyPeriodRawData(),
 		allTime: emptyPeriodRawData(),
 	};
 	const globalSessionSpans = new Map<string, GlobalSessionSpan>();
@@ -680,6 +698,7 @@ export async function collectUsageData(options: CollectUsageOptions = {}): Promi
 			todayMs,
 			weekStartMs,
 			lastWeekStartMs,
+			last30DaysStartMs,
 			rawByPeriod,
 			globalSessionSpans
 		);

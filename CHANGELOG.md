@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.48] - 2026-07-17
+
+### Added
+- `usage-extension` 0.5.0: new Last 30 Days period tab (rolling 30 calendar days including today).
+
 ## [0.1.47] - 2026-07-17
 
 ### Changed

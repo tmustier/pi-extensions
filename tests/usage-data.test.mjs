@@ -11,7 +11,9 @@ const NOW = new Date(2026, 6, 15, 12, 0, 0);
 const TS_TODAY = new Date(2026, 6, 15, 9, 0, 0).getTime();
 const TS_THIS_WEEK = new Date(2026, 6, 14, 10, 0, 0).getTime(); // Tuesday this week
 const TS_LAST_WEEK = new Date(2026, 6, 10, 10, 0, 0).getTime(); // Friday last week
-const TS_OLD = new Date(2026, 5, 1, 10, 0, 0).getTime(); // 1 June
+const TS_OLD = new Date(2026, 5, 1, 10, 0, 0).getTime(); // 1 June — outside the 30-day window
+const TS_30D_EDGE_IN = new Date(2026, 5, 16, 0, 0, 0).getTime(); // midnight 29 days before 15 July — first instant inside
+const TS_30D_EDGE_OUT = new Date(2026, 5, 15, 23, 59, 59).getTime(); // one second earlier — outside
 
 function fixture(t) {
 	const root = mkdtempSync(join(tmpdir(), "usage-data-"));
@@ -170,6 +172,10 @@ test("collectUsageData aggregates periods, providers, and dedupes branched histo
 	assert.equal(data.thisWeek.totals.messages, 2); // today + Tuesday
 	assert.equal(data.lastWeek.totals.messages, 1);
 	assert.equal(data.lastWeek.totals.cost, 1);
+	// All three unique messages fall inside the rolling 30-day window.
+	assert.equal(data.last30Days.totals.messages, 3);
+	assert.equal(data.last30Days.totals.cost, 7);
+	assert.equal(data.last30Days.totals.sessions, 2);
 
 	// Provider breakdown.
 	const anthropic = data.allTime.providers.get("anthropic");
@@ -179,6 +185,29 @@ test("collectUsageData aggregates periods, providers, and dedupes branched histo
 	assert.equal(anthropic.models.get("claude-fable-5").messages, 2);
 	assert.equal(openai.messages, 1);
 	assert.equal(openai.cost, 4);
+});
+
+test("collectUsageData buckets the rolling 30-day window from midnight 29 days back", async (t) => {
+	const { sessionsDir, cachePath } = fixture(t);
+	writeFileSync(
+		join(sessionsDir, "a.jsonl"),
+		[
+			sessionLine("s1", TS_OLD),
+			assistantLine({ ts: TS_30D_EDGE_OUT, cost: 1 }), // outside — allTime only
+			assistantLine({ ts: TS_30D_EDGE_IN, cost: 2 }), // first instant inside the window
+			assistantLine({ ts: TS_LAST_WEEK, cost: 4 }), // last week is also within 30 days
+			assistantLine({ ts: TS_TODAY, cost: 8 }),
+		].join("\n") + "\n"
+	);
+
+	const data = await collectUsageData({ sessionsDir, cachePath, now: NOW });
+	assert.equal(data.allTime.totals.messages, 4);
+	assert.equal(data.last30Days.totals.messages, 3);
+	assert.equal(data.last30Days.totals.cost, 14);
+	assert.equal(data.last30Days.totals.sessions, 1);
+	// The 30-day window overlaps but does not replace the week buckets.
+	assert.equal(data.lastWeek.totals.cost, 4);
+	assert.equal(data.today.totals.cost, 8);
 });
 
 test("collectUsageData ignores files without a session header", async (t) => {

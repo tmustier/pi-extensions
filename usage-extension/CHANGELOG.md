@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.5.0] - 2026-07-17
+
+### Added
+- **Last 30 Days period.** New tab between Last Week and All Time covering the last 30 calendar days including today (from midnight 29 days back, DST-safe). Available in both the table and insights views.
+
 ## [0.4.0] - 2026-07-17
 
 ### Performance

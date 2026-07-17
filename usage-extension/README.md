@@ -7,7 +7,7 @@ A Pi extension that displays aggregated usage statistics across all sessions.
 ## Compatibility
 
 - **Pi version:** 0.42.4+
-- **Last updated:** 2026-07-17 (0.4.0)
+- **Last updated:** 2026-07-17 (0.5.0)
 
 ## Installation
 
@@ -83,6 +83,7 @@ The insights currently shown:
 | **Today** | From midnight (00:00) today |
 | **This Week** | From Monday 00:00 of the current week |
 | **Last Week** | Previous week (Monday 00:00 → this Monday 00:00) |
+| **Last 30 Days** | Rolling window: the last 30 calendar days including today (from midnight 29 days back) |
 | **All Time** | All recorded sessions |
 
 Use `Tab` or `←`/`→` to switch between periods.
