@@ -69,12 +69,12 @@ In Pi, run:
 
 The **Insights** view has two sections:
 
-**Worth attention** — alarms that only appear when a wasteful pattern is material for the period. A quiet panel means nothing notable was detected.
+**Worth attention** — alarms that only appear when a wasteful pattern is material for the period. When nothing is flagged, the section shows an explicit all-clear.
 
 | Alarm | Fires when |
 |---|---|
-| TTL re-warm tax | ≥ 2% of the period's cost (and ≥ $1) went to messages that re-wrote a large context from scratch after a > 5 min idle gap — provider caches expire after a few minutes idle (Anthropic ~5 min) |
-| Prefix-change misses | ≥ 2% of cost (and ≥ $1) went to large-context cache misses with **no** idle gap — the request prefix changed mid-session. Messages right after a pi compaction are excluded, since compaction legitimately rewrites the prefix |
+| Re-sends after a break (cache TTL) | ≥ 2% of the period's cost (and ≥ $1) went to messages that re-sent a large conversation from scratch after a > 5 min idle gap — provider caches expire after a few minutes idle |
+| Mid-session re-sends (prefix change) | ≥ 2% of cost (and ≥ $1) went to large-context cache misses with **no** idle gap — the request prefix changed mid-session. Messages right after a pi compaction are excluded, since compaction legitimately rewrites the prefix |
 | Session concentration | the top 5 sessions account for ≥ 35% of the period's cost |
 | Upfront tax | ≥ 8% of cost was the first message of a session (session starts pay for their whole prompt uncached) |
 | Cache leverage floor | fewer than 5 cached tokens served per fresh token paid (shown only above $5 / 1M fresh tokens, to avoid noise) |
