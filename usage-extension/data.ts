@@ -47,8 +47,12 @@ export interface TotalStats extends BaseStats {
 }
 
 export interface Insight {
-	percent: number; // 0-100
+	/** Structure insights always show; alarms fire only when material. */
+	kind: "structure" | "alarm";
+	/** Leading stat, already formatted (e.g. "34%", "$446", "1.4×"). */
+	stat: string;
 	headline: string;
+	/** Dimmed follow-up line; empty string renders nothing. */
 	advice: string;
 }
 
@@ -56,23 +60,47 @@ export interface PeriodInsights {
 	insights: Insight[];
 }
 
-interface RawMessage {
-	sessionId: string;
-	timestamp: number;
+interface CostCount {
 	cost: number;
-	input: number;
-	cacheRead: number;
-	cacheWrite: number;
+	messages: number;
 }
 
 interface PeriodRawData {
-	messages: RawMessage[];
+	totalCost: number;
+	totalMessages: number;
+	/** Messages at ≥ CTX_TAX_THRESHOLD context. */
+	ctxHigh: CostCount;
+	/** Messages below CTX_LOW_THRESHOLD context (comparison group). */
+	ctxLow: CostCount;
+	projectCosts: Map<string, number>;
 	sessionCosts: Map<string, number>;
+	/** Cost of each session's first-ever message falling in this period. */
+	upfrontCost: number;
+	/** Cache misses after >TTL_GAP_MS idle — expired-cache re-warms. */
+	ttlMissCost: number;
+	/** Cache misses without an idle gap (compaction excluded) — prefix changes. */
+	prefixMissCost: number;
+	reasoningTokens: number;
+	outputTokens: number;
+	cacheReadTokens: number;
+	freshTokens: number;
 }
 
-interface GlobalSessionSpan {
-	startMs: number;
-	endMs: number;
+/** Per-message adjacency info, computed on raw file order before dedupe. */
+interface MessageMeta {
+	/** Gap to the previous assistant message in the same file; -1 when unknown. */
+	gapMs: number;
+	/** Context size of the previous assistant message in the same file; 0 when first. */
+	prevCtx: number;
+	/** True for the first deduped message of a session across all its files. */
+	isSessionStart: boolean;
+}
+
+export interface TrendInfo {
+	/** Cost over the last 7 calendar days including today. */
+	last7Cost: number;
+	/** Average weekly cost over the prior 28 days. */
+	priorWeeklyPace: number;
 }
 
 export interface TimeFilteredStats {
@@ -145,11 +173,19 @@ export interface SessionMessage {
 	/** Reasoning output tokens reported by the provider (0 when absent). */
 	reasoning: number;
 	timestamp: number;
+	/**
+	 * True when a compaction entry occurred between the previous assistant
+	 * message and this one. Compaction legitimately changes the request prefix,
+	 * so such messages are excluded from prefix-change cache-miss accounting.
+	 */
+	afterCompaction: boolean;
 }
 
 export interface ParsedSessionFile {
 	/** Empty string when the file has no session header — such files are ignored. */
 	sessionId: string;
+	/** Working directory from the session header; "" when absent. */
+	cwd: string;
 	/** Extracted assistant messages, pre-dedupe. Dedupe happens at aggregation. */
 	messages: SessionMessage[];
 }
@@ -216,6 +252,8 @@ const PATTERN_SESSION_COMPACT = Buffer.from('"type":"session"');
 const PATTERN_SESSION_SPACED = Buffer.from('"type": "session"');
 const PATTERN_THINKING_COMPACT = Buffer.from('"type":"thinking_level_change"');
 const PATTERN_THINKING_SPACED = Buffer.from('"type": "thinking_level_change"');
+const PATTERN_COMPACTION_COMPACT = Buffer.from('"type":"compaction"');
+const PATTERN_COMPACTION_SPACED = Buffer.from('"type": "compaction"');
 
 const PARSE_YIELD_EVERY_LINES = 2000;
 
@@ -224,9 +262,11 @@ function lineMightBeRelevant(line: Buffer): boolean {
 		line.includes(PATTERN_ASSISTANT_COMPACT) ||
 		line.includes(PATTERN_SESSION_COMPACT) ||
 		line.includes(PATTERN_THINKING_COMPACT) ||
+		line.includes(PATTERN_COMPACTION_COMPACT) ||
 		line.includes(PATTERN_ASSISTANT_SPACED) ||
 		line.includes(PATTERN_SESSION_SPACED) ||
-		line.includes(PATTERN_THINKING_SPACED)
+		line.includes(PATTERN_THINKING_SPACED) ||
+		line.includes(PATTERN_COMPACTION_SPACED)
 	);
 }
 
@@ -238,11 +278,13 @@ function lineMightBeRelevant(line: Buffer): boolean {
 export async function parseSessionBuffer(buffer: Buffer, signal?: AbortSignal): Promise<ParsedSessionFile> {
 	const messages: SessionMessage[] = [];
 	let sessionId = "";
+	let cwd = "";
 	// Assistant messages don't carry the thinking level; pi records it as separate
 	// thinking_level_change entries, always written before the first assistant
 	// message of a session. Replaying them in append order attributes each message
 	// to the level active when it was produced.
 	let thinkingLevel = "";
+	let compactionPending = false;
 	let start = 0;
 	let lineNumber = 0;
 
@@ -253,7 +295,7 @@ export async function parseSessionBuffer(buffer: Buffer, signal?: AbortSignal): 
 		lineNumber++;
 		if (lineNumber % PARSE_YIELD_EVERY_LINES === 0) {
 			await new Promise<void>((resolve) => setImmediate(resolve));
-			if (signal?.aborted) return { sessionId, messages };
+			if (signal?.aborted) return { sessionId, cwd, messages };
 		}
 
 		if (end > start && lineMightBeRelevant(buffer.subarray(start, end))) {
@@ -262,8 +304,11 @@ export async function parseSessionBuffer(buffer: Buffer, signal?: AbortSignal): 
 
 				if (entry.type === "session") {
 					sessionId = entry.id;
+					if (typeof entry.cwd === "string") cwd = entry.cwd;
 				} else if (entry.type === "thinking_level_change") {
 					if (typeof entry.thinkingLevel === "string") thinkingLevel = entry.thinkingLevel;
+				} else if (entry.type === "compaction") {
+					compactionPending = true;
 				} else if (entry.type === "message" && entry.message?.role === "assistant") {
 					const msg = entry.message;
 					if (msg.usage && msg.provider && msg.model) {
@@ -279,7 +324,9 @@ export async function parseSessionBuffer(buffer: Buffer, signal?: AbortSignal): 
 							cacheWrite: msg.usage.cacheWrite || 0,
 							reasoning: msg.usage.reasoning || 0,
 							timestamp: msg.timestamp || (Number.isNaN(fallbackTs) ? 0 : fallbackTs),
+							afterCompaction: compactionPending,
 						});
+						compactionPending = false;
 					}
 				}
 			} catch {
@@ -290,14 +337,14 @@ export async function parseSessionBuffer(buffer: Buffer, signal?: AbortSignal): 
 		start = end + 1;
 	}
 
-	return { sessionId, messages };
+	return { sessionId, cwd, messages };
 }
 
 // =============================================================================
 // On-disk cache
 // =============================================================================
 
-const CACHE_VERSION = 2;
+const CACHE_VERSION = 3;
 
 type CachedMessageTuple = [
 	providerIdx: number,
@@ -310,12 +357,14 @@ type CachedMessageTuple = [
 	timestamp: number,
 	thinkingLevelIdx: number,
 	reasoning: number,
+	afterCompaction: 0 | 1,
 ];
 
 interface CacheFileEntry {
 	size: number;
 	mtimeMs: number;
 	sessionId: string;
+	cwd: string;
 	messages: CachedMessageTuple[];
 }
 
@@ -344,6 +393,7 @@ export async function loadUsageCache(cachePath: string): Promise<Map<string, Cac
 			typeof entry.size !== "number" ||
 			typeof entry.mtimeMs !== "number" ||
 			typeof entry.sessionId !== "string" ||
+			typeof entry.cwd !== "string" ||
 			!Array.isArray(entry.messages)
 		) {
 			continue;
@@ -351,7 +401,7 @@ export async function loadUsageCache(cachePath: string): Promise<Map<string, Cac
 		const messages: SessionMessage[] = [];
 		let valid = true;
 		for (const tuple of entry.messages) {
-			if (!Array.isArray(tuple) || tuple.length !== 10) {
+			if (!Array.isArray(tuple) || tuple.length !== 11) {
 				valid = false;
 				break;
 			}
@@ -373,13 +423,14 @@ export async function loadUsageCache(cachePath: string): Promise<Map<string, Cac
 				cacheWrite: Number(tuple[6]) || 0,
 				timestamp: Number(tuple[7]) || 0,
 				reasoning: Number(tuple[9]) || 0,
+				afterCompaction: tuple[10] === 1,
 			});
 		}
 		if (!valid) continue;
 		result.set(filePath, {
 			size: entry.size,
 			mtimeMs: entry.mtimeMs,
-			parsed: { sessionId: entry.sessionId, messages },
+			parsed: { sessionId: entry.sessionId, cwd: entry.cwd, messages },
 		});
 	}
 	return result;
@@ -404,6 +455,7 @@ export async function saveUsageCache(cachePath: string, states: Map<string, Cach
 			size: state.size,
 			mtimeMs: state.mtimeMs,
 			sessionId: state.parsed.sessionId,
+			cwd: state.parsed.cwd,
 			messages: state.parsed.messages.map((m): CachedMessageTuple => [
 				intern(m.provider),
 				intern(m.model),
@@ -415,6 +467,7 @@ export async function saveUsageCache(cachePath: string, states: Map<string, Cach
 				m.timestamp,
 				intern(m.thinkingLevel),
 				m.reasoning,
+				m.afterCompaction ? 1 : 0,
 			]),
 		};
 	}
@@ -452,7 +505,47 @@ function emptyTimeFilteredStats(): TimeFilteredStats {
 }
 
 function emptyPeriodRawData(): PeriodRawData {
-	return { messages: [], sessionCosts: new Map() };
+	return {
+		totalCost: 0,
+		totalMessages: 0,
+		ctxHigh: { cost: 0, messages: 0 },
+		ctxLow: { cost: 0, messages: 0 },
+		projectCosts: new Map(),
+		sessionCosts: new Map(),
+		upfrontCost: 0,
+		ttlMissCost: 0,
+		prefixMissCost: 0,
+		reasoningTokens: 0,
+		outputTokens: 0,
+		cacheReadTokens: 0,
+		freshTokens: 0,
+	};
+}
+
+/**
+ * Collapse a session cwd to a short, stable project label: `~` for the home
+ * directory, up to two path segments below home (worktrees collapse to their
+ * repository), absolute paths elsewhere.
+ */
+export function projectLabelFromCwd(cwd: string): string {
+	if (!cwd) return "(unknown)";
+	// Collapse any home-directory prefix to "~", not just the current user's —
+	// session stores merged from other machines can carry a different username.
+	const home = homedir();
+	let homePrefix: string | null = null;
+	if (cwd === home || cwd.startsWith(home + "/")) {
+		homePrefix = home;
+	} else {
+		const m = /^(\/Users\/[^/]+|\/home\/[^/]+)(?=\/|$)/.exec(cwd);
+		if (m) homePrefix = m[1]!;
+	}
+	if (homePrefix !== null && cwd.length <= homePrefix.length) return "~";
+	let rel = homePrefix !== null ? cwd.slice(homePrefix.length + 1) : cwd;
+	const wt = rel.indexOf("/.worktrees/");
+	if (wt !== -1) rel = rel.slice(0, wt);
+	const parts = rel.split("/").filter(Boolean);
+	const label = parts.slice(0, 2).join("/");
+	return homePrefix !== null ? `~/${label}` : `/${label}`;
 }
 
 function emptyUsageData(bounds: PeriodBounds): UsageData {
@@ -525,30 +618,31 @@ function getPeriodsForTimestamp(
 	return periods;
 }
 
+const DAY_MS = 24 * HOUR_MS;
+
 function addMessagesToUsageData(
 	data: UsageData,
 	sessionId: string,
+	project: string,
 	messages: SessionMessage[],
+	meta: MessageMeta[],
 	todayMs: number,
 	weekStartMs: number,
 	lastWeekStartMs: number,
 	last30DaysStartMs: number,
 	rawByPeriod: Record<TabName, PeriodRawData>,
-	globalSessionSpans: Map<string, GlobalSessionSpan>
+	costByDayIdx: Map<number, number>
 ): void {
 	const sessionContributed = { today: false, thisWeek: false, lastWeek: false, last30Days: false, allTime: false };
 
-	for (const msg of messages) {
-		// Track real per-session lifetime across every message we see, regardless of
-		// which period the message falls into. Used later for the "8h+ session" insight.
+	for (let mi = 0; mi < messages.length; mi++) {
+		const msg = messages[mi]!;
+		const mm = meta[mi]!;
+
+		// Day-indexed cost totals power the burn-trend insight.
 		if (msg.timestamp > 0) {
-			const span = globalSessionSpans.get(sessionId);
-			if (!span) {
-				globalSessionSpans.set(sessionId, { startMs: msg.timestamp, endMs: msg.timestamp });
-			} else {
-				if (msg.timestamp < span.startMs) span.startMs = msg.timestamp;
-				if (msg.timestamp > span.endMs) span.endMs = msg.timestamp;
-			}
+			const dayIdx = Math.floor((msg.timestamp - todayMs) / DAY_MS);
+			costByDayIdx.set(dayIdx, (costByDayIdx.get(dayIdx) ?? 0) + msg.cost);
 		}
 
 		addToHourlyBuckets(data.hourly, msg);
@@ -590,15 +684,31 @@ function addMessagesToUsageData(
 			sessionContributed[period] = true;
 
 			const raw = rawByPeriod[period];
-			raw.messages.push({
-				sessionId,
-				timestamp: msg.timestamp,
-				cost: msg.cost,
-				input: msg.input,
-				cacheRead: msg.cacheRead,
-				cacheWrite: msg.cacheWrite,
-			});
+			raw.totalCost += msg.cost;
+			raw.totalMessages++;
+			const ctx = msg.input + msg.cacheRead + msg.cacheWrite;
+			if (ctx >= CTX_TAX_THRESHOLD) {
+				raw.ctxHigh.cost += msg.cost;
+				raw.ctxHigh.messages++;
+			} else if (ctx < CTX_LOW_THRESHOLD) {
+				raw.ctxLow.cost += msg.cost;
+				raw.ctxLow.messages++;
+			}
+			raw.projectCosts.set(project, (raw.projectCosts.get(project) ?? 0) + msg.cost);
 			raw.sessionCosts.set(sessionId, (raw.sessionCosts.get(sessionId) ?? 0) + msg.cost);
+			if (mm.isSessionStart) raw.upfrontCost += msg.cost;
+			if (
+				!msg.afterCompaction &&
+				mm.prevCtx >= MISS_MIN_PREV_CONTEXT &&
+				msg.cacheRead < Math.min(MISS_MAX_CACHE_READ, 0.3 * mm.prevCtx)
+			) {
+				if (mm.gapMs > TTL_GAP_MS) raw.ttlMissCost += msg.cost;
+				else if (mm.gapMs >= 0) raw.prefixMissCost += msg.cost;
+			}
+			raw.reasoningTokens += msg.reasoning;
+			raw.outputTokens += msg.output;
+			raw.cacheReadTokens += msg.cacheRead;
+			raw.freshTokens += msg.input + msg.cacheWrite;
 		}
 	}
 
@@ -759,7 +869,8 @@ export async function collectUsageData(options: CollectUsageOptions = {}): Promi
 		last30Days: emptyPeriodRawData(),
 		allTime: emptyPeriodRawData(),
 	};
-	const globalSessionSpans = new Map<string, GlobalSessionSpan>();
+	const costByDayIdx = new Map<number, number>();
+	const seenSessions = new Set<string>();
 	const seenHashes = new Set<string>();
 	let processedFiles = 0;
 
@@ -772,38 +883,57 @@ export async function collectUsageData(options: CollectUsageOptions = {}): Promi
 			if (signal?.aborted) return null;
 		}
 
-		// Deduplicate copied history across branched session files.
-		// Keep the existing ccusage-style hash so current totals remain comparable.
+		// Deduplicate copied history across branched session files, computing
+		// adjacency metadata (idle gaps, previous context) on the raw file order
+		// so branch copies do not distort miss classification.
+		const rawMsgs = state.parsed.messages;
 		const deduped: SessionMessage[] = [];
-		for (const m of state.parsed.messages) {
+		const meta: MessageMeta[] = [];
+		for (let i = 0; i < rawMsgs.length; i++) {
+			const m = rawMsgs[i]!;
 			const hash = `${m.timestamp}:${m.input + m.output + m.cacheRead + m.cacheWrite}`;
 			if (seenHashes.has(hash)) continue;
 			seenHashes.add(hash);
+			const prev = i > 0 ? rawMsgs[i - 1]! : null;
 			deduped.push(m);
+			meta.push({
+				gapMs: prev && prev.timestamp > 0 && m.timestamp > 0 ? m.timestamp - prev.timestamp : -1,
+				prevCtx: prev ? prev.input + prev.cacheRead + prev.cacheWrite : 0,
+				isSessionStart: false,
+			});
 		}
 		if (deduped.length === 0) continue;
+		if (!seenSessions.has(state.parsed.sessionId)) {
+			seenSessions.add(state.parsed.sessionId);
+			meta[0]!.isSessionStart = true;
+		}
 
 		addMessagesToUsageData(
 			data,
 			state.parsed.sessionId,
+			projectLabelFromCwd(state.parsed.cwd),
 			deduped,
+			meta,
 			todayMs,
 			weekStartMs,
 			lastWeekStartMs,
 			last30DaysStartMs,
 			rawByPeriod,
-			globalSessionSpans
+			costByDayIdx
 		);
 	}
 
-	// Classify sessions that are globally long-running once, then reuse across periods.
-	const longSessionIds = new Set<string>();
-	for (const [id, span] of globalSessionSpans) {
-		if (span.endMs - span.startMs >= LONG_SESSION_MS) longSessionIds.add(id);
+	// Burn trend: last 7 calendar days vs the average weekly pace of the prior 28.
+	let last7 = 0;
+	let prior28 = 0;
+	for (const [idx, c] of costByDayIdx) {
+		if (idx >= -6) last7 += c;
+		else if (idx >= -34) prior28 += c;
 	}
+	const trend: TrendInfo | null = prior28 > 0 ? { last7Cost: last7, priorWeeklyPace: prior28 / 4 } : null;
 
 	for (const period of TAB_ORDER) {
-		data[period].insights = computeInsights(rawByPeriod[period], longSessionIds);
+		data[period].insights = computeInsights(rawByPeriod[period], trend);
 	}
 
 	return data;
@@ -813,148 +943,186 @@ export async function collectUsageData(options: CollectUsageOptions = {}): Promi
 // Insights
 // =============================================================================
 
-const PARALLEL_WINDOW_MS = 2 * 60_000; // exact ±N milliseconds around each message
-const PARALLEL_SESSION_THRESHOLD = 4;
-const LARGE_CONTEXT_THRESHOLD = 150_000;
-const LARGE_CACHE_MISS_THRESHOLD = 100_000;
-const LONG_SESSION_MS = 8 * 60 * 60 * 1000;
+// Context tax (structure)
+const CTX_TAX_THRESHOLD = 150_000;
+const CTX_LOW_THRESHOLD = 100_000;
+// Project mix (structure)
+const PROJECT_TOP_COUNT = 3;
+const PROJECT_MAX_DOMINANCE_PERCENT = 90;
+// Reasoning share (structure)
+const REASONING_MIN_PERCENT = 5;
+// Burn trend (structure)
+const TREND_HIGH_RATIO = 1.5;
+const TREND_LOW_RATIO = 0.6;
+// Cache-miss alarms
+const TTL_GAP_MS = 5 * 60_000;
+const MISS_MIN_PREV_CONTEXT = 20_000;
+const MISS_MAX_CACHE_READ = 5_000;
+const CACHE_MISS_ALARM_PERCENT = 2;
+const CACHE_MISS_ALARM_MIN_COST = 1;
+// Concentration / upfront alarms
 const TOP_SESSION_COUNT = 5;
-const MIN_MESSAGES_FOR_PARALLEL_INSIGHT = 10;
-const MIN_PERCENT_TO_SHOW = 1;
+const CONCENTRATION_ALARM_PERCENT = 35;
+const UPFRONT_ALARM_PERCENT = 8;
+// Cache-leverage alarm
+const LEVERAGE_FLOOR = 5;
+const LEVERAGE_MIN_COST = 5;
+const LEVERAGE_MIN_FRESH_TOKENS = 1_000_000;
 
-/**
- * Insights are weighted by recorded API cost. Periods with zero total cost produce
- * an empty `insights` list — the UI renders a distinct empty-state for that case.
- * Long-running-session classification is passed in from a global pass so that a
- * session's real lifetime is used rather than the slice visible inside this period.
- */
-function computeInsights(raw: PeriodRawData, longSessionIds: Set<string>): PeriodInsights {
-	if (raw.messages.length === 0) {
-		return { insights: [] };
-	}
+function fmtMoney(v: number): string {
+	if (v >= 1000) return `$${(v / 1000).toFixed(1)}k`;
+	if (v >= 100) return `$${Math.round(v)}`;
+	return `$${v.toFixed(2)}`;
+}
 
-	const total = raw.messages.reduce((sum, m) => sum + m.cost, 0);
-	if (total <= 0) {
-		return { insights: [] };
-	}
-
-	const candidates: Insight[] = [];
-
-	// 1. Parallel sessions — ≥ N unique sessions active within an exact ±W ms window.
-	const parallelWeight = computeParallelCostWeight(raw.messages);
-	if (parallelWeight !== null) {
-		candidates.push({
-			percent: (parallelWeight / total) * 100,
-			headline: `of your cost was while ${PARALLEL_SESSION_THRESHOLD}+ sessions ran in parallel`,
-			advice:
-				"All sessions share one rate limit. If you don't need them all at once, queueing uses capacity more evenly.",
-		});
-	}
-
-	// 2. Large context — input + cacheRead + cacheWrite > threshold.
-	const largeContextWeight = raw.messages
-		.filter((m) => m.input + m.cacheRead + m.cacheWrite > LARGE_CONTEXT_THRESHOLD)
-		.reduce((sum, m) => sum + m.cost, 0);
-	candidates.push({
-		percent: (largeContextWeight / total) * 100,
-		headline: `of your cost was at >${formatThresholdTokens(LARGE_CONTEXT_THRESHOLD)} context`,
-		advice:
-			"Longer sessions are more expensive even when cached. /compact mid-task, /clear when switching to new tasks.",
-	});
-
-	// 3. Large uncached prompt — fresh (non-cached) input > threshold, per the v0.2.0 formula.
-	const uncachedWeight = raw.messages
-		.filter((m) => m.input + m.cacheWrite > LARGE_CACHE_MISS_THRESHOLD)
-		.reduce((sum, m) => sum + m.cost, 0);
-	candidates.push({
-		percent: (uncachedWeight / total) * 100,
-		headline: `of your cost came from >${formatThresholdTokens(LARGE_CACHE_MISS_THRESHOLD)}-token uncached prompts`,
-		advice:
-			"Uncached input is expensive, and often happens when sending a message to a session that has gone idle. /compact before stepping away keeps the cold-start small.",
-	});
-
-	// 4. Long-running sessions — classification comes from the global pass so we use
-	//    true session lifetime, not just the span visible inside this period slice.
-	const longWeight = raw.messages
-		.filter((m) => longSessionIds.has(m.sessionId))
-		.reduce((sum, m) => sum + m.cost, 0);
-	if (longWeight > 0) {
-		candidates.push({
-			percent: (longWeight / total) * 100,
-			headline: `of your cost came from sessions active for ${LONG_SESSION_MS / 3_600_000}+ hours`,
-			advice:
-				"These are often background/loop sessions. Continuous usage can add up quickly so make sure it is intentional.",
-		});
-	}
-
-	// 5. Top-N session concentration.
-	if (raw.sessionCosts.size > TOP_SESSION_COUNT) {
-		const sortedSessions = Array.from(raw.sessionCosts.values()).sort((a, b) => b - a);
-		const topN = Math.min(TOP_SESSION_COUNT, sortedSessions.length);
-		const topWeight = sortedSessions.slice(0, topN).reduce((sum, c) => sum + c, 0);
-		candidates.push({
-			percent: (topWeight / total) * 100,
-			headline: `of your cost came from your top ${topN} session${topN === 1 ? "" : "s"}`,
-			advice:
-				"A small number of sessions drives most of your spend. The table view can help pinpoint which ones.",
-		});
-	}
-
-	const insights = candidates.filter((i) => i.percent >= MIN_PERCENT_TO_SHOW).sort((a, b) => b.percent - a.percent);
-	return { insights };
+function fmtPercent(p: number): string {
+	return p >= 10 ? `${Math.round(p)}%` : `${p.toFixed(1)}%`;
 }
 
 /**
- * Two-pointer sweep of messages sorted by timestamp. For each message, count the
- * number of distinct session IDs whose messages fall within an exact ± window.
- * Returns the total cost attributable to moments when ≥ threshold sessions were
- * active, or null if the period has too few sessions/messages to call it.
- *
- * Messages with missing/invalid timestamps (parsed as 0) are filtered out first —
- * otherwise they would collapse into a single synthetic instant and inflate the
- * parallel count on older or incomplete logs.
+ * Insights come in two kinds:
+ * - structure: always-on decomposition of where the period's cost went.
+ * - alarm: fires only when a wasteful pattern is material for the period, so
+ *   an all-clear period shows a calm panel instead of a wall of 2% factoids.
+ * Periods with zero recorded cost produce an empty list — the UI renders a
+ * distinct empty-state for that case.
  */
-function computeParallelCostWeight(messages: RawMessage[]): number | null {
-	const timed = messages.filter((m) => m.timestamp > 0);
-	if (timed.length < MIN_MESSAGES_FOR_PARALLEL_INSIGHT) return null;
-	const distinctSessions = new Set(timed.map((m) => m.sessionId));
-	if (distinctSessions.size < PARALLEL_SESSION_THRESHOLD) return null;
+function computeInsights(raw: PeriodRawData, trend: TrendInfo | null): PeriodInsights {
+	if (raw.totalMessages === 0 || raw.totalCost <= 0) {
+		return { insights: [] };
+	}
+	const total = raw.totalCost;
+	const insights: Insight[] = [];
 
-	const sorted = timed.slice().sort((a, b) => a.timestamp - b.timestamp);
-	const sidCount = new Map<string, number>();
-	let uniqueCount = 0;
-	let left = 0;
-	let right = 0;
-	let parallelCost = 0;
+	// --- Alarms (listed first) ---
 
-	for (let i = 0; i < sorted.length; i++) {
-		const current = sorted[i]!;
-		const high = current.timestamp + PARALLEL_WINDOW_MS;
-		const low = current.timestamp - PARALLEL_WINDOW_MS;
-
-		while (right < sorted.length && sorted[right]!.timestamp <= high) {
-			const sid = sorted[right]!.sessionId;
-			const next = (sidCount.get(sid) ?? 0) + 1;
-			sidCount.set(sid, next);
-			if (next === 1) uniqueCount++;
-			right++;
-		}
-		while (left < right && sorted[left]!.timestamp < low) {
-			const sid = sorted[left]!.sessionId;
-			const next = (sidCount.get(sid) ?? 0) - 1;
-			if (next === 0) {
-				sidCount.delete(sid);
-				uniqueCount--;
-			} else {
-				sidCount.set(sid, next);
-			}
-			left++;
-		}
-
-		if (uniqueCount >= PARALLEL_SESSION_THRESHOLD) parallelCost += current.cost;
+	const ttlPct = (raw.ttlMissCost / total) * 100;
+	if (ttlPct >= CACHE_MISS_ALARM_PERCENT && raw.ttlMissCost >= CACHE_MISS_ALARM_MIN_COST) {
+		insights.push({
+			kind: "alarm",
+			stat: fmtMoney(raw.ttlMissCost),
+			headline: `spent re-warming caches that expired during idle gaps (${fmtPercent(ttlPct)} of this period)`,
+			advice:
+				"Provider caches expire after a few minutes idle (Anthropic ~5min); the next message re-writes the whole context at premium rates. Batching replies instead of trickling them keeps caches warm.",
+		});
 	}
 
-	return parallelCost;
+	const prefixPct = (raw.prefixMissCost / total) * 100;
+	if (prefixPct >= CACHE_MISS_ALARM_PERCENT && raw.prefixMissCost >= CACHE_MISS_ALARM_MIN_COST) {
+		insights.push({
+			kind: "alarm",
+			stat: fmtMoney(raw.prefixMissCost),
+			headline: `spent on cache misses with no idle gap (${fmtPercent(prefixPct)} of this period)`,
+			advice:
+				"The request prefix changed mid-session (compaction excluded), so cached context was re-sent at full price. If this stays high, something in the workflow is defeating provider caching.",
+		});
+	}
+
+	if (raw.sessionCosts.size > TOP_SESSION_COUNT) {
+		const sortedSessions = Array.from(raw.sessionCosts.values()).sort((a, b) => b - a);
+		const topWeight = sortedSessions.slice(0, TOP_SESSION_COUNT).reduce((sum, c) => sum + c, 0);
+		const topPct = (topWeight / total) * 100;
+		if (topPct >= CONCENTRATION_ALARM_PERCENT) {
+			insights.push({
+				kind: "alarm",
+				stat: fmtPercent(topPct),
+				headline: `of this period's cost came from just ${TOP_SESSION_COUNT} sessions (of ${raw.sessionCosts.size})`,
+				advice: "Spend is unusually concentrated. The graph view's filters can pinpoint what those sessions were doing.",
+			});
+		}
+	}
+
+	const upfrontPct = (raw.upfrontCost / total) * 100;
+	if (upfrontPct >= UPFRONT_ALARM_PERCENT) {
+		insights.push({
+			kind: "alarm",
+			stat: fmtPercent(upfrontPct),
+			headline: "of cost was the first message of a session",
+			advice:
+				"Session starts pay for their whole prompt uncached. Fewer, longer-lived sessions amortize that setup cost.",
+		});
+	}
+
+	if (total >= LEVERAGE_MIN_COST && raw.freshTokens >= LEVERAGE_MIN_FRESH_TOKENS) {
+		const leverage = raw.cacheReadTokens / raw.freshTokens;
+		if (leverage < LEVERAGE_FLOOR) {
+			insights.push({
+				kind: "alarm",
+				stat: `${leverage.toFixed(1)}×`,
+				headline: "cache leverage — cached tokens served per fresh token paid",
+				advice:
+					"Healthy interactive use typically sees 10×+. Low leverage means context is being re-sent uncached — look for workflows that restart conversations.",
+			});
+		}
+	}
+
+	// --- Structure (always-on) ---
+
+	if (raw.ctxHigh.messages > 0) {
+		const pct = (raw.ctxHigh.cost / total) * 100;
+		if (pct >= 1) {
+			const avgHigh = raw.ctxHigh.cost / raw.ctxHigh.messages;
+			const avgLow = raw.ctxLow.messages > 0 ? raw.ctxLow.cost / raw.ctxLow.messages : 0;
+			const cmp =
+				avgLow > 0
+					? ` — averaging ${fmtMoney(avgHigh)}/msg vs ${fmtMoney(avgLow)} under ${formatThresholdTokens(CTX_LOW_THRESHOLD)}`
+					: "";
+			insights.push({
+				kind: "structure",
+				stat: fmtPercent(pct),
+				headline: `of your cost was at ≥${formatThresholdTokens(CTX_TAX_THRESHOLD)} context${cmp}`,
+				advice: "Context size is the main cost driver. /compact mid-task and /clear between tasks to reset it.",
+			});
+		}
+	}
+
+	if (raw.projectCosts.size >= 2) {
+		const top = [...raw.projectCosts.entries()].sort((a, b) => b[1] - a[1]).slice(0, PROJECT_TOP_COUNT);
+		const topPct = (top[0]![1] / total) * 100;
+		if (topPct < PROJECT_MAX_DOMINANCE_PERCENT) {
+			const rest = top
+				.slice(1)
+				.map(([label, c]) => `${label} ${fmtPercent((c / total) * 100)}`)
+				.join(", ");
+			insights.push({
+				kind: "structure",
+				stat: fmtPercent(topPct),
+				headline: `of your cost was ${top[0]![0]}${rest ? ` — then ${rest}` : ""}`,
+				advice: "",
+			});
+		}
+	}
+
+	if (raw.outputTokens > 0) {
+		const reasoningPct = (raw.reasoningTokens / raw.outputTokens) * 100;
+		if (reasoningPct >= REASONING_MIN_PERCENT) {
+			insights.push({
+				kind: "structure",
+				stat: fmtPercent(reasoningPct),
+				headline: "of your output tokens were invisible reasoning",
+				advice:
+					"Reasoning is billed as output but never displayed. Recorded by pi 0.80.3+ (June 2026) only, so older periods understate it.",
+			});
+		}
+	}
+
+	if (trend && trend.priorWeeklyPace > 0) {
+		const ratio = trend.last7Cost / trend.priorWeeklyPace;
+		const advice =
+			ratio >= TREND_HIGH_RATIO
+				? "Spend is accelerating vs your own baseline — the graph view shows what changed."
+				: ratio <= TREND_LOW_RATIO
+					? "Spend is well below your recent baseline."
+					: "";
+		insights.push({
+			kind: "structure",
+			stat: `${ratio.toFixed(1)}×`,
+			headline: `your last 7 days (${fmtMoney(trend.last7Cost)}) vs your prior 4-week pace (${fmtMoney(trend.priorWeeklyPace)}/wk)`,
+			advice,
+		});
+	}
+
+	return { insights };
 }
 
 function formatThresholdTokens(n: number): string {

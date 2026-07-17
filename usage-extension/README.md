@@ -60,12 +60,37 @@ In Pi, run:
 `/usage` has three view modes, cycled with `v`:
 
 - **Table** (default) — per-provider / per-model stats with cost and token breakdown (screenshot at the top of this page).
-- **Insights** — narrative characteristics of your cost for the active time period, e.g. *"X% of your cost was at >150k context"*. Insights are **independent characteristics**, not a breakdown, so they overlap and can sum to more than 100%.
+- **Insights** — data-driven characteristics of your cost for the active time period (details below). Insights are **independent lenses**, not a breakdown, so they overlap and don't sum to 100%.
 - **Graphs** — an interactive braille line-chart explorer for usage over time (details below).
 
 ![Insights view of /usage](insights-screenshot.png)
 
-**Unit:** insights are always weighted by recorded API cost (USD). Periods with no recorded cost show an explicit empty state rather than silently switching to a different unit.
+### Insights
+
+The **Insights** view has two sections:
+
+**Worth attention** — alarms that only appear when a wasteful pattern is material for the period. A quiet panel means nothing notable was detected.
+
+| Alarm | Fires when |
+|---|---|
+| TTL re-warm tax | ≥ 2% of the period's cost (and ≥ $1) went to messages that re-wrote a large context from scratch after a > 5 min idle gap — provider caches expire after a few minutes idle (Anthropic ~5 min) |
+| Prefix-change misses | ≥ 2% of cost (and ≥ $1) went to large-context cache misses with **no** idle gap — the request prefix changed mid-session. Messages right after a pi compaction are excluded, since compaction legitimately rewrites the prefix |
+| Session concentration | the top 5 sessions account for ≥ 35% of the period's cost |
+| Upfront tax | ≥ 8% of cost was the first message of a session (session starts pay for their whole prompt uncached) |
+| Cache leverage floor | fewer than 5 cached tokens served per fresh token paid (shown only above $5 / 1M fresh tokens, to avoid noise) |
+
+**Where it went** — always-on structural lenses:
+
+| Insight | Detail |
+|---|---|
+| Context tax | share of cost spent at ≥ 150k context, with the average per-message cost vs messages under 100k |
+| Project mix | top 3 project directories by cost, derived from each session's working directory (worktrees collapse into their repository; hidden when one project is ≥ 90% — you already know) |
+| Reasoning share | share of output tokens that were invisible reasoning (recorded by pi 0.80.3+ only; hidden below 5%) |
+| Burn trend | your last 7 days of spend vs your prior 4-week weekly pace (same on every tab) |
+
+**Unit:** insights are weighted by recorded API cost (USD). Periods with no recorded cost show an explicit empty state rather than silently switching to a different unit.
+
+A note on reading them: cache-miss and context numbers are **observed cost, not promised savings** — big-context messages often do bigger work. Treat the alarms as "look here", not as an invoice for waste.
 
 ### Graph explorer
 
@@ -79,16 +104,6 @@ The **Graphs** view plots usage over time for the active period as a braille lin
 - **Line clipping**: every series (provider, model, thinking level, `other`, Total) is drawn only between its first and last bucket with usage, so late-starting or retired series don't drag a flat zero/flat tail across the whole period.
 
 Thinking levels are replayed from `thinking_level_change` entries in each session file; messages before the first recorded change appear as `unknown`. Reasoning token counts come from `usage.reasoning` where providers report them; pi only records this field since **pi 0.80.3 (30 June 2026)**, so earlier sessions show zero reasoning tokens even though thinking models were in use.
-
-The insights currently shown:
-
-| Insight | Threshold |
-|---|---|
-| Parallel sessions | ≥ 4 sessions active within an exact ±2 min window |
-| Large context | `input + cacheRead + cacheWrite > 150k` |
-| Large uncached prompt | `input + cacheWrite > 100k` |
-| Long-running sessions | session lifetime ≥ 8 hours (global, not per-period slice) |
-| Top-session concentration | top 5 sessions by cost |
 
 ### Time Periods
 
@@ -144,7 +159,7 @@ On narrow terminals, `/usage` automatically switches to a compact table instead 
 - **On-disk cache.** Per-file extraction results are cached in `<agentDir>/usage-extension-cache.json` (respects `PI_CODING_AGENT_DIR`), keyed by file size + mtime. Warm opens only re-parse session files that changed since the last run — on a 5.2 GB / 3,310-file corpus that takes the open from ~17 s to ~0.3 s.
 - **First open** after install (or after deleting the cache) does a one-off full build, showing the usual cancellable loader. Cancelling saves partial progress, so the next open resumes where it left off.
 - The cache is safe to delete at any time; it is rebuilt automatically. Corrupt or version-mismatched caches are ignored and rebuilt rather than trusted.
-- **0.6.0 bumps the cache format to v2** (adds thinking level and reasoning tokens per message). The first open after upgrading does a one-off full rebuild, then warm opens are fast again.
+- **0.7.0 bumps the cache format to v3** (adds session working directory and compaction markers; 0.6.0's v2 added thinking level and reasoning tokens). The first open after upgrading does a one-off full rebuild, then warm opens are fast again.
 
 ## Provider Notes
 
