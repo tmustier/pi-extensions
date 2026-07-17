@@ -7,7 +7,7 @@ A Pi extension that displays aggregated usage statistics across all sessions.
 ## Compatibility
 
 - **Pi version:** 0.42.4+
-- **Last updated:** 2026-07-17 (0.9.0)
+- **Last updated:** 2026-07-17 (0.9.1)
 
 ## Installation
 
@@ -107,7 +107,7 @@ A note on reading them: cache-miss and context numbers are **observed cost, not 
 
 ### Export
 
-Press `e` in any view to write the **current slice** to the current working directory:
+Press `e` in any view to write the **current slice** to `/tmp` (or the OS temp dir where `/tmp` doesn't exist) — exports never litter your repo or home directory, and the `✓ Saved` note shows the full path so you can grab the file if you want to keep it:
 
 | View | File | Contents |
 |---|---|---|
@@ -116,6 +116,14 @@ Press `e` in any view to write the **current slice** to the current working dire
 | Insights | `usage-insights-<period>-<stamp>.json` | period, totals, and the structured insight list |
 
 A `✓ Saved …` note confirms the write (or reports the error) above the help line.
+
+To export somewhere permanent instead, set an export directory in `~/.pi/agent/settings.json` (created if missing, `~` expands):
+
+```json
+{
+	"usage-extension": { "exportDir": "~/Downloads" }
+}
+```
 
 ### Graph explorer
 

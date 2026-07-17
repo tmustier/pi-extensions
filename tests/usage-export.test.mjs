@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildTableCsv, buildGraphCsv, buildInsightsJson, exportFileName } from "../usage-extension/export.ts";
+import {
+	buildTableCsv,
+	buildGraphCsv,
+	buildInsightsJson,
+	exportFileName,
+	parseExportDirSetting,
+	resolveExportDir,
+} from "../usage-extension/export.ts";
 
 function stats(cost, messages, tokens = {}) {
 	return {
@@ -98,4 +105,21 @@ test("exportFileName is stable and slice-aware", () => {
 		exportFileName("graph", "today", "cumulative-cost-by-provider", "csv", now),
 		"usage-graph-today-cumulative-cost-by-provider-20260717-150409.csv"
 	);
+});
+
+test("parseExportDirSetting reads the usage-extension key and tolerates junk", () => {
+	assert.equal(parseExportDirSetting('{"usage-extension":{"exportDir":"~/Downloads"}}'), "~/Downloads");
+	assert.equal(parseExportDirSetting('{"usage-extension":{"exportDir":"  /data/exports "}}'), "/data/exports");
+	assert.equal(parseExportDirSetting('{"usage-extension":{"exportDir":""}}'), null);
+	assert.equal(parseExportDirSetting('{"usage-extension":{"exportDir":42}}'), null);
+	assert.equal(parseExportDirSetting('{"defaultProvider":"openai-codex"}'), null);
+	assert.equal(parseExportDirSetting("not json at all"), null);
+});
+
+test("resolveExportDir prefers config, expands ~, defaults to /tmp", () => {
+	assert.equal(resolveExportDir("/data/exports", "/Users/t", true, "/var/tmp-x"), "/data/exports");
+	assert.equal(resolveExportDir("~/Downloads", "/Users/t", true, "/var/tmp-x"), "/Users/t/Downloads");
+	assert.equal(resolveExportDir("~", "/Users/t", true, "/var/tmp-x"), "/Users/t");
+	assert.equal(resolveExportDir(null, "/Users/t", true, "/var/tmp-x"), "/tmp");
+	assert.equal(resolveExportDir(null, "/Users/t", false, "/var/tmp-x"), "/var/tmp-x");
 });

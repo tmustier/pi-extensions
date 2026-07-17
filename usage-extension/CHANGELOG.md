@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.9.1] - 2026-07-17
+
+### Changed
+- Exports now save to `/tmp` (or the OS temp dir where `/tmp` doesn't exist) instead of the pi session's cwd, so they never litter a repo or home directory. The `✓ Saved` note shows the full path.
+- The export directory is configurable: `{ "usage-extension": { "exportDir": "~/Downloads" } }` in `~/.pi/agent/settings.json` (`~` expands; the directory is created if missing).
+
 ## [0.9.0] - 2026-07-17
 
 ### Added

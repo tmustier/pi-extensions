@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.57] - 2026-07-17
+
+### Changed
+- `usage-extension` 0.9.1: exports save to `/tmp` by default (full path shown in the confirmation note), with a configurable `exportDir` under the `usage-extension` key in settings.json.
+
 ## [0.1.56] - 2026-07-17
 
 ### Changed
