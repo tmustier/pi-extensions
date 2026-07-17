@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.8.1] - 2026-07-17
+
+### Changed
+- **Consistent units.** Every alarm in “Worth attention” now leads with dollars (the act-or-ignore number), with the period share in the dimmed parenthetical; “Where it went” keeps percentages (shares of the pie). Session concentration and upfront tax previously led with %.
+
 ## [0.8.0] - 2026-07-17
 
 ### Changed
