@@ -210,6 +210,7 @@ const TAB_LABELS: Record<TabName, string> = {
 	today: "Today",
 	thisWeek: "This Week",
 	lastWeek: "Last Week",
+	last30Days: "Last 30 Days",
 	allTime: "All Time",
 };
 
