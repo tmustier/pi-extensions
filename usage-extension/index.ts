@@ -26,6 +26,9 @@ import {
 	TOTAL_SERIES_KEY,
 } from "./graph";
 import type { GraphGroupBy, GraphMetric, GraphModel } from "./graph";
+import { buildGraphCsv, buildInsightsJson, buildTableCsv, exportFileName } from "./export";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 type ViewMode = "table" | "insights" | "graph";
 
@@ -281,6 +284,7 @@ class UsageComponent {
 	private graphMetric: GraphMetric = "cost";
 	private graphGroupBy: GraphGroupBy = "provider";
 	private graphCumulative = true;
+	private exportNote: { text: string; ok: boolean } | null = null;
 	private graphHidden = new Set<string>();
 	private graphLegendIndex = 0;
 
@@ -309,6 +313,13 @@ class UsageComponent {
 		if (matchesKey(data, "v")) {
 			const idx = VIEW_CYCLE.indexOf(this.viewMode);
 			this.viewMode = VIEW_CYCLE[(idx + 1) % VIEW_CYCLE.length]!;
+			this.exportNote = null;
+			this.requestRender();
+			return;
+		}
+
+		if (matchesKey(data, "e")) {
+			this.exportCurrentView();
 			this.requestRender();
 			return;
 		}
@@ -321,11 +332,13 @@ class UsageComponent {
 			const idx = TAB_ORDER.indexOf(this.activeTab);
 			this.activeTab = TAB_ORDER[(idx + 1) % TAB_ORDER.length]!;
 			this.updateProviderOrder();
+			this.exportNote = null;
 			this.requestRender();
 		} else if (matchesKey(data, "shift+tab") || matchesKey(data, "left")) {
 			const idx = TAB_ORDER.indexOf(this.activeTab);
 			this.activeTab = TAB_ORDER[(idx - 1 + TAB_ORDER.length) % TAB_ORDER.length]!;
 			this.updateProviderOrder();
+			this.exportNote = null;
 			this.requestRender();
 		} else if (this.viewMode === "graph") {
 			// Graph-specific keys were handled above; swallow table-only keys.
@@ -386,6 +399,31 @@ class UsageComponent {
 		}
 		this.requestRender();
 		return true;
+	}
+
+	private exportCurrentView(): void {
+		const now = new Date();
+		let name: string;
+		let content: string;
+		const stats = this.data[this.activeTab];
+		if (this.viewMode === "graph") {
+			const slice = `${this.graphCumulative ? "cumulative" : "per-bucket"}-${this.graphMetric}-by-${this.graphGroupBy}`;
+			name = exportFileName("graph", this.activeTab, slice, "csv", now);
+			content = buildGraphCsv(this.buildGraphModelForView());
+		} else if (this.viewMode === "insights") {
+			name = exportFileName("insights", this.activeTab, null, "json", now);
+			content = buildInsightsJson(this.activeTab, stats.totals, stats.insights.insights);
+		} else {
+			name = exportFileName("table", this.activeTab, null, "csv", now);
+			content = buildTableCsv(stats.providers, stats.totals);
+		}
+		try {
+			const path = join(process.cwd(), name);
+			writeFileSync(path, content);
+			this.exportNote = { text: `Saved ${name}`, ok: true };
+		} catch (err) {
+			this.exportNote = { text: `Export failed: ${err instanceof Error ? err.message : String(err)}`, ok: false };
+		}
 	}
 
 	private buildGraphModelForView(): GraphModel {
@@ -708,32 +746,35 @@ class UsageComponent {
 	}
 
 	private renderHelp(width: number): string[] {
+		const noteLines = this.exportNote
+			? [this.theme.fg(this.exportNote.ok ? "success" : "error", `${this.exportNote.ok ? "✓" : "✗"} ${this.exportNote.text}`), ""]
+			: [];
 		const variants =
 			this.viewMode === "graph"
 				? [
-						"[Tab/←→] period  [m] metric  [g] group  [c] cumulative  [↑↓/Enter] filter  [a] all  [v] view  [q] close",
-						"[Tab] period  [m] metric  [g] group  [c] cumul  [↑↓/Enter] filter  [v] view  [q] close",
+						"[Tab/←→] period  [m] metric  [g] group  [c] cumulative  [↑↓/Enter] filter  [a] all  [e] export  [v] view  [q] close",
+						"[Tab] period  [m] metric  [g] group  [c] cumul  [↑↓/Enter] filter  [e] export  [v] view  [q] close",
 						"[m] metric  [g] group  [c] cumul  [↑↓] filter  [q] close",
 						"[m] [g] [c] [↑↓] [q]",
 						"[q] close",
 				  ]
 				: this.viewMode === "insights"
 				? [
-						"[Tab/←→] period  [v] view  [q] close",
-						"[Tab] period  [v] view  [q] close",
+						"[Tab/←→] period  [e] export  [v] view  [q] close",
+						"[Tab] period  [e] export  [v] view  [q] close",
 						"[v] view  [q] close",
 						"[q] close",
 				  ]
 				: [
-						"[Tab/←→] period  [↑↓] select  [Enter] expand  [v] view  [q] close",
-						"[Tab] period  [↑↓] select  [Enter] expand  [v] view  [q] close",
+						"[Tab/←→] period  [↑↓] select  [Enter] expand  [e] export  [v] view  [q] close",
+						"[Tab] period  [↑↓] select  [Enter] expand  [e] export  [v] view  [q] close",
 						"[↑↓] select  [Enter] expand  [v] view  [q] close",
 						"[↑↓] select  [v] view  [q] close",
 						"[↑↓] select  [q] close",
 						"[q] close",
 				  ];
 		const line = pickFittingText(width, variants);
-		return [this.theme.fg("dim", line)];
+		return [...noteLines, this.theme.fg("dim", line)];
 	}
 
 	invalidate(): void {}
