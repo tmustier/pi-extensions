@@ -67,17 +67,7 @@ In Pi, run:
 
 ### Insights
 
-The **Insights** view has two sections:
-
-**Worth attention** — alarms that only appear when a wasteful pattern is material for the period. When nothing is flagged, the section shows an explicit all-clear.
-
-| Alarm | Fires when |
-|---|---|
-| Re-sends after a break (cache TTL) | ≥ 2% of the period's cost (and ≥ $1) went to messages that re-sent a large conversation from scratch after a > 5 min idle gap — provider caches expire after a few minutes idle |
-| Mid-session re-sends (prefix change) | ≥ 2% of cost (and ≥ $1) went to large-context cache misses with **no** idle gap — the request prefix changed mid-session. Messages right after a pi compaction are excluded, since compaction legitimately rewrites the prefix |
-| Session concentration | the top 5 sessions account for ≥ 35% of the period's cost |
-| Upfront tax | ≥ 8% of cost was the first message of a session (session starts pay for their whole prompt uncached) |
-| Cache leverage floor | fewer than 5 cached tokens served per fresh token paid (shown only above $5 / 1M fresh tokens, to avoid noise) |
+The **Insights** view has two sections, facts first:
 
 **Where it went** — always-on structural lenses:
 
@@ -85,8 +75,21 @@ The **Insights** view has two sections:
 |---|---|
 | Context tax | share of cost spent at ≥ 150k context, with the average per-message cost vs messages under 100k |
 | Project mix | top 3 project directories by cost, derived from each session's working directory (worktrees collapse into their repository; hidden when one project is ≥ 90% — you already know) |
-| Reasoning share | share of output tokens that were invisible reasoning (recorded by pi 0.80.3+ only; hidden below 5%) |
+| Reasoning share | share of output tokens that were hidden reasoning (recorded by pi 0.80.3+ only; hidden below 5%) |
 | Burn trend | your last 7 days of spend vs your prior 4-week weekly pace (same on every tab) |
+
+**Worth attention** — alarms that only appear when a wasteful pattern is material for the period. When nothing is flagged, the section shows an explicit all-clear. Large-context cache misses are split into three distinct behaviours:
+
+| Alarm | Fires when |
+|---|---|
+| Resuming after a break | ≥ 2% of the period's cost (and ≥ $1) went to messages that re-sent a large conversation from scratch after a > 5 min idle gap — provider caches expire after a few minutes idle |
+| Switching models mid-conversation | ≥ 2% of cost (and ≥ $1) went to large-context misses right after the provider/model changed mid-session — the previous model's cache doesn't transfer |
+| Mid-session re-sends (prefix change) | ≥ 2% of cost (and ≥ $1) went to large-context misses with **no** idle gap, compaction, or model switch to explain them — something rewrote the request prefix |
+| Session concentration | the top 5 sessions account for ≥ 35% of the period's cost |
+| Upfront tax | ≥ 8% of cost was the first message of a session (session starts pay for their whole prompt uncached) |
+| Cache leverage floor | fewer than 5 cached tokens served per fresh token paid (shown only above $5 / 1M fresh tokens, to avoid noise) |
+
+pi's built-in test providers (`faux-provider`, `fake-provider`) never call a real API and are excluded from all statistics, graphs, and insights.
 
 **Unit:** insights are weighted by recorded API cost (USD). Periods with no recorded cost show an explicit empty state rather than silently switching to a different unit.
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.54] - 2026-07-17
+
+### Changed
+- `usage-extension` 0.8.0: cache-miss taxonomy split (resume after break / model switch / prefix change), facts-first section order, and pi test providers (`faux-provider`, `fake-provider`) excluded from all stats.
+
 ## [0.1.53] - 2026-07-17
 
 ### Changed

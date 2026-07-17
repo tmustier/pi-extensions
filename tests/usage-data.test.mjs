@@ -493,7 +493,7 @@ test("loadUsageCache rejects wrong versions and malformed entries", async (t) =>
 
 const findInsight = (data, period, re) => data[period].insights.insights.find((i) => re.test(i.headline));
 
-test("insights classify TTL vs prefix cache misses and exclude compaction", async (t) => {
+test("insights classify resume vs model-switch vs prefix misses and exclude compaction", async (t) => {
 	const { sessionsDir, cachePath } = fixture(t);
 	const SIX_MIN = 6 * 60_000;
 	writeFileSync(
@@ -502,24 +502,48 @@ test("insights classify TTL vs prefix cache misses and exclude compaction", asyn
 			sessionLine("s1", TS_TODAY),
 			// Establishes a large previous context.
 			assistantLine({ ts: TS_TODAY, cost: 1, input: 1000, cacheRead: 100000 }),
-			// >5min idle, cacheRead ~0 → TTL-shaped miss.
+			// >5min idle, cacheRead ~0 → resume-after-break (TTL) miss.
 			assistantLine({ ts: TS_TODAY + SIX_MIN, cost: 10, input: 100000, cacheRead: 0 }),
-			// Short gap, cacheRead ~0 → prefix-shaped miss.
+			// Short gap, cacheRead ~0 → true prefix-change miss.
 			assistantLine({ ts: TS_TODAY + SIX_MIN + 10_000, cost: 5, input: 100000, cacheRead: 0 }),
 			// Compaction between messages → excluded from prefix accounting.
 			'{"type":"compaction","id":"c1"}',
 			assistantLine({ ts: TS_TODAY + SIX_MIN + 20_000, cost: 7, input: 100000, cacheRead: 0 }),
+			// Short gap but a different model → model-switch miss, not prefix.
+			assistantLine({ ts: TS_TODAY + SIX_MIN + 30_000, cost: 60, input: 100000, cacheRead: 0, model: "gpt-5.6-sol" }),
 		].join("\n") + "\n"
 	);
 
 	const data = await collectUsageData({ sessionsDir, cachePath, now: NOW });
-	const ttl = findInsight(data, "today", /re-sending conversations after a break/);
-	assert.ok(ttl, "TTL alarm fires");
+	const ttl = findInsight(data, "today", /resuming conversations after a break/);
+	assert.ok(ttl, "resume alarm fires");
 	assert.equal(ttl.kind, "alarm");
 	assert.equal(ttl.stat, "$10.00");
 	const prefix = findInsight(data, "today", /re-sending conversations mid-session/);
 	assert.ok(prefix, "prefix alarm fires");
-	assert.equal(prefix.stat, "$5.00", "compaction-adjacent miss is excluded from prefix cost");
+	assert.equal(prefix.stat, "$5.00", "compaction- and switch-adjacent misses are excluded from prefix cost");
+	const sw = findInsight(data, "today", /switching models mid-conversation/);
+	assert.ok(sw, "model-switch alarm fires");
+	assert.equal(sw.stat, "$60.00");
+});
+
+test("pi test providers are excluded from all stats", async (t) => {
+	const { sessionsDir, cachePath } = fixture(t);
+	writeFileSync(
+		join(sessionsDir, "a.jsonl"),
+		[
+			sessionLine("s1", TS_TODAY),
+			assistantLine({ ts: TS_TODAY, cost: 2 }),
+			assistantLine({ ts: TS_TODAY + 1000, cost: 99, provider: "faux-provider", model: "faux" }),
+			assistantLine({ ts: TS_TODAY + 2000, cost: 99, provider: "fake-provider", model: "fake" }),
+		].join("\n") + "\n"
+	);
+
+	const data = await collectUsageData({ sessionsDir, cachePath, now: NOW });
+	assert.equal(data.today.totals.cost, 2, "test-provider cost is excluded");
+	assert.equal(data.today.totals.messages, 1, "test-provider messages are excluded");
+	assert.ok(!data.today.providers.has("faux-provider"));
+	assert.ok(!data.today.providers.has("fake-provider"));
 });
 
 test("insights fire upfront and concentration alarms when material", async (t) => {

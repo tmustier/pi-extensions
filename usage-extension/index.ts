@@ -553,16 +553,17 @@ class UsageComponent {
 
 		const alarms = insights.filter((i) => i.kind === "alarm");
 		const structure = insights.filter((i) => i.kind === "structure");
+		// Facts first, flagged waste second.
+		if (structure.length > 0) {
+			lines.push(sectionHeader("Where it went", "accent"));
+			for (const insight of structure) renderOne(insight);
+		}
 		lines.push(sectionHeader("Worth attention", "warning"));
 		if (alarms.length > 0) {
 			for (const insight of alarms) renderOne(insight);
 		} else {
 			lines.push(`  ${th.fg("success", padLeft("✓", 6))} ${th.fg("dim", "no waste patterns flagged for this period")}`);
 			lines.push("");
-		}
-		if (structure.length > 0) {
-			lines.push(sectionHeader("Where it went", "accent"));
-			for (const insight of structure) renderOne(insight);
 		}
 
 		return lines;
