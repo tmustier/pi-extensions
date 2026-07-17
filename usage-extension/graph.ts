@@ -60,6 +60,10 @@ export interface GraphSeries {
 	/** Period total for this series (not affected by cumulative). */
 	total: number;
 	hidden: boolean;
+	/** First bucket index with activity, or -1 when the series is empty. */
+	firstIdx: number;
+	/** Last bucket index with activity, or -1 when the series is empty. */
+	lastIdx: number;
 }
 
 export interface GraphModel {
@@ -183,21 +187,40 @@ export function buildGraphModel(
 	const hidden = options.hidden ?? new Set<string>();
 	const series: GraphSeries[] = [];
 
+	// Active range per series (computed on raw per-bucket values, before any
+	// cumulative transform): lines are later drawn only between the first and
+	// last bucket with usage, so late-starting or retired series do not drag a
+	// flat zero/flat tail across the whole period.
+	const activeRange = (points: number[]): { firstIdx: number; lastIdx: number } => {
+		let firstIdx = -1;
+		let lastIdx = -1;
+		for (let i = 0; i < points.length; i++) {
+			if (points[i] !== 0) {
+				if (firstIdx === -1) firstIdx = i;
+				lastIdx = i;
+			}
+		}
+		return { firstIdx, lastIdx };
+	};
+
 	series.push({
 		key: TOTAL_SERIES_KEY,
 		label: "Total",
 		points: totalPoints.slice(),
 		total: totalSum,
 		hidden: hidden.has(TOTAL_SERIES_KEY),
+		...activeRange(totalPoints),
 	});
 
 	for (const [groupKey, total] of kept) {
+		const points = groupValues.get(groupKey)!;
 		series.push({
 			key: groupKey,
 			label: groupKey,
-			points: groupValues.get(groupKey)!,
+			points,
 			total,
 			hidden: hidden.has(groupKey),
+			...activeRange(points),
 		});
 	}
 
@@ -215,6 +238,7 @@ export function buildGraphModel(
 			points,
 			total,
 			hidden: hidden.has(OTHER_SERIES_KEY),
+			...activeRange(points),
 		});
 	}
 
@@ -295,10 +319,11 @@ export function renderChart(model: GraphModel, options: ChartRenderOptions): str
 	const yMax = model.yMax > 0 ? model.yMax : 1;
 	const bucketCount = model.bucketStarts.length;
 
-	const plot = (seriesIndex: number, points: number[]) => {
+	const plot = (seriesIndex: number, points: number[], firstIdx: number, lastIdx: number) => {
+		if (firstIdx < 0) return;
 		let prevX = -1;
 		let prevY = -1;
-		for (let i = 0; i < bucketCount; i++) {
+		for (let i = firstIdx; i <= lastIdx; i++) {
 			const x = bucketCount === 1 ? dotW - 1 : Math.round((i / (bucketCount - 1)) * (dotW - 1));
 			const y = Math.round((1 - (points[i]! / yMax)) * (dotH - 1));
 			if (prevX >= 0) {
@@ -335,7 +360,7 @@ export function renderChart(model: GraphModel, options: ChartRenderOptions): str
 				entry.s.key === TOTAL_SERIES_KEY ? Number.POSITIVE_INFINITY : entry.s.key === OTHER_SERIES_KEY ? -1 : entry.s.total;
 			return rank(a) - rank(b);
 		});
-	for (const { s, i } of drawOrder) plot(i, s.points);
+	for (const { s, i } of drawOrder) plot(i, s.points, s.firstIdx, s.lastIdx);
 
 	// Compose text rows.
 	const lines: string[] = [];

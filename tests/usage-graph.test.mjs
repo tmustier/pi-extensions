@@ -310,6 +310,78 @@ test("renderChart hides hidden series from the plot", () => {
 	assert.equal(braille.length, 0, "hidden series must not be drawn");
 });
 
+test("buildGraphModel exposes each series' active bucket range", () => {
+	const hourly = hourlyFrom([
+		[TODAY + 2 * HOUR, "early", "m", "", cell({ cost: 5 })],
+		[TODAY + 4 * HOUR, "early", "m", "", cell({ cost: 1 })],
+		[TODAY + 8 * HOUR, "late", "m", "", cell({ cost: 3 })],
+	]);
+	const model = buildGraphModel(hourly, {
+		period: "today",
+		metric: "cost",
+		groupBy: "provider",
+		cumulative: true, // ranges must come from raw values, not cumulative ones
+		bounds: BOUNDS,
+	});
+	const byKey = Object.fromEntries(model.series.map((s) => [s.key === TOTAL_SERIES_KEY ? "total" : s.key, s]));
+	assert.deepEqual([byKey.total.firstIdx, byKey.total.lastIdx], [2, 8]);
+	assert.deepEqual([byKey.early.firstIdx, byKey.early.lastIdx], [2, 4]);
+	assert.deepEqual([byKey.late.firstIdx, byKey.late.lastIdx], [8, 8]);
+});
+
+test("renderChart clips lines to each series' active range", () => {
+	// One series active only in the middle of the day: buckets 5..7 of 12.
+	const hourly = hourlyFrom([
+		[TODAY + 5 * HOUR, "a", "m", "", cell({ cost: 2 })],
+		[TODAY + 7 * HOUR, "a", "m", "", cell({ cost: 4 })],
+	]);
+
+	for (const cumulative of [false, true]) {
+		const model = buildGraphModel(hourly, {
+			period: "today",
+			metric: "cost",
+			groupBy: "total",
+			cumulative,
+			bounds: BOUNDS,
+		});
+		const lines = renderChart(model, CHART_OPTS);
+		const plotLines = lines.slice(0, CHART_OPTS.height);
+		const axisOffset = plotLines[0].indexOf("\u2524") + 1;
+		const plotWidth = Math.max(...plotLines.map((l) => l.length)) - axisOffset;
+
+		// Columns containing any braille dot, relative to the plot area.
+		const cols = new Set();
+		for (const line of plotLines) {
+			for (let i = axisOffset; i < line.length; i++) {
+				if (line[i] >= "\u2800" && line[i] <= "\u28ff") cols.add(i - axisOffset);
+			}
+		}
+		assert.ok(cols.size > 0);
+		const min = Math.min(...cols);
+		const max = Math.max(...cols);
+		// Active span is buckets 5..7 of 12 → roughly 45%..64% across the plot.
+		// Nothing may be drawn near the left or right edges (cumulative used to
+		// drag a flat tail all the way to the right edge).
+		assert.ok(min > plotWidth * 0.3, `cumulative=${cumulative}: line starts too early (col ${min}/${plotWidth})`);
+		assert.ok(max < plotWidth * 0.8, `cumulative=${cumulative}: line ends too late (col ${max}/${plotWidth})`);
+	}
+});
+
+test("renderChart draws a single dot for a series active in exactly one bucket", () => {
+	const hourly = hourlyFrom([[TODAY + 6 * HOUR, "a", "m", "", cell({ cost: 3 })]]);
+	const model = buildGraphModel(hourly, {
+		period: "today",
+		metric: "cost",
+		groupBy: "total",
+		cumulative: false,
+		bounds: BOUNDS,
+	});
+	assert.deepEqual([model.series[0].firstIdx, model.series[0].lastIdx], [6, 6]);
+	const lines = renderChart(model, CHART_OPTS);
+	const braille = lines.join("").match(/[\u2800-\u28ff]/g) ?? [];
+	assert.equal(braille.length, 1, "exactly one braille cell for a single active bucket");
+});
+
 test("renderChart keeps the y-axis aligned when the mid label is the widest", () => {
 	// yMax 113 → labels "$113", "$61.6...", "$0" — the mid label used to overflow
 	// the axis column and shift its row by one character.

@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.50] - 2026-07-17
+
+### Changed
+- `usage-extension` 0.6.1: graph lines are clipped to each series' active range, removing flat zero/flat tails for late-starting or retired providers/models/thinking levels.
+
 ## [0.1.49] - 2026-07-17
 
 ### Added
