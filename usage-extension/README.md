@@ -2,12 +2,12 @@
 
 A Pi extension that displays aggregated usage statistics across all sessions.
 
-![Default table view of /usage](screenshot.png)
+![Default graphs view of /usage](graphs-screenshot.png)
 
 ## Compatibility
 
 - **Pi version:** 0.42.4+
-- **Last updated:** 2026-07-17 (0.6.1)
+- **Last updated:** 2026-07-17 (0.9.0)
 
 ## Installation
 
@@ -57,11 +57,21 @@ In Pi, run:
 
 ### Views
 
-`/usage` has three view modes, cycled with `v`:
+`/usage` has three view modes, shown as a tab strip in the title and cycled with `v`:
 
-- **Table** (default) — per-provider / per-model stats with cost and token breakdown (screenshot at the top of this page).
+- **Graphs** (default) — an interactive braille line-chart explorer for usage over time (screenshot at the top of this page, details below).
+- **Table** — per-provider / per-model stats with cost and token breakdown, with keyboard filtering (details below).
 - **Insights** — data-driven characteristics of your cost for the active time period (details below). Insights are **independent lenses**, not a breakdown, so they overlap and don't sum to 100%.
-- **Graphs** — an interactive braille line-chart explorer for usage over time (details below).
+
+Every view can export its current slice with `e` — see [Export](#export).
+
+![Table view of /usage](screenshot.png)
+
+### Filtering the table
+
+- `/` opens a live type-to-filter over provider **and** model names (case-insensitive substring). When only models match, the provider row is recomputed from just the matching models — filtering `sol` shows openai-codex as exactly its `gpt-5.6-sol` numbers. `Enter` keeps the filter, `Esc` clears it.
+- `x` hides the selected provider row; `a` resets all hides and the filter.
+- The **Total row recomputes over the visible slice**, and a status line makes the cut explicit so a filtered table can't be mistaken for the full period.
 
 ![Insights view of /usage](insights-screenshot.png)
 
@@ -94,6 +104,18 @@ pi's built-in test providers (`faux-provider`, `fake-provider`) never call a rea
 **Unit:** insights are weighted by recorded API cost (USD). Periods with no recorded cost show an explicit empty state rather than silently switching to a different unit.
 
 A note on reading them: cache-miss and context numbers are **observed cost, not promised savings** — big-context messages often do bigger work. Treat the alarms as "look here", not as an invoice for waste.
+
+### Export
+
+Press `e` in any view to write the **current slice** to the current working directory:
+
+| View | File | Contents |
+|---|---|---|
+| Table | `usage-table-<period>[-filtered]-<stamp>.csv` | per-model rows + TOTAL, full precision; honors the active filter/hides |
+| Graphs | `usage-graph-<period>-<slice>-<stamp>.csv` | exactly what's plotted: visible series only, current metric/grouping/cumulative, ISO bucket starts |
+| Insights | `usage-insights-<period>-<stamp>.json` | period, totals, and the structured insight list |
+
+A `✓ Saved …` note confirms the write (or reports the error) above the help line.
 
 ### Graph explorer
 
@@ -148,11 +170,14 @@ On narrow terminals, `/usage` automatically switches to a compact table instead 
 | `Tab` / `←` `→` | Switch time period |
 | `↑` `↓` | Select provider *(table)* / move legend cursor *(graphs)* |
 | `Enter` / `Space` | Expand/collapse provider *(table)* / toggle series visibility *(graphs)* |
-| `v` | Cycle Table → Insights → Graphs view |
+| `v` | Cycle Graphs → Table → Insights view |
+| `e` | Export the current slice to CSV/JSON |
+| `/` | Type-to-filter providers and models *(table)* |
+| `x` | Hide the selected provider row *(table)* |
 | `m` | Cycle metric: cost / tokens / messages / reasoning *(graphs)* |
 | `g` | Cycle grouping: provider / model / thinking level / total *(graphs)* |
 | `c` | Toggle cumulative vs per-bucket *(graphs)* |
-| `a` | Show all series *(graphs)* |
+| `a` | Show all series *(graphs)* / reset filter and hides *(table)* |
 | `q` / `Esc` | Close |
 
 ## Performance & Caching
