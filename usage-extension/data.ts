@@ -619,6 +619,7 @@ function getPeriodsForTimestamp(
 }
 
 const DAY_MS = 24 * HOUR_MS;
+const PROGRESS_REPORT_EVERY = 100;
 
 function addMessagesToUsageData(
 	data: UsageData,
@@ -727,8 +728,21 @@ const STAT_CONCURRENCY = 16;
 const DEFAULT_PARSE_CONCURRENCY = 4;
 const AGGREGATE_YIELD_EVERY_FILES = 200;
 
+export interface CollectProgress {
+	/** Why this pass needs to parse files. */
+	mode: "first-run" | "rebuild" | "update";
+	/** Session files that need parsing this pass (0 = fully warm). */
+	filesToParse: number;
+	/** Files parsed so far; reported in coarse increments. */
+	filesParsed: number;
+	/** Newest session activity already ingested (ms since epoch); null when starting fresh. */
+	sinceMs: number | null;
+}
+
 export interface CollectUsageOptions {
 	signal?: AbortSignal;
+	/** Called once before parsing begins and periodically while files are parsed. */
+	onProgress?: (progress: CollectProgress) => void;
 	/** Defaults to `<agentDir>/sessions`. */
 	sessionsDir?: string;
 	/** Defaults to `<agentDir>/usage-extension-cache.json`. Pass `null` to disable the on-disk cache. */
@@ -794,6 +808,15 @@ export async function collectUsageData(options: CollectUsageOptions = {}): Promi
 	if (signal?.aborted) return null;
 
 	// 3. Load the cache and decide which files actually need parsing.
+	let cacheFileExists = false;
+	if (cachePath) {
+		try {
+			await stat(cachePath);
+			cacheFileExists = true;
+		} catch {
+			// No cache file yet — first run.
+		}
+	}
 	const previous = cachePath ? await loadUsageCache(cachePath) : new Map<string, CachedFileState>();
 	if (signal?.aborted) return null;
 	const current = new Map<string, CachedFileState>();
@@ -818,6 +841,22 @@ export async function collectUsageData(options: CollectUsageOptions = {}): Promi
 		}
 	}
 
+	// Progress reporting: distinguish a true first run from a format-change
+	// rebuild (cache file present but unusable) and a routine incremental update.
+	const progressMode: CollectProgress["mode"] =
+		previous.size > 0 ? "update" : cacheFileExists ? "rebuild" : "first-run";
+	let sinceMs: number | null = null;
+	if (progressMode === "update") {
+		for (const state of previous.values()) {
+			if (state.mtimeMs > (sinceMs ?? 0)) sinceMs = state.mtimeMs;
+		}
+	}
+	let filesParsed = 0;
+	const reportProgress = (): void => {
+		options.onProgress?.({ mode: progressMode, filesToParse: toParse.length, filesParsed, sinceMs });
+	};
+	reportProgress();
+
 	// 4. Parse new/changed files with bounded concurrency.
 	{
 		let next = 0;
@@ -831,11 +870,16 @@ export async function collectUsageData(options: CollectUsageOptions = {}): Promi
 					try {
 						buffer = await readFile(filePath);
 					} catch {
+						filesParsed++;
 						continue; // File vanished — skip it.
 					}
 					const parsed = await parseSessionBuffer(buffer, signal);
 					if (signal?.aborted) return; // Never cache a partial parse.
 					current.set(filePath, { size: st.size, mtimeMs: st.mtimeMs, parsed });
+					filesParsed++;
+					if (filesParsed % PROGRESS_REPORT_EVERY === 0 || filesParsed === toParse.length) {
+						reportProgress();
+					}
 				}
 			})
 		);

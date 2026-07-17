@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.52] - 2026-07-17
+
+### Added
+- `usage-extension` 0.7.1: descriptive loading messages with a live file counter — first-time build, cache-format rebuild, and incremental “updating since \<date>” states.
+
 ## [0.1.51] - 2026-07-17
 
 ### Changed
