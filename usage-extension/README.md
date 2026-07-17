@@ -77,7 +77,7 @@ The **Graphs** view plots usage over time for the active period as a braille lin
 - **Filtering**: move the legend cursor with `↑`/`↓` and toggle series visibility with `Enter`/`Space` (`a` shows all again). The y-axis rescales to the visible series — hide the big lines to zoom into the small ones.
 - **Buckets**: hourly for Today / This Week / Last Week, daily for Last 30 Days / All Time.
 
-Thinking levels are replayed from `thinking_level_change` entries in each session file; messages before the first recorded change appear as `unknown`. Reasoning token counts come from `usage.reasoning` where providers report them.
+Thinking levels are replayed from `thinking_level_change` entries in each session file; messages before the first recorded change appear as `unknown`. Reasoning token counts come from `usage.reasoning` where providers report them; pi only records this field since **pi 0.80.3 (30 June 2026)**, so earlier sessions show zero reasoning tokens even though thinking models were in use.
 
 The insights currently shown:
 
