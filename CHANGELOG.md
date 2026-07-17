@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.56] - 2026-07-17
+
+### Changed
+- `usage-extension` 0.9.0: Graphs-first default view with a visible view strip, `[e]` export from every view (CSV/JSON), table filtering (`/` filter, `x` hide, `a` reset) with slice-aware totals and exports, refreshed README screenshots.
+
 ## [0.1.55] - 2026-07-17
 
 ### Changed

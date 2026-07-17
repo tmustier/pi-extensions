@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.9.0] - 2026-07-17
+
+### Added
+- **Export (`e`) in every view** (#67): table → per-model CSV with TOTAL row; graphs → CSV of exactly the plotted slice (visible series, current metric/grouping/cumulative, ISO buckets); insights → structured JSON. Files land in the cwd with self-describing names; a ✓/✗ note confirms the write.
+- **Table cut/filter** (#68): `/` live type-to-filter over provider and model names — when only models match, the provider row is recomputed from just those models; `x` hides the selected row; `a` resets. The Total row recomputes over the visible slice, with an explicit status line, and table exports honor the slice.
+
+### Changed
+- **Graphs is now the default view** (#66); `v` cycles Graphs → Table → Insights, and the title renders a view tab strip so switching is discoverable.
+- README refreshed with current screenshots of all three views (#69) and documentation for export and table filtering.
+
+### Fixed
+- Table selection could desync from rendered rows (the unsliced provider map leaked aggregation insertion order instead of cost-sorted order).
+
 ## [0.8.1] - 2026-07-17
 
 ### Changed
