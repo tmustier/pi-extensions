@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.7.0] - 2026-07-17
+
+### Changed
+- **Insights view redesigned around materiality.** Insights are now split into two sections: **Worth attention** (alarms that only fire when a wasteful pattern is material for the period) and **Where it went** (always-on structural lenses). Each insight leads with a pre-formatted stat ($, %, or ×) instead of a raw percentage.
+  - Alarms: TTL re-warm tax (large context re-written after a > 5 min idle gap; provider caches expire after a few minutes), prefix-change cache misses (no idle gap; messages right after a pi compaction are excluded), top-5 session concentration (≥ 35%), upfront session-start tax (≥ 8%), and a cache-leverage floor (< 5× cached-per-fresh tokens).
+  - Structure: context tax (share of cost at ≥ 150k context, with $/msg vs small-context messages), project mix (top 3 project directories from each session's `cwd`; home prefixes from other machines collapse to `~`, worktrees collapse into their repository), reasoning share of output tokens, and a burn trend (last 7 days vs prior 4-week weekly pace).
+- Removed the old parallel-sessions, large-uncached-prompt, long-running-sessions, and unconditional top-5-concentration insights — measured against real usage they were either immaterial or misattributed (e.g. "parallel cost" was mostly just cost that happened while other sessions existed).
+
+### Internal
+- Cache format bumped to **v3**: per-message `afterCompaction` flag and per-file session `cwd`. First open after upgrading does a one-off full rebuild (`compaction` entries and session headers are now parsed), then warm opens are fast again.
+- Insight aggregation is accumulator-based — raw per-period message arrays are no longer kept, so the insights redesign adds no steady-state memory or time cost.
+
 ## [0.6.1] - 2026-07-17
 
 ### Changed

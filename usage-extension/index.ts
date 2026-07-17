@@ -175,11 +175,6 @@ function seriesColor(index: number): string {
 	return SERIES_COLORS[index % SERIES_COLORS.length]!;
 }
 
-function formatInsightPercent(p: number): string {
-	if (p >= 10) return `${Math.round(p)}%`;
-	return `${Math.round(p * 10) / 10}%`;
-}
-
 function padLeft(s: string, len: number): string {
 	const vis = visibleWidth(s);
 	if (vis >= len) return s;
@@ -494,7 +489,7 @@ class UsageComponent {
 		lines.push("What's contributing to your cost?");
 		lines.push(th.fg("dim", "Approximate, based on local sessions on this machine."));
 		lines.push("");
-		const note = `${TAB_LABELS[this.activeTab]} · weighted by cost (USD) · these overlap and can sum to >100%`;
+		const note = `${TAB_LABELS[this.activeTab]} · independent lenses — they overlap and don't sum to 100%`;
 		lines.push(th.fg("dim", note));
 		lines.push("");
 
@@ -509,21 +504,35 @@ class UsageComponent {
 			return lines;
 		}
 		if (insights.length === 0) {
-			lines.push(th.fg("dim", "  No insights above 1% for this period."));
+			lines.push(th.fg("dim", "  Nothing notable for this period."));
 			lines.push("");
 			return lines;
 		}
 
-		const indent = "     ";
+		const indent = "       ";
 		const adviceWidth = Math.max(width - indent.length, 30);
 
-		for (const insight of insights) {
-			const pct = th.fg("accent", th.bold(formatInsightPercent(insight.percent)));
-			lines.push(`${pct} ${insight.headline}`);
-			for (const wrapped of wrapTextWithAnsi(insight.advice, adviceWidth)) {
-				lines.push(`${indent}${th.fg("dim", wrapped)}`);
+		const renderOne = (insight: (typeof insights)[number]): void => {
+			const marker = insight.kind === "alarm" ? "⚠ " : "  ";
+			const stat = th.fg("accent", th.bold(padLeft(insight.stat, 5)));
+			lines.push(`${marker}${stat} ${insight.headline}`);
+			if (insight.advice) {
+				for (const wrapped of wrapTextWithAnsi(insight.advice, adviceWidth)) {
+					lines.push(`${indent}${th.fg("dim", wrapped)}`);
+				}
 			}
 			lines.push("");
+		};
+
+		const alarms = insights.filter((i) => i.kind === "alarm");
+		const structure = insights.filter((i) => i.kind === "structure");
+		if (alarms.length > 0) {
+			lines.push(th.fg("accent", "Worth attention"));
+			for (const insight of alarms) renderOne(insight);
+		}
+		if (structure.length > 0) {
+			if (alarms.length > 0) lines.push(th.fg("dim", "Where it went"));
+			for (const insight of structure) renderOne(insight);
 		}
 
 		return lines;

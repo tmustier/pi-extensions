@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.51] - 2026-07-17
+
+### Changed
+- `usage-extension` 0.7.0: insights view redesigned around materiality — conditional "Worth attention" alarms (TTL cache re-warm tax, prefix-change misses, session concentration, upfront tax, cache-leverage floor) plus always-on "Where it went" lenses (context tax, project mix, reasoning share, burn trend). Cache format v3 (one-off rebuild on first open).
+
 ## [0.1.50] - 2026-07-17
 
 ### Changed

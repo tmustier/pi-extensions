@@ -4,7 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { collectUsageData, loadUsageCache, parseSessionBuffer, saveUsageCache } from "../usage-extension/data.ts";
+import { homedir } from "node:os";
+
+import { collectUsageData, loadUsageCache, parseSessionBuffer, projectLabelFromCwd, saveUsageCache } from "../usage-extension/data.ts";
 
 // 2026-07-15 is a Wednesday. Week = Mon 13th 00:00 → …, last week = Mon 6th → Sun 12th.
 const NOW = new Date(2026, 6, 15, 12, 0, 0);
@@ -23,8 +25,8 @@ function fixture(t) {
 	return { root, sessionsDir, cachePath: join(root, "cache.json") };
 }
 
-function sessionLine(id, ts) {
-	return JSON.stringify({ type: "session", version: 3, id, timestamp: new Date(ts).toISOString(), cwd: "/tmp" });
+function sessionLine(id, ts, cwd = "/tmp") {
+	return JSON.stringify({ type: "session", version: 3, id, timestamp: new Date(ts).toISOString(), cwd });
 }
 
 function assistantLine({ ts, provider = "anthropic", model = "claude-fable-5", cost = 1, input = 100, output = 50, cacheRead = 0, cacheWrite = 0, reasoning = 0 }) {
@@ -86,7 +88,31 @@ test("parseSessionBuffer extracts session id and assistant messages from compact
 		cacheWrite: 40,
 		reasoning: 0,
 		timestamp: TS_TODAY,
+		afterCompaction: false,
 	});
+	assert.equal(parsed.cwd, "/tmp");
+});
+
+test("parseSessionBuffer flags the first assistant message after a compaction entry", async () => {
+	const compaction = (spaced) =>
+		spaced
+			? '{"type": "compaction", "id": "c1", "summary": "..."}'
+			: '{"type":"compaction","id":"c2","summary":"..."}';
+	const content = [
+		sessionLine("s1", TS_TODAY),
+		assistantLine({ ts: TS_TODAY, cost: 1 }),
+		compaction(false),
+		assistantLine({ ts: TS_TODAY + 1000, cost: 2 }),
+		assistantLine({ ts: TS_TODAY + 2000, cost: 3 }),
+		compaction(true),
+		assistantLine({ ts: TS_TODAY + 3000, cost: 4 }),
+	].join("\n");
+
+	const parsed = await parseSessionBuffer(Buffer.from(content, "utf8"));
+	assert.deepEqual(
+		parsed.messages.map((m) => m.afterCompaction),
+		[false, true, false, true]
+	);
 });
 
 test("parseSessionBuffer attributes thinking levels by replaying change entries", async () => {
@@ -356,7 +382,7 @@ test("collectUsageData survives a corrupt cache file", async (t) => {
 
 	// Cache was rebuilt.
 	const cacheJson = JSON.parse(readFileSync(cachePath, "utf8"));
-	assert.equal(cacheJson.version, 2);
+	assert.equal(cacheJson.version, 3);
 });
 
 test("collectUsageData works with the cache disabled", async (t) => {
@@ -385,14 +411,15 @@ test("saveUsageCache/loadUsageCache round-trips file states", async (t) => {
 				mtimeMs: 456.789,
 				parsed: {
 					sessionId: "s1",
+					cwd: "/home/u/projects/x",
 					messages: [
-						{ provider: "anthropic", model: "claude-fable-5", thinkingLevel: "xhigh", cost: 1.5, input: 10, output: 20, cacheRead: 30, cacheWrite: 40, reasoning: 7, timestamp: TS_TODAY },
-						{ provider: "openai", model: "gpt-5.6-sol", thinkingLevel: "", cost: 0.25, input: 1, output: 2, cacheRead: 3, cacheWrite: 4, reasoning: 0, timestamp: TS_OLD },
+						{ provider: "anthropic", model: "claude-fable-5", thinkingLevel: "xhigh", cost: 1.5, input: 10, output: 20, cacheRead: 30, cacheWrite: 40, reasoning: 7, timestamp: TS_TODAY, afterCompaction: true },
+						{ provider: "openai", model: "gpt-5.6-sol", thinkingLevel: "", cost: 0.25, input: 1, output: 2, cacheRead: 3, cacheWrite: 4, reasoning: 0, timestamp: TS_OLD, afterCompaction: false },
 					],
 				},
 			},
 		],
-		["/tmp/empty.jsonl", { size: 1, mtimeMs: 2, parsed: { sessionId: "", messages: [] } }],
+		["/tmp/empty.jsonl", { size: 1, mtimeMs: 2, parsed: { sessionId: "", cwd: "", messages: [] } }],
 	]);
 
 	await saveUsageCache(cachePath, states);
@@ -403,6 +430,7 @@ test("saveUsageCache/loadUsageCache round-trips file states", async (t) => {
 	assert.equal(a.size, 123);
 	assert.equal(a.mtimeMs, 456.789);
 	assert.equal(a.parsed.sessionId, "s1");
+	assert.equal(a.parsed.cwd, "/home/u/projects/x");
 	assert.deepEqual(a.parsed.messages, states.get("/tmp/a.jsonl").parsed.messages);
 	assert.equal(loaded.get("/tmp/empty.jsonl").parsed.sessionId, "");
 });
@@ -425,17 +453,29 @@ test("loadUsageCache rejects wrong versions and malformed entries", async (t) =>
 	);
 	assert.equal((await loadUsageCache(cachePath)).size, 0);
 
+	// v2 caches (pre-cwd/compaction) must be rejected wholesale, forcing a rebuild.
 	writeFileSync(
 		cachePath,
 		JSON.stringify({
 			version: 2,
 			names: ["p", "m", "high"],
+			files: { "/v2.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", messages: [[0, 1, 1, 1, 1, 0, 0, TS_TODAY, 2, 5]] } },
+		})
+	);
+	assert.equal((await loadUsageCache(cachePath)).size, 0);
+
+	writeFileSync(
+		cachePath,
+		JSON.stringify({
+			version: 3,
+			names: ["p", "m", "high"],
 			files: {
-				"/ok.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", messages: [[0, 1, 1, 1, 1, 0, 0, TS_TODAY, 2, 5]] },
-				"/bad-tuple.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", messages: [[0, 1, 1]] },
-				"/bad-name-idx.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", messages: [[7, 1, 1, 1, 1, 0, 0, TS_TODAY, 2, 0]] },
-				"/bad-level-idx.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", messages: [[0, 1, 1, 1, 1, 0, 0, TS_TODAY, 9, 0]] },
-				"/bad-shape.jsonl": { size: "x", mtimeMs: 2, sessionId: "s", messages: [] },
+				"/ok.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [[0, 1, 1, 1, 1, 0, 0, TS_TODAY, 2, 5, 1]] },
+				"/bad-tuple.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [[0, 1, 1]] },
+				"/bad-name-idx.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [[7, 1, 1, 1, 1, 0, 0, TS_TODAY, 2, 0, 0]] },
+				"/bad-level-idx.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [[0, 1, 1, 1, 1, 0, 0, TS_TODAY, 9, 0, 0]] },
+				"/no-cwd.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", messages: [[0, 1, 1, 1, 1, 0, 0, TS_TODAY, 2, 0, 0]] },
+				"/bad-shape.jsonl": { size: "x", mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [] },
 			},
 		})
 	);
@@ -443,6 +483,134 @@ test("loadUsageCache rejects wrong versions and malformed entries", async (t) =>
 	assert.deepEqual([...loaded.keys()], ["/ok.jsonl"]);
 	assert.equal(loaded.get("/ok.jsonl").parsed.messages[0].thinkingLevel, "high");
 	assert.equal(loaded.get("/ok.jsonl").parsed.messages[0].reasoning, 5);
+	assert.equal(loaded.get("/ok.jsonl").parsed.messages[0].afterCompaction, true);
+	assert.equal(loaded.get("/ok.jsonl").parsed.cwd, "/w");
+});
+
+// =============================================================================
+// Insights
+// =============================================================================
+
+const findInsight = (data, period, re) => data[period].insights.insights.find((i) => re.test(i.headline));
+
+test("insights classify TTL vs prefix cache misses and exclude compaction", async (t) => {
+	const { sessionsDir, cachePath } = fixture(t);
+	const SIX_MIN = 6 * 60_000;
+	writeFileSync(
+		join(sessionsDir, "a.jsonl"),
+		[
+			sessionLine("s1", TS_TODAY),
+			// Establishes a large previous context.
+			assistantLine({ ts: TS_TODAY, cost: 1, input: 1000, cacheRead: 100000 }),
+			// >5min idle, cacheRead ~0 → TTL-shaped miss.
+			assistantLine({ ts: TS_TODAY + SIX_MIN, cost: 10, input: 100000, cacheRead: 0 }),
+			// Short gap, cacheRead ~0 → prefix-shaped miss.
+			assistantLine({ ts: TS_TODAY + SIX_MIN + 10_000, cost: 5, input: 100000, cacheRead: 0 }),
+			// Compaction between messages → excluded from prefix accounting.
+			'{"type":"compaction","id":"c1"}',
+			assistantLine({ ts: TS_TODAY + SIX_MIN + 20_000, cost: 7, input: 100000, cacheRead: 0 }),
+		].join("\n") + "\n"
+	);
+
+	const data = await collectUsageData({ sessionsDir, cachePath, now: NOW });
+	const ttl = findInsight(data, "today", /re-warming caches/);
+	assert.ok(ttl, "TTL alarm fires");
+	assert.equal(ttl.kind, "alarm");
+	assert.equal(ttl.stat, "$10.00");
+	const prefix = findInsight(data, "today", /no idle gap/);
+	assert.ok(prefix, "prefix alarm fires");
+	assert.equal(prefix.stat, "$5.00", "compaction-adjacent miss is excluded from prefix cost");
+});
+
+test("insights fire upfront and concentration alarms when material", async (t) => {
+	const { sessionsDir, cachePath } = fixture(t);
+	for (let i = 0; i < 7; i++) {
+		const cost = i < 5 ? 10 : 1; // top-5 sessions dominate
+		writeFileSync(
+			join(sessionsDir, `s${i}.jsonl`),
+			[sessionLine(`s${i}`, TS_TODAY + i), assistantLine({ ts: TS_TODAY + i, cost })].join("\n") + "\n"
+		);
+	}
+
+	const data = await collectUsageData({ sessionsDir, cachePath, now: NOW });
+	const upfront = findInsight(data, "today", /first message of a session/);
+	assert.ok(upfront, "upfront alarm fires (every message is a session start here)");
+	assert.equal(upfront.kind, "alarm");
+	assert.equal(upfront.stat, "100%");
+	const conc = findInsight(data, "today", /came from just 5 sessions/);
+	assert.ok(conc, "concentration alarm fires");
+	assert.equal(conc.stat, "96%"); // 50 of 52
+});
+
+test("insights include context tax, project mix, and reasoning share", async (t) => {
+	const { sessionsDir, cachePath } = fixture(t);
+	const alpha = join(homedir(), "projects/alpha");
+	const beta = join(homedir(), "projects/beta/.worktrees/task");
+	writeFileSync(
+		join(sessionsDir, "alpha.jsonl"),
+		[
+			sessionLine("sa", TS_TODAY, alpha),
+			assistantLine({ ts: TS_TODAY, cost: 6, input: 200000, output: 50 }),
+			assistantLine({ ts: TS_TODAY + 1000, cost: 6, input: 200000, output: 50 }),
+		].join("\n") + "\n"
+	);
+	writeFileSync(
+		join(sessionsDir, "beta.jsonl"),
+		[
+			sessionLine("sb", TS_TODAY, beta),
+			assistantLine({ ts: TS_TODAY + 2000, cost: 2, input: 1000, output: 100, reasoning: 50 }),
+			assistantLine({ ts: TS_TODAY + 3000, cost: 2, input: 1000, output: 100, reasoning: 50 }),
+		].join("\n") + "\n"
+	);
+
+	const data = await collectUsageData({ sessionsDir, cachePath, now: NOW });
+	const ctx = findInsight(data, "today", /≥150k context/);
+	assert.ok(ctx, "context tax shows");
+	assert.equal(ctx.kind, "structure");
+	assert.equal(ctx.stat, "75%"); // 12 of 16
+	assert.match(ctx.headline, /averaging \$6\.00\/msg vs \$2\.00 under 100k/);
+	const proj = findInsight(data, "today", /~\/projects\/alpha/);
+	assert.ok(proj, "project mix shows");
+	assert.equal(proj.stat, "75%");
+	assert.match(proj.headline, /~\/projects\/beta 25%/, "worktree collapses to its repository");
+	const reas = findInsight(data, "today", /invisible reasoning/);
+	assert.ok(reas, "reasoning share shows");
+	assert.equal(reas.stat, "33%"); // 100 of 300 output tokens
+});
+
+test("insights report the burn trend against the prior 4-week pace", async (t) => {
+	const { sessionsDir, cachePath } = fixture(t);
+	const TS_20D_AGO = new Date(2026, 5, 25, 10, 0, 0).getTime();
+	writeFileSync(
+		join(sessionsDir, "now.jsonl"),
+		[sessionLine("s1", TS_TODAY), assistantLine({ ts: TS_TODAY, cost: 70 })].join("\n") + "\n"
+	);
+	writeFileSync(
+		join(sessionsDir, "old.jsonl"),
+		[sessionLine("s2", TS_20D_AGO), assistantLine({ ts: TS_20D_AGO, cost: 40 })].join("\n") + "\n"
+	);
+
+	const data = await collectUsageData({ sessionsDir, cachePath, now: NOW });
+	const trend = findInsight(data, "allTime", /last 7 days/);
+	assert.ok(trend, "trend shows");
+	assert.equal(trend.kind, "structure");
+	assert.equal(trend.stat, "7.0×"); // $70 vs $40/4 = $10 weekly pace
+	assert.match(trend.headline, /\$70\.00.*\$10\.00\/wk/);
+	assert.match(trend.advice, /accelerating/);
+	// The same global trend line is present on every period tab.
+	assert.ok(findInsight(data, "today", /last 7 days/));
+});
+
+test("projectLabelFromCwd collapses cwds to stable project labels", () => {
+	assert.equal(projectLabelFromCwd(""), "(unknown)");
+	assert.equal(projectLabelFromCwd(homedir()), "~");
+	assert.equal(projectLabelFromCwd(join(homedir(), "projects/foo/sub/dir")), "~/projects/foo");
+	assert.equal(projectLabelFromCwd(join(homedir(), "projects/foo/.worktrees/bar/deep")), "~/projects/foo");
+	assert.equal(projectLabelFromCwd("/tmp/xyz/abc"), "/tmp/xyz");
+	// Home prefixes from other machines/usernames collapse to "~" too.
+	assert.equal(projectLabelFromCwd("/Users/olduser/projects/customers/xpo"), "~/projects/customers");
+	assert.equal(projectLabelFromCwd("/home/olduser/work"), "~/work");
+	assert.equal(projectLabelFromCwd("/Users/olduser"), "~");
 });
 
 test("loadUsageCache returns empty for a missing cache file", async (t) => {
