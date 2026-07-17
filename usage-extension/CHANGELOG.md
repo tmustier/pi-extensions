@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.0] - 2026-07-17
+
+### Performance
+- `/usage` no longer re-reads and JSON-parses every session JSONL file on every open. On a real 5.2 GB / 3,310-file corpus, warm opens went from ~17 s to ~0.3 s (~50×) and the one-off cold build from ~17 s to ~7 s, with peak memory roughly halved.
+- **On-disk cache.** Per-file extraction results are persisted to `<agentDir>/usage-extension-cache.json` (respects `PI_CODING_AGENT_DIR`), keyed by file size + mtime. Only new or changed session files are re-parsed; entries for deleted files are evicted. Deleting the cache file forces a full rebuild — it is recreated automatically.
+- **Buffer-level pre-filter.** Session files are scanned as raw bytes and only lines that can be a session header or an assistant message are UTF-8-decoded and JSON-parsed; the multi-megabyte tool-result lines that dominate session files are skipped with a cheap byte search. Both compact (`"role":"assistant"`) and spaced (`"role": "assistant"`, seen in imported third-party session files) JSON styles are matched.
+- Changed files are parsed with bounded concurrency, and a cancelled cold build persists partial progress so the next open resumes instead of restarting.
+
+### Changed
+- Data collection, caching, and insights moved from `index.ts` into `usage-extension/data.ts`, with tests in `tests/usage-data.test.mjs`. Verified equivalent to the previous parser across all 3,310 real session files (zero extraction mismatches).
+- Files without a session header (which are ignored, as before) no longer register their messages in the branch-dedupe hash set, so an identical message in a later, valid session file is now counted instead of silently dropped.
+
 ## [0.3.2] - 2026-05-07
 
 ### Changed

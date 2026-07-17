@@ -7,7 +7,7 @@ A Pi extension that displays aggregated usage statistics across all sessions.
 ## Compatibility
 
 - **Pi version:** 0.42.4+
-- **Last updated:** 2026-04-19 (0.3.1)
+- **Last updated:** 2026-07-17 (0.4.0)
 
 ## Installation
 
@@ -117,6 +117,14 @@ On narrow terminals, `/usage` automatically switches to a compact table instead 
 | `Enter` / `Space` | Expand/collapse provider to show models *(table view)* |
 | `v` | Toggle between Table and Insights view |
 | `q` / `Esc` | Close |
+
+## Performance & Caching
+
+`/usage` builds its stats from every session JSONL file under `<agentDir>/sessions`. To keep opens fast on large histories (multi-GB, thousands of files):
+
+- **On-disk cache.** Per-file extraction results are cached in `<agentDir>/usage-extension-cache.json` (respects `PI_CODING_AGENT_DIR`), keyed by file size + mtime. Warm opens only re-parse session files that changed since the last run — on a 5.2 GB / 3,310-file corpus that takes the open from ~17 s to ~0.3 s.
+- **First open** after install (or after deleting the cache) does a one-off full build, showing the usual cancellable loader. Cancelling saves partial progress, so the next open resumes where it left off.
+- The cache is safe to delete at any time; it is rebuilt automatically. Corrupt or version-mismatched caches are ignored and rebuilt rather than trusted.
 
 ## Provider Notes
 
