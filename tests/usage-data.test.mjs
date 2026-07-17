@@ -601,6 +601,55 @@ test("insights report the burn trend against the prior 4-week pace", async (t) =
 	assert.ok(findInsight(data, "today", /last 7 days/));
 });
 
+// =============================================================================
+// Progress reporting
+// =============================================================================
+
+test("collectUsageData reports first-run, update, and rebuild progress modes", async (t) => {
+	const { sessionsDir, cachePath } = fixture(t);
+	writeFileSync(
+		join(sessionsDir, "a.jsonl"),
+		[sessionLine("s1", TS_TODAY), assistantLine({ ts: TS_TODAY, cost: 1 })].join("\n") + "\n"
+	);
+
+	// First run: no cache file exists yet.
+	let events = [];
+	await collectUsageData({ sessionsDir, cachePath, now: NOW, onProgress: (p) => events.push(p) });
+	assert.ok(events.length >= 1);
+	assert.equal(events[0].mode, "first-run");
+	assert.equal(events[0].filesToParse, 1);
+	assert.equal(events[0].sinceMs, null);
+	assert.equal(events.at(-1).filesParsed, 1);
+
+	// Warm no-op: nothing to parse.
+	events = [];
+	await collectUsageData({ sessionsDir, cachePath, now: NOW, onProgress: (p) => events.push(p) });
+	assert.equal(events.length, 1);
+	assert.equal(events[0].mode, "update");
+	assert.equal(events[0].filesToParse, 0);
+
+	// Incremental update: one new file; sinceMs is the newest already-cached mtime.
+	writeFileSync(
+		join(sessionsDir, "b.jsonl"),
+		[sessionLine("s2", TS_TODAY), assistantLine({ ts: TS_TODAY + 1000, cost: 2 })].join("\n") + "\n"
+	);
+	const cachedMtimes = Object.values(JSON.parse(readFileSync(cachePath, "utf8")).files).map((f) => f.mtimeMs);
+	events = [];
+	await collectUsageData({ sessionsDir, cachePath, now: NOW, onProgress: (p) => events.push(p) });
+	assert.equal(events[0].mode, "update");
+	assert.equal(events[0].filesToParse, 1);
+	assert.equal(events[0].sinceMs, Math.max(...cachedMtimes));
+	assert.equal(events.at(-1).filesParsed, 1);
+
+	// Rebuild: cache file exists but is unusable (e.g. an older format version).
+	writeFileSync(cachePath, JSON.stringify({ version: 1, names: [], files: {} }));
+	events = [];
+	await collectUsageData({ sessionsDir, cachePath, now: NOW, onProgress: (p) => events.push(p) });
+	assert.equal(events[0].mode, "rebuild");
+	assert.equal(events[0].filesToParse, 2);
+	assert.equal(events[0].sinceMs, null);
+});
+
 test("projectLabelFromCwd collapses cwds to stable project labels", () => {
 	assert.equal(projectLabelFromCwd(""), "(unknown)");
 	assert.equal(projectLabelFromCwd(homedir()), "~");

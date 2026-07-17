@@ -159,7 +159,7 @@ On narrow terminals, `/usage` automatically switches to a compact table instead 
 - **On-disk cache.** Per-file extraction results are cached in `<agentDir>/usage-extension-cache.json` (respects `PI_CODING_AGENT_DIR`), keyed by file size + mtime. Warm opens only re-parse session files that changed since the last run — on a 5.2 GB / 3,310-file corpus that takes the open from ~17 s to ~0.3 s.
 - **First open** after install (or after deleting the cache) does a one-off full build, showing the usual cancellable loader. Cancelling saves partial progress, so the next open resumes where it left off.
 - The cache is safe to delete at any time; it is rebuilt automatically. Corrupt or version-mismatched caches are ignored and rebuilt rather than trusted.
-- **0.7.0 bumps the cache format to v3** (adds session working directory and compaction markers; 0.6.0's v2 added thinking level and reasoning tokens). The first open after upgrading does a one-off full rebuild, then warm opens are fast again.
+- **0.7.0 bumps the cache format to v3** (adds session working directory and compaction markers; 0.6.0's v2 added thinking level and reasoning tokens). The first open after upgrading does a one-off full rebuild (with a progress message and live file counter), then warm opens are fast again.
 
 ## Provider Notes
 

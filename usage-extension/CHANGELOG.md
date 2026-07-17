@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.7.1] - 2026-07-17
+
+### Added
+- Descriptive loading messages with a live file counter while `/usage` opens: “Building your usage history for the first time…” on a fresh install, “Rebuilding your usage history — the cache format changed…” after an upgrade that bumps the cache version, and “Updating your usage history since \<date>…” for routine incremental refreshes. Warm opens with nothing to parse keep the plain spinner.
+- `collectUsageData` accepts an `onProgress` callback reporting mode (`first-run` / `rebuild` / `update`), files to parse, files parsed, and the newest already-ingested session activity timestamp.
+
 ## [0.7.0] - 2026-07-17
 
 ### Changed

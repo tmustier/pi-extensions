@@ -14,6 +14,7 @@ import { DynamicBorder } from "@earendil-works/pi-coding-agent";
 import { CancellableLoader, Container, Spacer, matchesKey, visibleWidth, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 
 import { collectUsageData, TAB_ORDER } from "./data";
+import type { CollectProgress } from "./data";
 import type { BaseStats, TabName, UsageData } from "./data";
 import {
 	buildGraphModel,
@@ -173,6 +174,18 @@ const COLOR_RESET = "\x1b[39m";
 
 function seriesColor(index: number): string {
 	return SERIES_COLORS[index % SERIES_COLORS.length]!;
+}
+
+/** "14:32" if the timestamp is today, otherwise "16 Jul" (with year if not this year). */
+function formatSinceDate(ms: number): string {
+	const d = new Date(ms);
+	const now = new Date();
+	if (d.toDateString() === now.toDateString()) {
+		return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+	}
+	const opts: Intl.DateTimeFormatOptions = { day: "numeric", month: "short" };
+	if (d.getFullYear() !== now.getFullYear()) opts.year = "numeric";
+	return d.toLocaleDateString(undefined, opts);
 }
 
 function padLeft(s: string, len: number): string {
@@ -722,7 +735,20 @@ export default function (pi: ExtensionAPI) {
 
 				loader.onAbort = () => finish(null);
 
-				collectUsageData({ signal: loader.signal })
+				const onProgress = (p: CollectProgress): void => {
+					if (finished || p.filesToParse === 0) return;
+					const files = `${p.filesParsed.toLocaleString()}/${p.filesToParse.toLocaleString()} files`;
+					if (p.mode === "update") {
+						const since = p.sinceMs !== null ? ` since ${formatSinceDate(p.sinceMs)}` : "";
+						loader.setMessage(`Updating your usage history${since}… (${files})`);
+					} else if (p.mode === "rebuild") {
+						loader.setMessage(`Rebuilding your usage history — the cache format changed… (${files})`);
+					} else {
+						loader.setMessage(`Building your usage history for the first time… (${files})`);
+					}
+				};
+
+				collectUsageData({ signal: loader.signal, onProgress })
 					.then(finish)
 					.catch(() => finish(null));
 
