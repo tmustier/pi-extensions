@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.55] - 2026-07-17
+
+### Changed
+- `usage-extension` 0.8.1: all “Worth attention” alarms lead with dollars (share in the parenthetical); “Where it went” keeps percentages.
+
 ## [0.1.54] - 2026-07-17
 
 ### Changed

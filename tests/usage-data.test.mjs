@@ -560,10 +560,12 @@ test("insights fire upfront and concentration alarms when material", async (t) =
 	const upfront = findInsight(data, "today", /opening message of new sessions/);
 	assert.ok(upfront, "upfront alarm fires (every message is a session start here)");
 	assert.equal(upfront.kind, "alarm");
-	assert.equal(upfront.stat, "100%");
-	const conc = findInsight(data, "today", /came from just 5 sessions/);
+	assert.equal(upfront.stat, "$52.00");
+	assert.match(upfront.headline, /100% of this period/);
+	const conc = findInsight(data, "today", /came from just 5 of your 7 sessions/);
 	assert.ok(conc, "concentration alarm fires");
-	assert.equal(conc.stat, "96%"); // 50 of 52
+	assert.equal(conc.stat, "$50.00"); // top 5 of $52 total
+	assert.match(conc.headline, /96% of this period/);
 });
 
 test("insights include context tax, project mix, and reasoning share", async (t) => {

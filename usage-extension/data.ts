@@ -1093,8 +1093,8 @@ function computeInsights(raw: PeriodRawData, trend: TrendInfo | null): PeriodIns
 		if (topPct >= CONCENTRATION_ALARM_PERCENT) {
 			insights.push({
 				kind: "alarm",
-				stat: fmtPercent(topPct),
-				headline: `of this period's cost came from just ${TOP_SESSION_COUNT} sessions (of ${raw.sessionCosts.size})`,
+				stat: fmtMoney(topWeight),
+				headline: `came from just ${TOP_SESSION_COUNT} of your ${raw.sessionCosts.size} sessions (${fmtPercent(topPct)} of this period)`,
 				advice: "A handful of sessions drove most of the spend. The graph view can show what they were doing.",
 			});
 		}
@@ -1104,8 +1104,8 @@ function computeInsights(raw: PeriodRawData, trend: TrendInfo | null): PeriodIns
 	if (upfrontPct >= UPFRONT_ALARM_PERCENT) {
 		insights.push({
 			kind: "alarm",
-			stat: fmtPercent(upfrontPct),
-			headline: "of cost went on the opening message of new sessions",
+			stat: fmtMoney(raw.upfrontCost),
+			headline: `spent on the opening message of new sessions (${fmtPercent(upfrontPct)} of this period)`,
 			advice: "A session's first message sends everything from scratch. Fewer, longer sessions cut this overhead.",
 		});
 	}
