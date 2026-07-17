@@ -7,7 +7,7 @@ A Pi extension that displays aggregated usage statistics across all sessions.
 ## Compatibility
 
 - **Pi version:** 0.42.4+
-- **Last updated:** 2026-07-17 (0.6.0)
+- **Last updated:** 2026-07-17 (0.6.1)
 
 ## Installation
 
@@ -76,6 +76,7 @@ The **Graphs** view plots usage over time for the active period as a braille lin
 - **Cumulative vs per-bucket** (`c` to toggle): running total across the period (default), or the raw per-bucket rate.
 - **Filtering**: move the legend cursor with `↑`/`↓` and toggle series visibility with `Enter`/`Space` (`a` shows all again). The y-axis rescales to the visible series — hide the big lines to zoom into the small ones.
 - **Buckets**: hourly for Today / This Week / Last Week, daily for Last 30 Days / All Time.
+- **Line clipping**: every series (provider, model, thinking level, `other`, Total) is drawn only between its first and last bucket with usage, so late-starting or retired series don't drag a flat zero/flat tail across the whole period.
 
 Thinking levels are replayed from `thinking_level_change` entries in each session file; messages before the first recorded change appear as `unknown`. Reasoning token counts come from `usage.reasoning` where providers report them; pi only records this field since **pi 0.80.3 (30 June 2026)**, so earlier sessions show zero reasoning tokens even though thinking models were in use.
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.6.1] - 2026-07-17
+
+### Changed
+- Graph lines are clipped to each series' active range (first to last bucket with usage). Applies to every grouping — provider, model, thinking level, `other`, and Total — so a model that starts late (e.g. reasoning tokens, only recorded since pi 0.80.3) or gets retired no longer draws a flat zero/flat cumulative tail across the whole period.
+
 ## [0.6.0] - 2026-07-17
 
 ### Added
