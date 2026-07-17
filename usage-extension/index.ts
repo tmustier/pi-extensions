@@ -29,7 +29,13 @@ import type { GraphGroupBy, GraphMetric, GraphModel } from "./graph";
 
 type ViewMode = "table" | "insights" | "graph";
 
-const VIEW_CYCLE: ViewMode[] = ["table", "insights", "graph"];
+const VIEW_CYCLE: ViewMode[] = ["graph", "table", "insights"];
+
+const VIEW_LABELS: Record<ViewMode, string> = {
+	graph: "Graphs",
+	table: "Table",
+	insights: "Insights",
+};
 
 // =============================================================================
 // Column Configuration
@@ -262,7 +268,7 @@ const TAB_LABELS: Record<TabName, string> = {
 
 class UsageComponent {
 	private activeTab: TabName = "allTime";
-	private viewMode: ViewMode = "table";
+	private viewMode: ViewMode = "graph";
 	private data: UsageData;
 	private selectedIndex = 0;
 	private expanded = new Set<string>();
@@ -396,7 +402,7 @@ class UsageComponent {
 	render(width: number): string[] {
 		if (this.viewMode === "graph") {
 			return clampLines(
-				[...this.renderTitle(), ...this.renderTabs(width, getTableLayout(width)), ...this.renderGraph(width), ...this.renderHelp(width)],
+				[...this.renderTitle(width), ...this.renderTabs(width, getTableLayout(width)), ...this.renderGraph(width), ...this.renderHelp(width)],
 				width
 			);
 		}
@@ -404,7 +410,7 @@ class UsageComponent {
 		if (this.viewMode === "insights") {
 			return clampLines(
 				[
-					...this.renderTitle(),
+					...this.renderTitle(width),
 					...this.renderTabs(width, getTableLayout(width)),
 					...this.renderInsights(width),
 					...this.renderHelp(width),
@@ -416,7 +422,7 @@ class UsageComponent {
 		const layout = getTableLayout(width);
 		return clampLines(
 			[
-				...this.renderTitle(),
+				...this.renderTitle(width),
 				...this.renderTabs(width, layout),
 				...this.renderHeader(layout),
 				...this.renderRows(layout),
@@ -428,11 +434,21 @@ class UsageComponent {
 		);
 	}
 
-	private renderTitle(): string[] {
+	private renderTitle(width: number): string[] {
 		const th = this.theme;
-		const label =
-			this.viewMode === "insights" ? "Usage Insights" : this.viewMode === "graph" ? "Usage Graphs" : "Usage Statistics";
-		return [th.fg("accent", th.bold(label)), ""];
+		const title = th.fg("accent", th.bold("Usage"));
+		// Render the views as a tab strip (like the period tabs) so it is
+		// obvious there are multiple views and [v] switches between them.
+		const fullStrip = VIEW_CYCLE.map((view) =>
+			view === this.viewMode ? th.fg("accent", `[${VIEW_LABELS[view]}]`) : th.fg("dim", ` ${VIEW_LABELS[view]} `)
+		).join(" ");
+		const activeOnly = th.fg("accent", `[${VIEW_LABELS[this.viewMode]}]`);
+		const line = pickFittingText(width, [
+			`${title}   ${fullStrip}  ${th.fg("dim", "[v]")}`,
+			`${title}   ${activeOnly}  ${th.fg("dim", "[v]")}`,
+			`${title} ${activeOnly}`,
+		]);
+		return [line, ""];
 	}
 
 	private renderGraph(width: number): string[] {
@@ -703,16 +719,16 @@ class UsageComponent {
 				  ]
 				: this.viewMode === "insights"
 				? [
-						"[Tab/←→] period  [v] graph view  [q] close",
-						"[Tab] period  [v] graphs  [q] close",
-						"[v] graphs  [q] close",
+						"[Tab/←→] period  [v] view  [q] close",
+						"[Tab] period  [v] view  [q] close",
+						"[v] view  [q] close",
 						"[q] close",
 				  ]
 				: [
-						"[Tab/←→] period  [↑↓] select  [Enter] expand  [v] insights  [q] close",
-						"[Tab] period  [↑↓] select  [Enter] expand  [v] insights  [q] close",
-						"[↑↓] select  [Enter] expand  [v] insights  [q] close",
-						"[↑↓] select  [v] insights  [q] close",
+						"[Tab/←→] period  [↑↓] select  [Enter] expand  [v] view  [q] close",
+						"[Tab] period  [↑↓] select  [Enter] expand  [v] view  [q] close",
+						"[↑↓] select  [Enter] expand  [v] view  [q] close",
+						"[↑↓] select  [v] view  [q] close",
 						"[↑↓] select  [q] close",
 						"[q] close",
 				  ];
