@@ -13,7 +13,7 @@ import type { ExtensionAPI, ExtensionCommandContext, Theme } from "@earendil-wor
 import { DynamicBorder } from "@earendil-works/pi-coding-agent";
 import { CancellableLoader, Container, Spacer, matchesKey, visibleWidth, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 
-import { collectUsageData, TAB_ORDER } from "./data";
+import { collectUsageData, getAgentDir, TAB_ORDER } from "./data";
 import type { CollectProgress } from "./data";
 import type { BaseStats, ProviderStats, TabName, TotalStats, UsageData } from "./data";
 import {
@@ -26,8 +26,16 @@ import {
 	TOTAL_SERIES_KEY,
 } from "./graph";
 import type { GraphGroupBy, GraphMetric, GraphModel } from "./graph";
-import { buildGraphCsv, buildInsightsJson, buildTableCsv, exportFileName } from "./export";
-import { writeFileSync } from "node:fs";
+import {
+	buildGraphCsv,
+	buildInsightsJson,
+	buildTableCsv,
+	exportFileName,
+	parseExportDirSetting,
+	resolveExportDir,
+} from "./export";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 type ViewMode = "table" | "insights" | "graph";
@@ -524,9 +532,19 @@ class UsageComponent {
 			content = buildTableCsv(visible.providers, visible.totals);
 		}
 		try {
-			const path = join(process.cwd(), name);
+			let configured: string | null = null;
+			try {
+				configured = parseExportDirSetting(readFileSync(join(getAgentDir(), "settings.json"), "utf8"));
+			} catch {
+				// No settings file or unreadable: fall through to the default dir.
+			}
+			const home = homedir();
+			const dir = resolveExportDir(configured, home, existsSync("/tmp"), tmpdir());
+			mkdirSync(dir, { recursive: true });
+			const path = join(dir, name);
 			writeFileSync(path, content);
-			this.exportNote = { text: `Saved ${name}`, ok: true };
+			const shown = path.startsWith(home + "/") ? "~" + path.slice(home.length) : path;
+			this.exportNote = { text: `Saved ${shown}`, ok: true };
 		} catch (err) {
 			this.exportNote = { text: `Export failed: ${err instanceof Error ? err.message : String(err)}`, ok: false };
 		}

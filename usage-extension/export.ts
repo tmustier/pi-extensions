@@ -7,8 +7,42 @@
  * component owns file naming and disk writes.
  */
 
+import { join } from "node:path";
 import type { Insight, ProviderStats, TotalStats } from "./data.ts";
 import type { GraphModel } from "./graph.ts";
+
+/**
+ * Read the configured export directory from settings.json content, if any.
+ * Config shape: `{ "usage-extension": { "exportDir": "~/Downloads" } }`.
+ */
+export function parseExportDirSetting(settingsJson: string): string | null {
+	try {
+		const parsed = JSON.parse(settingsJson) as { "usage-extension"?: { exportDir?: unknown } };
+		const dir = parsed["usage-extension"]?.exportDir;
+		return typeof dir === "string" && dir.trim() !== "" ? dir.trim() : null;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Pick the export directory. A configured dir wins (with `~` expanded);
+ * otherwise exports go to /tmp so they never litter a repo or home
+ * directory, falling back to the OS temp dir where /tmp doesn't exist.
+ */
+export function resolveExportDir(
+	configured: string | null,
+	home: string,
+	slashTmpExists: boolean,
+	fallbackTmp: string,
+): string {
+	if (configured !== null) {
+		if (configured === "~") return home;
+		if (configured.startsWith("~/")) return join(home, configured.slice(2));
+		return configured;
+	}
+	return slashTmpExists ? "/tmp" : fallbackTmp;
+}
 
 /** Quote a CSV field only when it needs it (comma, quote, or newline). */
 function csvField(value: string | number): string {

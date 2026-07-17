@@ -198,7 +198,7 @@ export interface ParsedSessionFile {
 // Paths
 // =============================================================================
 
-function getAgentDir(): string {
+export function getAgentDir(): string {
 	// Replicate Pi's logic: respect PI_CODING_AGENT_DIR env var
 	return process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
 }
