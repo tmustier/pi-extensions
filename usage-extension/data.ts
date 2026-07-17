@@ -1045,9 +1045,9 @@ function computeInsights(raw: PeriodRawData, trend: TrendInfo | null): PeriodIns
 		insights.push({
 			kind: "alarm",
 			stat: fmtMoney(raw.ttlMissCost),
-			headline: `spent re-warming caches that expired during idle gaps (${fmtPercent(ttlPct)} of this period)`,
+			headline: `spent re-sending conversations after a break (${fmtPercent(ttlPct)} of this period)`,
 			advice:
-				"Provider caches expire after a few minutes idle (Anthropic ~5min); the next message re-writes the whole context at premium rates. Batching replies instead of trickling them keeps caches warm.",
+				"Sent context is only reusable for a few minutes. After a longer pause, the next message pays to send the whole conversation again. Replying while a session is fresh avoids this.",
 		});
 	}
 
@@ -1056,9 +1056,9 @@ function computeInsights(raw: PeriodRawData, trend: TrendInfo | null): PeriodIns
 		insights.push({
 			kind: "alarm",
 			stat: fmtMoney(raw.prefixMissCost),
-			headline: `spent on cache misses with no idle gap (${fmtPercent(prefixPct)} of this period)`,
+			headline: `spent re-sending conversations mid-session (${fmtPercent(prefixPct)} of this period)`,
 			advice:
-				"The request prefix changed mid-session (compaction excluded), so cached context was re-sent at full price. If this stays high, something in the workflow is defeating provider caching.",
+				"These messages paid full price for context that had already been sent, without a pause to explain it. Usually a tool or workflow is restarting or rewriting conversations. Worth a look if it stays high.",
 		});
 	}
 
@@ -1071,7 +1071,7 @@ function computeInsights(raw: PeriodRawData, trend: TrendInfo | null): PeriodIns
 				kind: "alarm",
 				stat: fmtPercent(topPct),
 				headline: `of this period's cost came from just ${TOP_SESSION_COUNT} sessions (of ${raw.sessionCosts.size})`,
-				advice: "Spend is unusually concentrated. The graph view's filters can pinpoint what those sessions were doing.",
+				advice: "A handful of sessions drove most of the spend. The graph view can show what they were doing.",
 			});
 		}
 	}
@@ -1081,9 +1081,8 @@ function computeInsights(raw: PeriodRawData, trend: TrendInfo | null): PeriodIns
 		insights.push({
 			kind: "alarm",
 			stat: fmtPercent(upfrontPct),
-			headline: "of cost was the first message of a session",
-			advice:
-				"Session starts pay for their whole prompt uncached. Fewer, longer-lived sessions amortize that setup cost.",
+			headline: "of cost went on the opening message of new sessions",
+			advice: "A session's first message sends everything from scratch. Fewer, longer sessions cut this overhead.",
 		});
 	}
 
@@ -1093,9 +1092,9 @@ function computeInsights(raw: PeriodRawData, trend: TrendInfo | null): PeriodIns
 			insights.push({
 				kind: "alarm",
 				stat: `${leverage.toFixed(1)}×`,
-				headline: "cache leverage — cached tokens served per fresh token paid",
+				headline: "tokens reused from history for every token paid at full price",
 				advice:
-					"Healthy interactive use typically sees 10×+. Low leverage means context is being re-sent uncached — look for workflows that restart conversations.",
+					"Typical interactive use reuses 10× or more. A low number means conversations keep being sent from scratch — look for workflows that restart sessions.",
 			});
 		}
 	}
@@ -1109,13 +1108,13 @@ function computeInsights(raw: PeriodRawData, trend: TrendInfo | null): PeriodIns
 			const avgLow = raw.ctxLow.messages > 0 ? raw.ctxLow.cost / raw.ctxLow.messages : 0;
 			const cmp =
 				avgLow > 0
-					? ` — averaging ${fmtMoney(avgHigh)}/msg vs ${fmtMoney(avgLow)} under ${formatThresholdTokens(CTX_LOW_THRESHOLD)}`
+					? ` — ${fmtMoney(avgHigh)}/msg vs ${fmtMoney(avgLow)} under ${formatThresholdTokens(CTX_LOW_THRESHOLD)}`
 					: "";
 			insights.push({
 				kind: "structure",
 				stat: fmtPercent(pct),
-				headline: `of your cost was at ≥${formatThresholdTokens(CTX_TAX_THRESHOLD)} context${cmp}`,
-				advice: "Context size is the main cost driver. /compact mid-task and /clear between tasks to reset it.",
+				headline: `of your cost came from messages with ≥${formatThresholdTokens(CTX_TAX_THRESHOLD)} tokens loaded${cmp}`,
+				advice: "Long conversations cost more per message. /compact mid-task and /clear between tasks keep them lean.",
 			});
 		}
 	}
@@ -1143,9 +1142,9 @@ function computeInsights(raw: PeriodRawData, trend: TrendInfo | null): PeriodIns
 			insights.push({
 				kind: "structure",
 				stat: fmtPercent(reasoningPct),
-				headline: "of your output tokens were invisible reasoning",
+				headline: "of your output tokens were hidden reasoning",
 				advice:
-					"Reasoning is billed as output but never displayed. Recorded by pi 0.80.3+ (June 2026) only, so older periods understate it.",
+					"Models charge for their behind-the-scenes thinking as output tokens. pi records this only from 0.80.3 (June 2026), so older periods understate it.",
 			});
 		}
 	}
@@ -1154,9 +1153,9 @@ function computeInsights(raw: PeriodRawData, trend: TrendInfo | null): PeriodIns
 		const ratio = trend.last7Cost / trend.priorWeeklyPace;
 		const advice =
 			ratio >= TREND_HIGH_RATIO
-				? "Spend is accelerating vs your own baseline — the graph view shows what changed."
+				? "Spending is up against your own baseline — the graph view shows what changed."
 				: ratio <= TREND_LOW_RATIO
-					? "Spend is well below your recent baseline."
+					? "Spending is well below your recent baseline."
 					: "";
 		insights.push({
 			kind: "structure",

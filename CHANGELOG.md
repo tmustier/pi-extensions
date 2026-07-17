@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.53] - 2026-07-17
+
+### Changed
+- `usage-extension` 0.7.2: insights view polish — sectioned headers with rules, warning-coloured alarms, plain-language copy, 100-column content cap, and an explicit all-clear state.
+
 ## [0.1.52] - 2026-07-17
 
 ### Added

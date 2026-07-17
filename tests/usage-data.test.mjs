@@ -513,11 +513,11 @@ test("insights classify TTL vs prefix cache misses and exclude compaction", asyn
 	);
 
 	const data = await collectUsageData({ sessionsDir, cachePath, now: NOW });
-	const ttl = findInsight(data, "today", /re-warming caches/);
+	const ttl = findInsight(data, "today", /re-sending conversations after a break/);
 	assert.ok(ttl, "TTL alarm fires");
 	assert.equal(ttl.kind, "alarm");
 	assert.equal(ttl.stat, "$10.00");
-	const prefix = findInsight(data, "today", /no idle gap/);
+	const prefix = findInsight(data, "today", /re-sending conversations mid-session/);
 	assert.ok(prefix, "prefix alarm fires");
 	assert.equal(prefix.stat, "$5.00", "compaction-adjacent miss is excluded from prefix cost");
 });
@@ -533,7 +533,7 @@ test("insights fire upfront and concentration alarms when material", async (t) =
 	}
 
 	const data = await collectUsageData({ sessionsDir, cachePath, now: NOW });
-	const upfront = findInsight(data, "today", /first message of a session/);
+	const upfront = findInsight(data, "today", /opening message of new sessions/);
 	assert.ok(upfront, "upfront alarm fires (every message is a session start here)");
 	assert.equal(upfront.kind, "alarm");
 	assert.equal(upfront.stat, "100%");
@@ -564,16 +564,16 @@ test("insights include context tax, project mix, and reasoning share", async (t)
 	);
 
 	const data = await collectUsageData({ sessionsDir, cachePath, now: NOW });
-	const ctx = findInsight(data, "today", /≥150k context/);
+	const ctx = findInsight(data, "today", /≥150k tokens loaded/);
 	assert.ok(ctx, "context tax shows");
 	assert.equal(ctx.kind, "structure");
 	assert.equal(ctx.stat, "75%"); // 12 of 16
-	assert.match(ctx.headline, /averaging \$6\.00\/msg vs \$2\.00 under 100k/);
+	assert.match(ctx.headline, /\$6\.00\/msg vs \$2\.00 under 100k/);
 	const proj = findInsight(data, "today", /~\/projects\/alpha/);
 	assert.ok(proj, "project mix shows");
 	assert.equal(proj.stat, "75%");
 	assert.match(proj.headline, /~\/projects\/beta 25%/, "worktree collapses to its repository");
-	const reas = findInsight(data, "today", /invisible reasoning/);
+	const reas = findInsight(data, "today", /hidden reasoning/);
 	assert.ok(reas, "reasoning share shows");
 	assert.equal(reas.stat, "33%"); // 100 of 300 output tokens
 });
@@ -596,7 +596,7 @@ test("insights report the burn trend against the prior 4-week pace", async (t) =
 	assert.equal(trend.kind, "structure");
 	assert.equal(trend.stat, "7.0×"); // $70 vs $40/4 = $10 weekly pace
 	assert.match(trend.headline, /\$70\.00.*\$10\.00\/wk/);
-	assert.match(trend.advice, /accelerating/);
+	assert.match(trend.advice, /Spending is up/);
 	// The same global trend line is present on every period tab.
 	assert.ok(findInsight(data, "today", /last 7 days/));
 });

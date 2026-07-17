@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.2] - 2026-07-17
+
+### Changed
+- **Insights view polish.** Section headers with rules (“Worth attention” in warning colour, “Where it went” in accent), alarm markers and stats in warning colour, the trailing “(x% of this period)” de-emphasised, content capped at 100 columns for readability on wide terminals, and an explicit all-clear line (✓) when no alarms fire. The stat column fits 6-character values (e.g. `$58.79`).
+- **Plain-language copy.** Insight headlines now state what happened rather than the cache mechanism (“spent re-sending conversations after a break” instead of “re-warming caches that expired during idle gaps”), advice avoids jargon, and vendor-specific cache details are gone.
+- The period · “independent lenses” note is folded into the subtitle: “Approximate, based on local sessions on this machine (these are independent and don't sum to 100%).”
+
 ## [0.7.1] - 2026-07-17
 
 ### Added

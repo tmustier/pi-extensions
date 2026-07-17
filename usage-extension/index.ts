@@ -499,11 +499,14 @@ class UsageComponent {
 		const hasCost = stats.totals.cost > 0;
 		const lines: string[] = [];
 
-		lines.push("What's contributing to your cost?");
-		lines.push(th.fg("dim", "Approximate, based on local sessions on this machine."));
-		lines.push("");
-		const note = `${TAB_LABELS[this.activeTab]} · independent lenses — they overlap and don't sum to 100%`;
-		lines.push(th.fg("dim", note));
+		// Cap the content column so advice stays readable on very wide terminals.
+		const contentWidth = Math.max(Math.min(width, 100), 40);
+
+		lines.push(th.bold("What's contributing to your cost?"));
+		const subtitle = "Approximate, based on local sessions on this machine (these are independent and don't sum to 100%).";
+		for (const wrapped of wrapTextWithAnsi(subtitle, contentWidth)) {
+			lines.push(th.fg("dim", wrapped));
+		}
 		lines.push("");
 
 		if (!hasMessages) {
@@ -522,13 +525,24 @@ class UsageComponent {
 			return lines;
 		}
 
-		const indent = "       ";
-		const adviceWidth = Math.max(width - indent.length, 30);
+		// Columns: marker(2) + stat(6) + gap(1); advice aligns under the headline.
+		const indent = "         ";
+		const adviceWidth = Math.max(contentWidth - indent.length, 30);
+
+		const sectionHeader = (label: string, color: "warning" | "accent"): string => {
+			const rule = "─".repeat(Math.max(contentWidth - label.length - 1, 4));
+			return `${th.fg(color, th.bold(label))} ${th.fg("border", rule)}`;
+		};
 
 		const renderOne = (insight: (typeof insights)[number]): void => {
-			const marker = insight.kind === "alarm" ? "⚠ " : "  ";
-			const stat = th.fg("accent", th.bold(padLeft(insight.stat, 5)));
-			lines.push(`${marker}${stat} ${insight.headline}`);
+			const isAlarm = insight.kind === "alarm";
+			const marker = isAlarm ? th.fg("warning", "⚠ ") : "  ";
+			const statText = padLeft(insight.stat, 6);
+			const stat = isAlarm ? th.fg("warning", th.bold(statText)) : th.fg("accent", th.bold(statText));
+			// De-emphasise the trailing period-share parenthetical on alarm headlines.
+			const match = insight.headline.match(/^(.*?)\s*(\(\d[\d.,]*% of this period\))$/);
+			const headline = match ? `${match[1]} ${th.fg("dim", match[2]!)}` : insight.headline;
+			lines.push(`${marker}${stat} ${headline}`);
 			if (insight.advice) {
 				for (const wrapped of wrapTextWithAnsi(insight.advice, adviceWidth)) {
 					lines.push(`${indent}${th.fg("dim", wrapped)}`);
@@ -539,12 +553,15 @@ class UsageComponent {
 
 		const alarms = insights.filter((i) => i.kind === "alarm");
 		const structure = insights.filter((i) => i.kind === "structure");
+		lines.push(sectionHeader("Worth attention", "warning"));
 		if (alarms.length > 0) {
-			lines.push(th.fg("accent", "Worth attention"));
 			for (const insight of alarms) renderOne(insight);
+		} else {
+			lines.push(`  ${th.fg("success", padLeft("✓", 6))} ${th.fg("dim", "no waste patterns flagged for this period")}`);
+			lines.push("");
 		}
 		if (structure.length > 0) {
-			if (alarms.length > 0) lines.push(th.fg("dim", "Where it went"));
+			lines.push(sectionHeader("Where it went", "accent"));
 			for (const insight of structure) renderOne(insight);
 		}
 
