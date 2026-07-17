@@ -15,8 +15,20 @@ import { CancellableLoader, Container, Spacer, matchesKey, visibleWidth, truncat
 
 import { collectUsageData, TAB_ORDER } from "./data";
 import type { BaseStats, TabName, UsageData } from "./data";
+import {
+	buildGraphModel,
+	renderChart,
+	GROUP_LABELS,
+	GROUP_ORDER,
+	METRIC_LABELS,
+	METRIC_ORDER,
+	TOTAL_SERIES_KEY,
+} from "./graph";
+import type { GraphGroupBy, GraphMetric, GraphModel } from "./graph";
 
-type ViewMode = "table" | "insights";
+type ViewMode = "table" | "insights" | "graph";
+
+const VIEW_CYCLE: ViewMode[] = ["table", "insights", "graph"];
 
 // =============================================================================
 // Column Configuration
@@ -137,6 +149,32 @@ function formatNumber(n: number): string {
 	return n.toLocaleString();
 }
 
+// Compact axis/legend formatters for the graph view.
+function formatAxisCost(v: number): string {
+	if (v === 0) return "$0";
+	if (v < 1) return `$${v.toFixed(2)}`;
+	if (v < 100) return `$${v.toFixed(1)}`;
+	if (v < 10_000) return `$${Math.round(v)}`;
+	if (v < 1_000_000) return `$${(v / 1000).toFixed(1)}k`;
+	return `$${(v / 1_000_000).toFixed(2)}M`;
+}
+
+function formatAxisCount(v: number): string {
+	if (v === 0) return "0";
+	if (v < 1000) return String(Math.round(v));
+	if (v < 1_000_000) return `${(v / 1000).toFixed(v < 10_000 ? 1 : 0)}k`;
+	if (v < 1_000_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
+	return `${(v / 1_000_000_000).toFixed(1)}B`;
+}
+
+// Bright ANSI palette for graph series (Total uses index 0).
+const SERIES_COLORS = ["\x1b[97m", "\x1b[96m", "\x1b[95m", "\x1b[93m", "\x1b[92m", "\x1b[94m", "\x1b[91m", "\x1b[90m"];
+const COLOR_RESET = "\x1b[39m";
+
+function seriesColor(index: number): string {
+	return SERIES_COLORS[index % SERIES_COLORS.length]!;
+}
+
 function formatInsightPercent(p: number): string {
 	if (p >= 10) return `${Math.round(p)}%`;
 	return `${Math.round(p * 10) / 10}%`;
@@ -225,6 +263,13 @@ class UsageComponent {
 	private requestRender: () => void;
 	private done: () => void;
 
+	// Graph explorer state.
+	private graphMetric: GraphMetric = "cost";
+	private graphGroupBy: GraphGroupBy = "provider";
+	private graphCumulative = true;
+	private graphHidden = new Set<string>();
+	private graphLegendIndex = 0;
+
 	constructor(theme: Theme, data: UsageData, requestRender: () => void, done: () => void) {
 		this.theme = theme;
 		this.requestRender = requestRender;
@@ -248,8 +293,13 @@ class UsageComponent {
 		}
 
 		if (matchesKey(data, "v")) {
-			this.viewMode = this.viewMode === "table" ? "insights" : "table";
+			const idx = VIEW_CYCLE.indexOf(this.viewMode);
+			this.viewMode = VIEW_CYCLE[(idx + 1) % VIEW_CYCLE.length]!;
 			this.requestRender();
+			return;
+		}
+
+		if (this.viewMode === "graph" && this.handleGraphInput(data)) {
 			return;
 		}
 
@@ -263,6 +313,8 @@ class UsageComponent {
 			this.activeTab = TAB_ORDER[(idx - 1 + TAB_ORDER.length) % TAB_ORDER.length]!;
 			this.updateProviderOrder();
 			this.requestRender();
+		} else if (this.viewMode === "graph") {
+			// Graph-specific keys were handled above; swallow table-only keys.
 		} else if (this.viewMode === "table" && matchesKey(data, "up")) {
 			if (this.selectedIndex > 0) {
 				this.selectedIndex--;
@@ -290,7 +342,57 @@ class UsageComponent {
 	// Render Methods
 	// -------------------------------------------------------------------------
 
+	private handleGraphInput(data: string): boolean {
+		if (matchesKey(data, "m")) {
+			const idx = METRIC_ORDER.indexOf(this.graphMetric);
+			this.graphMetric = METRIC_ORDER[(idx + 1) % METRIC_ORDER.length]!;
+		} else if (matchesKey(data, "g")) {
+			const idx = GROUP_ORDER.indexOf(this.graphGroupBy);
+			this.graphGroupBy = GROUP_ORDER[(idx + 1) % GROUP_ORDER.length]!;
+			this.graphHidden.clear();
+			this.graphLegendIndex = 0;
+		} else if (matchesKey(data, "c")) {
+			this.graphCumulative = !this.graphCumulative;
+		} else if (matchesKey(data, "a")) {
+			this.graphHidden.clear();
+		} else if (matchesKey(data, "up")) {
+			this.graphLegendIndex = Math.max(0, this.graphLegendIndex - 1);
+		} else if (matchesKey(data, "down")) {
+			const count = this.buildGraphModelForView().series.length;
+			this.graphLegendIndex = Math.min(Math.max(count - 1, 0), this.graphLegendIndex + 1);
+		} else if (matchesKey(data, "enter") || matchesKey(data, "space")) {
+			const model = this.buildGraphModelForView();
+			const target = model.series[this.graphLegendIndex];
+			if (target) {
+				if (this.graphHidden.has(target.key)) this.graphHidden.delete(target.key);
+				else this.graphHidden.add(target.key);
+			}
+		} else {
+			return false;
+		}
+		this.requestRender();
+		return true;
+	}
+
+	private buildGraphModelForView(): GraphModel {
+		return buildGraphModel(this.data.hourly, {
+			period: this.activeTab,
+			metric: this.graphMetric,
+			groupBy: this.graphGroupBy,
+			cumulative: this.graphCumulative,
+			hidden: this.graphHidden,
+			bounds: this.data.bounds,
+		});
+	}
+
 	render(width: number): string[] {
+		if (this.viewMode === "graph") {
+			return clampLines(
+				[...this.renderTitle(), ...this.renderTabs(width, getTableLayout(width)), ...this.renderGraph(width), ...this.renderHelp(width)],
+				width
+			);
+		}
+
 		if (this.viewMode === "insights") {
 			return clampLines(
 				[
@@ -320,8 +422,65 @@ class UsageComponent {
 
 	private renderTitle(): string[] {
 		const th = this.theme;
-		const label = this.viewMode === "insights" ? "Usage Insights" : "Usage Statistics";
+		const label =
+			this.viewMode === "insights" ? "Usage Insights" : this.viewMode === "graph" ? "Usage Graphs" : "Usage Statistics";
 		return [th.fg("accent", th.bold(label)), ""];
+	}
+
+	private renderGraph(width: number): string[] {
+		const th = this.theme;
+		const model = this.buildGraphModelForView();
+		const lines: string[] = [];
+
+		const modeLabel = `${this.graphCumulative ? "Cumulative" : "Per bucket"} ${METRIC_LABELS[this.graphMetric]} · ${GROUP_LABELS[this.graphGroupBy]}`;
+		lines.push(th.fg("muted", modeLabel));
+		lines.push("");
+
+		if (model.groupedTotal === 0 && model.series.every((s) => s.total === 0)) {
+			lines.push(th.fg("dim", "  No usage data for this period"));
+			lines.push("");
+			return lines;
+		}
+
+		const formatValue = this.graphMetric === "cost" ? formatAxisCost : formatAxisCount;
+		const spanMs = model.domainEndMs - model.domainStartMs;
+		const formatTime = (ms: number): string => {
+			const d = new Date(ms);
+			if (spanMs <= 26 * 3_600_000) {
+				return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+			}
+			return d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+		};
+
+		const chartHeight = 12;
+		const chart = renderChart(model, {
+			width: Math.max(Math.min(width, 110), 30),
+			height: chartHeight,
+			formatValue,
+			formatTime,
+			colorize: (seriesIndex, text) => {
+				if (seriesIndex < 0) return th.fg("dim", text);
+				return seriesColor(seriesIndex) + text + COLOR_RESET;
+			},
+		});
+		lines.push(...chart);
+		lines.push("");
+
+		// Legend with selection cursor and hide/show state.
+		for (let i = 0; i < model.series.length; i++) {
+			const s = model.series[i]!;
+			const cursor = i === this.graphLegendIndex ? th.fg("accent", "▸ ") : "  ";
+			const marker = s.hidden ? th.fg("dim", "○") : seriesColor(i) + "●" + COLOR_RESET;
+			const value = this.graphMetric === "cost" ? formatAxisCost(s.total) : formatAxisCount(s.total);
+			const pct =
+				s.key !== TOTAL_SERIES_KEY && model.groupedTotal > 0
+					? ` ${th.fg("dim", `${Math.round((s.total / model.groupedTotal) * 100)}%`)}`
+					: "";
+			const label = s.hidden ? th.fg("dim", s.label) : s.key === TOTAL_SERIES_KEY ? th.bold(s.label) : s.label;
+			lines.push(`${cursor}${marker} ${padRight(label, 24)} ${padLeft(value, 8)}${pct}`);
+		}
+		lines.push("");
+		return lines;
 	}
 
 	private renderInsights(width: number): string[] {
@@ -494,11 +653,19 @@ class UsageComponent {
 
 	private renderHelp(width: number): string[] {
 		const variants =
-			this.viewMode === "insights"
+			this.viewMode === "graph"
 				? [
-						"[Tab/←→] period  [v] table view  [q] close",
-						"[Tab] period  [v] table  [q] close",
-						"[v] table  [q] close",
+						"[Tab/←→] period  [m] metric  [g] group  [c] cumulative  [↑↓/Enter] filter  [a] all  [v] view  [q] close",
+						"[Tab] period  [m] metric  [g] group  [c] cumul  [↑↓/Enter] filter  [v] view  [q] close",
+						"[m] metric  [g] group  [c] cumul  [↑↓] filter  [q] close",
+						"[m] [g] [c] [↑↓] [q]",
+						"[q] close",
+				  ]
+				: this.viewMode === "insights"
+				? [
+						"[Tab/←→] period  [v] graph view  [q] close",
+						"[Tab] period  [v] graphs  [q] close",
+						"[v] graphs  [q] close",
 						"[q] close",
 				  ]
 				: [

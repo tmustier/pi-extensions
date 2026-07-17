@@ -81,12 +81,51 @@ export interface TimeFilteredStats {
 	insights: PeriodInsights;
 }
 
+/**
+ * One (provider, model, thinkingLevel) cell inside an hourly bucket.
+ * Powers the graph explorer; built post-dedupe so it matches table totals.
+ */
+export interface HourlyCell {
+	messages: number;
+	cost: number;
+	input: number;
+	output: number;
+	cacheRead: number;
+	cacheWrite: number;
+	reasoning: number;
+}
+
+/** Composite key: `${provider}\u0000${model}\u0000${thinkingLevel}` */
+export type HourlyKey = string;
+
+export const HOURLY_KEY_SEP = "\u0000";
+
+export function makeHourlyKey(provider: string, model: string, thinkingLevel: string): HourlyKey {
+	return provider + HOURLY_KEY_SEP + model + HOURLY_KEY_SEP + thinkingLevel;
+}
+
+export function splitHourlyKey(key: HourlyKey): { provider: string; model: string; thinkingLevel: string } {
+	const [provider = "", model = "", thinkingLevel = ""] = key.split(HOURLY_KEY_SEP);
+	return { provider, model, thinkingLevel };
+}
+
+export interface PeriodBounds {
+	todayMs: number;
+	weekStartMs: number;
+	lastWeekStartMs: number;
+	last30DaysStartMs: number;
+	nowMs: number;
+}
+
 export interface UsageData {
 	today: TimeFilteredStats;
 	thisWeek: TimeFilteredStats;
 	lastWeek: TimeFilteredStats;
 	last30Days: TimeFilteredStats;
 	allTime: TimeFilteredStats;
+	/** Deduped usage bucketed by hour start (ms) → series key → metrics. */
+	hourly: Map<number, Map<HourlyKey, HourlyCell>>;
+	bounds: PeriodBounds;
 }
 
 export type TabName = "today" | "thisWeek" | "lastWeek" | "last30Days" | "allTime";
@@ -96,11 +135,15 @@ export const TAB_ORDER: TabName[] = ["today", "thisWeek", "lastWeek", "last30Day
 export interface SessionMessage {
 	provider: string;
 	model: string;
+	/** Thinking level active when the message was produced; "" when unknown. */
+	thinkingLevel: string;
 	cost: number;
 	input: number;
 	output: number;
 	cacheRead: number;
 	cacheWrite: number;
+	/** Reasoning output tokens reported by the provider (0 when absent). */
+	reasoning: number;
 	timestamp: number;
 }
 
@@ -171,6 +214,8 @@ const PATTERN_ASSISTANT_COMPACT = Buffer.from('"role":"assistant"');
 const PATTERN_ASSISTANT_SPACED = Buffer.from('"role": "assistant"');
 const PATTERN_SESSION_COMPACT = Buffer.from('"type":"session"');
 const PATTERN_SESSION_SPACED = Buffer.from('"type": "session"');
+const PATTERN_THINKING_COMPACT = Buffer.from('"type":"thinking_level_change"');
+const PATTERN_THINKING_SPACED = Buffer.from('"type": "thinking_level_change"');
 
 const PARSE_YIELD_EVERY_LINES = 2000;
 
@@ -178,8 +223,10 @@ function lineMightBeRelevant(line: Buffer): boolean {
 	return (
 		line.includes(PATTERN_ASSISTANT_COMPACT) ||
 		line.includes(PATTERN_SESSION_COMPACT) ||
+		line.includes(PATTERN_THINKING_COMPACT) ||
 		line.includes(PATTERN_ASSISTANT_SPACED) ||
-		line.includes(PATTERN_SESSION_SPACED)
+		line.includes(PATTERN_SESSION_SPACED) ||
+		line.includes(PATTERN_THINKING_SPACED)
 	);
 }
 
@@ -191,6 +238,11 @@ function lineMightBeRelevant(line: Buffer): boolean {
 export async function parseSessionBuffer(buffer: Buffer, signal?: AbortSignal): Promise<ParsedSessionFile> {
 	const messages: SessionMessage[] = [];
 	let sessionId = "";
+	// Assistant messages don't carry the thinking level; pi records it as separate
+	// thinking_level_change entries, always written before the first assistant
+	// message of a session. Replaying them in append order attributes each message
+	// to the level active when it was produced.
+	let thinkingLevel = "";
 	let start = 0;
 	let lineNumber = 0;
 
@@ -210,6 +262,8 @@ export async function parseSessionBuffer(buffer: Buffer, signal?: AbortSignal): 
 
 				if (entry.type === "session") {
 					sessionId = entry.id;
+				} else if (entry.type === "thinking_level_change") {
+					if (typeof entry.thinkingLevel === "string") thinkingLevel = entry.thinkingLevel;
 				} else if (entry.type === "message" && entry.message?.role === "assistant") {
 					const msg = entry.message;
 					if (msg.usage && msg.provider && msg.model) {
@@ -217,11 +271,13 @@ export async function parseSessionBuffer(buffer: Buffer, signal?: AbortSignal): 
 						messages.push({
 							provider: msg.provider,
 							model: msg.model,
+							thinkingLevel,
 							cost: msg.usage.cost?.total || 0,
 							input: msg.usage.input || 0,
 							output: msg.usage.output || 0,
 							cacheRead: msg.usage.cacheRead || 0,
 							cacheWrite: msg.usage.cacheWrite || 0,
+							reasoning: msg.usage.reasoning || 0,
 							timestamp: msg.timestamp || (Number.isNaN(fallbackTs) ? 0 : fallbackTs),
 						});
 					}
@@ -241,7 +297,7 @@ export async function parseSessionBuffer(buffer: Buffer, signal?: AbortSignal): 
 // On-disk cache
 // =============================================================================
 
-const CACHE_VERSION = 1;
+const CACHE_VERSION = 2;
 
 type CachedMessageTuple = [
 	providerIdx: number,
@@ -252,6 +308,8 @@ type CachedMessageTuple = [
 	cacheRead: number,
 	cacheWrite: number,
 	timestamp: number,
+	thinkingLevelIdx: number,
+	reasoning: number,
 ];
 
 interface CacheFileEntry {
@@ -293,25 +351,28 @@ export async function loadUsageCache(cachePath: string): Promise<Map<string, Cac
 		const messages: SessionMessage[] = [];
 		let valid = true;
 		for (const tuple of entry.messages) {
-			if (!Array.isArray(tuple) || tuple.length !== 8) {
+			if (!Array.isArray(tuple) || tuple.length !== 10) {
 				valid = false;
 				break;
 			}
 			const provider = names[tuple[0]];
 			const model = names[tuple[1]];
-			if (typeof provider !== "string" || typeof model !== "string") {
+			const thinkingLevel = names[tuple[8]];
+			if (typeof provider !== "string" || typeof model !== "string" || typeof thinkingLevel !== "string") {
 				valid = false;
 				break;
 			}
 			messages.push({
 				provider,
 				model,
+				thinkingLevel,
 				cost: Number(tuple[2]) || 0,
 				input: Number(tuple[3]) || 0,
 				output: Number(tuple[4]) || 0,
 				cacheRead: Number(tuple[5]) || 0,
 				cacheWrite: Number(tuple[6]) || 0,
 				timestamp: Number(tuple[7]) || 0,
+				reasoning: Number(tuple[9]) || 0,
 			});
 		}
 		if (!valid) continue;
@@ -352,6 +413,8 @@ export async function saveUsageCache(cachePath: string, states: Map<string, Cach
 				m.cacheRead,
 				m.cacheWrite,
 				m.timestamp,
+				intern(m.thinkingLevel),
+				m.reasoning,
 			]),
 		};
 	}
@@ -392,14 +455,41 @@ function emptyPeriodRawData(): PeriodRawData {
 	return { messages: [], sessionCosts: new Map() };
 }
 
-function emptyUsageData(): UsageData {
+function emptyUsageData(bounds: PeriodBounds): UsageData {
 	return {
 		today: emptyTimeFilteredStats(),
 		thisWeek: emptyTimeFilteredStats(),
 		lastWeek: emptyTimeFilteredStats(),
 		last30Days: emptyTimeFilteredStats(),
 		allTime: emptyTimeFilteredStats(),
+		hourly: new Map(),
+		bounds,
 	};
+}
+
+const HOUR_MS = 3_600_000;
+
+function addToHourlyBuckets(hourly: Map<number, Map<HourlyKey, HourlyCell>>, msg: SessionMessage): void {
+	if (msg.timestamp <= 0) return; // Unknown time can't be placed on a time axis.
+	const hour = Math.floor(msg.timestamp / HOUR_MS) * HOUR_MS;
+	let bucket = hourly.get(hour);
+	if (!bucket) {
+		bucket = new Map();
+		hourly.set(hour, bucket);
+	}
+	const key = makeHourlyKey(msg.provider, msg.model, msg.thinkingLevel);
+	let cell = bucket.get(key);
+	if (!cell) {
+		cell = { messages: 0, cost: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0 };
+		bucket.set(key, cell);
+	}
+	cell.messages++;
+	cell.cost += msg.cost;
+	cell.input += msg.input;
+	cell.output += msg.output;
+	cell.cacheRead += msg.cacheRead;
+	cell.cacheWrite += msg.cacheWrite;
+	cell.reasoning += msg.reasoning;
 }
 
 // Helper to accumulate stats into a target
@@ -460,6 +550,8 @@ function addMessagesToUsageData(
 				if (msg.timestamp > span.endMs) span.endMs = msg.timestamp;
 			}
 		}
+
+		addToHourlyBuckets(data.hourly, msg);
 
 		const periods = getPeriodsForTimestamp(msg.timestamp, todayMs, weekStartMs, lastWeekStartMs, last30DaysStartMs);
 		const tokens = {
@@ -659,7 +751,7 @@ export async function collectUsageData(options: CollectUsageOptions = {}): Promi
 	}
 
 	// 6. Aggregate in sorted path order with cross-file dedupe.
-	const data = emptyUsageData();
+	const data = emptyUsageData({ todayMs, weekStartMs, lastWeekStartMs, last30DaysStartMs, nowMs: now.getTime() });
 	const rawByPeriod: Record<TabName, PeriodRawData> = {
 		today: emptyPeriodRawData(),
 		thisWeek: emptyPeriodRawData(),

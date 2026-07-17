@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.6.0] - 2026-07-17
+
+### Added
+- **Interactive graph explorer.** New third view mode (cycle with `v`): a braille line chart of usage over time for the active period, with a legend showing per-series totals and shares.
+  - Metrics (`m`): cost, tokens, messages, reasoning tokens.
+  - Grouping (`g`): by provider, by model, by thinking level, or total only — top 6 series plus an `other` rollup, with a bold Total line always drawn.
+  - Cumulative running totals or per-bucket rates (`c`), hourly buckets for day/week periods and daily buckets for Last 30 Days / All Time.
+  - Legend filtering: `↑`/`↓` moves the cursor, `Enter`/`Space` hides or shows a series, `a` shows all. The y-axis rescales to the visible series so small series can be inspected by hiding large ones.
+- **Thinking level and reasoning tokens.** Session parsing now replays `thinking_level_change` entries (compact and spaced JSON styles) to attribute a thinking level to each assistant message, and records `usage.reasoning` token counts. Messages before the first recorded change appear as `unknown`.
+
+### Changed
+- On-disk cache format bumped to v2 (per-message thinking level and reasoning tokens). The first open after upgrading does a one-off full rebuild; older caches are ignored safely.
+
 ## [0.5.0] - 2026-07-17
 
 ### Added
