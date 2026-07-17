@@ -15,7 +15,7 @@ import { CancellableLoader, Container, Spacer, matchesKey, visibleWidth, truncat
 
 import { collectUsageData, TAB_ORDER } from "./data";
 import type { CollectProgress } from "./data";
-import type { BaseStats, TabName, UsageData } from "./data";
+import type { BaseStats, ProviderStats, TabName, TotalStats, UsageData } from "./data";
 import {
 	buildGraphModel,
 	renderChart,
@@ -285,6 +285,9 @@ class UsageComponent {
 	private graphGroupBy: GraphGroupBy = "provider";
 	private graphCumulative = true;
 	private exportNote: { text: string; ok: boolean } | null = null;
+	private tableHidden = new Set<string>();
+	private tableFilter = "";
+	private tableFilterEditing = false;
 	private graphHidden = new Set<string>();
 	private graphLegendIndex = 0;
 
@@ -301,10 +304,94 @@ class UsageComponent {
 		this.providerOrder = Array.from(stats.providers.entries())
 			.sort((a, b) => b[1].cost - a[1].cost)
 			.map(([name]) => name);
-		this.selectedIndex = Math.min(this.selectedIndex, Math.max(0, this.providerOrder.length - 1));
+		this.clampTableSelection();
+	}
+
+	private clampTableSelection(): void {
+		this.selectedIndex = Math.min(this.selectedIndex, Math.max(0, this.visibleTable().providers.size - 1));
+	}
+
+	/**
+	 * The table slice after hides and the text filter. A filter matches a
+	 * provider name (whole provider stays) or individual model names, in which
+	 * case the provider row is synthesized from just the matching models so
+	 * the totals row and exports reflect exactly what is on screen.
+	 */
+	private visibleTable(): { providers: Map<string, ProviderStats>; totals: TotalStats } {
+		const stats = this.data[this.activeTab];
+		const q = this.tableFilter.trim().toLowerCase();
+		// Always iterate providerOrder so the map is cost-sorted — selection
+		// indexes and rendered rows must agree on ordering.
+		const providers = new Map<string, ProviderStats>();
+		for (const name of this.providerOrder) {
+			if (this.tableHidden.has(name)) continue;
+			const full = stats.providers.get(name)!;
+			if (!q || name.toLowerCase().includes(q)) {
+				providers.set(name, full);
+				continue;
+			}
+			const models = new Map(Array.from(full.models).filter(([model]) => model.toLowerCase().includes(q)));
+			if (models.size === 0) continue;
+			const synth: ProviderStats = {
+				messages: 0,
+				cost: 0,
+				tokens: { total: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+				sessions: new Set<string>(),
+				models,
+			};
+			for (const model of models.values()) {
+				synth.messages += model.messages;
+				synth.cost += model.cost;
+				synth.tokens.total += model.tokens.total;
+				synth.tokens.input += model.tokens.input;
+				synth.tokens.output += model.tokens.output;
+				synth.tokens.cacheRead += model.tokens.cacheRead;
+				synth.tokens.cacheWrite += model.tokens.cacheWrite;
+				for (const s of model.sessions) synth.sessions.add(s);
+			}
+			providers.set(name, synth);
+		}
+		if (!q && this.tableHidden.size === 0) return { providers, totals: stats.totals };
+
+		const totals: TotalStats = {
+			sessions: 0,
+			messages: 0,
+			cost: 0,
+			tokens: { total: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		};
+		const sessions = new Set<string>();
+		for (const provider of providers.values()) {
+			totals.messages += provider.messages;
+			totals.cost += provider.cost;
+			totals.tokens.total += provider.tokens.total;
+			totals.tokens.input += provider.tokens.input;
+			totals.tokens.output += provider.tokens.output;
+			totals.tokens.cacheRead += provider.tokens.cacheRead;
+			totals.tokens.cacheWrite += provider.tokens.cacheWrite;
+			for (const s of provider.sessions) sessions.add(s);
+		}
+		totals.sessions = sessions.size;
+		return { providers, totals };
 	}
 
 	handleInput(data: string): void {
+		// Filter typing captures printable keys, so it runs before everything.
+		if (this.viewMode === "table" && this.tableFilterEditing) {
+			if (matchesKey(data, "escape")) {
+				this.tableFilter = "";
+				this.tableFilterEditing = false;
+			} else if (matchesKey(data, "enter")) {
+				this.tableFilterEditing = false;
+			} else if (matchesKey(data, "backspace")) {
+				this.tableFilter = this.tableFilter.slice(0, -1);
+			} else if (data.length === 1 && data >= " " && data !== "\x7f") {
+				this.tableFilter += data;
+			}
+			this.clampTableSelection();
+			this.requestRender();
+			return;
+		}
+
 		if (matchesKey(data, "escape") || matchesKey(data, "q")) {
 			this.done();
 			return;
@@ -342,18 +429,35 @@ class UsageComponent {
 			this.requestRender();
 		} else if (this.viewMode === "graph") {
 			// Graph-specific keys were handled above; swallow table-only keys.
+		} else if (this.viewMode === "table" && data === "/") {
+			this.tableFilterEditing = true;
+			this.requestRender();
+		} else if (this.viewMode === "table" && data === "x") {
+			const visible = Array.from(this.visibleTable().providers.keys());
+			const provider = visible[this.selectedIndex];
+			if (provider) {
+				this.tableHidden.add(provider);
+				this.clampTableSelection();
+				this.requestRender();
+			}
+		} else if (this.viewMode === "table" && data === "a") {
+			this.tableHidden.clear();
+			this.tableFilter = "";
+			this.tableFilterEditing = false;
+			this.clampTableSelection();
+			this.requestRender();
 		} else if (this.viewMode === "table" && matchesKey(data, "up")) {
 			if (this.selectedIndex > 0) {
 				this.selectedIndex--;
 				this.requestRender();
 			}
 		} else if (this.viewMode === "table" && matchesKey(data, "down")) {
-			if (this.selectedIndex < this.providerOrder.length - 1) {
+			if (this.selectedIndex < this.visibleTable().providers.size - 1) {
 				this.selectedIndex++;
 				this.requestRender();
 			}
 		} else if (this.viewMode === "table" && (matchesKey(data, "enter") || matchesKey(data, "space"))) {
-			const provider = this.providerOrder[this.selectedIndex];
+			const provider = Array.from(this.visibleTable().providers.keys())[this.selectedIndex];
 			if (provider) {
 				if (this.expanded.has(provider)) {
 					this.expanded.delete(provider);
@@ -414,8 +518,10 @@ class UsageComponent {
 			name = exportFileName("insights", this.activeTab, null, "json", now);
 			content = buildInsightsJson(this.activeTab, stats.totals, stats.insights.insights);
 		} else {
-			name = exportFileName("table", this.activeTab, null, "csv", now);
-			content = buildTableCsv(stats.providers, stats.totals);
+			const visible = this.visibleTable();
+			const sliced = this.tableFilter.trim() !== "" || this.tableHidden.size > 0;
+			name = exportFileName("table", this.activeTab, sliced ? "filtered" : null, "csv", now);
+			content = buildTableCsv(visible.providers, visible.totals);
 		}
 		try {
 			const path = join(process.cwd(), name);
@@ -643,6 +749,17 @@ class UsageComponent {
 				? wrapTextWithAnsi(th.fg("dim", "Compact view. Widen the terminal for more columns."), Math.max(width, 1))
 				: [];
 
+		if (this.viewMode === "table") {
+			if (this.tableFilterEditing) {
+				infoLines.push(`${th.fg("accent", `/ ${this.tableFilter}▌`)}  ${th.fg("dim", "[Enter] keep · [Esc] clear")}`);
+			} else if (this.tableFilter.trim() !== "" || this.tableHidden.size > 0) {
+				const parts: string[] = [];
+				if (this.tableFilter.trim() !== "") parts.push(`filter: “${this.tableFilter.trim()}”`);
+				if (this.tableHidden.size > 0) parts.push(`${this.tableHidden.size} hidden`);
+				infoLines.push(th.fg("warning", `${parts.join(" · ")}  ·  totals reflect this slice · [a] reset`));
+			}
+		}
+
 		return [tabLine, ...infoLines, ""];
 	}
 
@@ -687,7 +804,6 @@ class UsageComponent {
 
 	private renderRows(layout: TableLayout): string[] {
 		const th = this.theme;
-		const stats = this.data[this.activeTab];
 		const lines: string[] = [];
 
 		if (this.providerOrder.length === 0) {
@@ -695,9 +811,14 @@ class UsageComponent {
 			return lines;
 		}
 
-		for (let i = 0; i < this.providerOrder.length; i++) {
-			const providerName = this.providerOrder[i]!;
-			const providerStats = stats.providers.get(providerName)!;
+		const visible = Array.from(this.visibleTable().providers.entries());
+		if (visible.length === 0) {
+			lines.push(th.fg("dim", "  Nothing matches the current filter — [a] resets"));
+			return lines;
+		}
+
+		for (let i = 0; i < visible.length; i++) {
+			const [providerName, providerStats] = visible[i]!;
 			const isSelected = i === this.selectedIndex;
 			const isExpanded = this.expanded.has(providerName);
 			const arrow = isExpanded ? "▾" : "▸";
@@ -724,11 +845,11 @@ class UsageComponent {
 
 	private renderTotals(layout: TableLayout): string[] {
 		const th = this.theme;
-		const stats = this.data[this.activeTab];
+		const { totals } = this.visibleTable();
 
 		let totalRow = fitCell(th.bold("Total"), layout.nameWidth);
 		for (const col of layout.columns) {
-			const value = fitCell(col.getValue(stats.totals), col.width, "right");
+			const value = fitCell(col.getValue(totals), col.width, "right");
 			totalRow += col.dimmed ? th.fg("dim", value) : value;
 		}
 
@@ -766,10 +887,10 @@ class UsageComponent {
 						"[q] close",
 				  ]
 				: [
-						"[Tab/←→] period  [↑↓] select  [Enter] expand  [e] export  [v] view  [q] close",
-						"[Tab] period  [↑↓] select  [Enter] expand  [e] export  [v] view  [q] close",
-						"[↑↓] select  [Enter] expand  [v] view  [q] close",
-						"[↑↓] select  [v] view  [q] close",
+						"[Tab/←→] period  [↑↓] select  [Enter] expand  [/] filter  [x] hide  [a] all  [e] export  [v] view  [q] close",
+						"[Tab] period  [↑↓] select  [Enter] expand  [/] filter  [x] hide  [e] export  [v] view  [q] close",
+						"[↑↓] select  [Enter] expand  [/] filter  [x] hide  [v] view  [q] close",
+						"[↑↓] select  [/] [x] [v] [q]",
 						"[↑↓] select  [q] close",
 						"[q] close",
 				  ];
