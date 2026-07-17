@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.49] - 2026-07-17
+
+### Added
+- `usage-extension` 0.6.0: interactive graph explorer view (cost/tokens/messages/reasoning over time, grouped by provider/model/thinking level, cumulative or per-bucket, with legend filtering). Cache format bumped to v2. See `usage-extension/CHANGELOG.md`.
+
 ## [0.1.48] - 2026-07-17
 
 ### Added

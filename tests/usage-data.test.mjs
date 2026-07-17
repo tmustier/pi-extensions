@@ -27,7 +27,7 @@ function sessionLine(id, ts) {
 	return JSON.stringify({ type: "session", version: 3, id, timestamp: new Date(ts).toISOString(), cwd: "/tmp" });
 }
 
-function assistantLine({ ts, provider = "anthropic", model = "claude-fable-5", cost = 1, input = 100, output = 50, cacheRead = 0, cacheWrite = 0 }) {
+function assistantLine({ ts, provider = "anthropic", model = "claude-fable-5", cost = 1, input = 100, output = 50, cacheRead = 0, cacheWrite = 0, reasoning = 0 }) {
 	return JSON.stringify({
 		type: "message",
 		id: "m1",
@@ -38,10 +38,14 @@ function assistantLine({ ts, provider = "anthropic", model = "claude-fable-5", c
 			content: [{ type: "text", text: "hi" }],
 			provider,
 			model,
-			usage: { input, output, cacheRead, cacheWrite, cost: { total: cost } },
+			usage: { input, output, cacheRead, cacheWrite, reasoning, cost: { total: cost } },
 			timestamp: ts,
 		},
 	});
+}
+
+function thinkingLine(level, ts) {
+	return JSON.stringify({ type: "thinking_level_change", id: "t1", timestamp: new Date(ts).toISOString(), thinkingLevel: level });
 }
 
 function userLine(ts, text = "hello") {
@@ -74,13 +78,49 @@ test("parseSessionBuffer extracts session id and assistant messages from compact
 	assert.deepEqual(parsed.messages[0], {
 		provider: "anthropic",
 		model: "claude-fable-5",
+		thinkingLevel: "",
 		cost: 2.5,
 		input: 10,
 		output: 20,
 		cacheRead: 30,
 		cacheWrite: 40,
+		reasoning: 0,
 		timestamp: TS_TODAY,
 	});
+});
+
+test("parseSessionBuffer attributes thinking levels by replaying change entries", async () => {
+	const content = [
+		sessionLine("s1", TS_TODAY),
+		thinkingLine("high", TS_TODAY),
+		assistantLine({ ts: TS_TODAY, cost: 1 }),
+		thinkingLine("xhigh", TS_TODAY + 1000),
+		assistantLine({ ts: TS_TODAY + 2000, cost: 2, reasoning: 55 }),
+		assistantLine({ ts: TS_TODAY + 3000, cost: 3 }),
+	].join("\n");
+
+	const parsed = await parseSessionBuffer(Buffer.from(content, "utf8"));
+	assert.deepEqual(
+		parsed.messages.map((m) => m.thinkingLevel),
+		["high", "xhigh", "xhigh"]
+	);
+	assert.equal(parsed.messages[1].reasoning, 55);
+});
+
+test("parseSessionBuffer handles spaced thinking_level_change entries and messages before any change", async () => {
+	const iso = new Date(TS_TODAY).toISOString();
+	const content = [
+		sessionLine("s1", TS_TODAY),
+		assistantLine({ ts: TS_TODAY, cost: 1 }), // before any change → unknown ("")
+		`{"type": "thinking_level_change", "id": "t", "timestamp": "${iso}", "thinkingLevel": "medium"}`,
+		assistantLine({ ts: TS_TODAY + 1000, cost: 2 }),
+	].join("\n");
+
+	const parsed = await parseSessionBuffer(Buffer.from(content, "utf8"));
+	assert.deepEqual(
+		parsed.messages.map((m) => m.thinkingLevel),
+		["", "medium"]
+	);
 });
 
 test("parseSessionBuffer handles Python-style spaced JSON", async () => {
@@ -158,6 +198,16 @@ test("collectUsageData aggregates periods, providers, and dedupes branched histo
 
 	const data = await collectUsageData({ sessionsDir, cachePath, now: NOW });
 	assert.ok(data);
+
+	// Hourly buckets and bounds power the graph view.
+	assert.equal(data.bounds.nowMs, NOW.getTime());
+	const hourMs = 3_600_000;
+	const todayHour = Math.floor(TS_TODAY / hourMs) * hourMs;
+	const todayBucket = data.hourly.get(todayHour);
+	assert.ok(todayBucket, "expected an hourly bucket for the today message");
+	const todayCell = todayBucket.get("anthropic\u0000claude-fable-5\u0000");
+	assert.equal(todayCell.cost, 2);
+	assert.equal(todayCell.messages, 1);
 
 	// All time: 3 unique messages (the copy was deduped), 2 session files.
 	assert.equal(data.allTime.totals.messages, 3);
@@ -306,7 +356,7 @@ test("collectUsageData survives a corrupt cache file", async (t) => {
 
 	// Cache was rebuilt.
 	const cacheJson = JSON.parse(readFileSync(cachePath, "utf8"));
-	assert.equal(cacheJson.version, 1);
+	assert.equal(cacheJson.version, 2);
 });
 
 test("collectUsageData works with the cache disabled", async (t) => {
@@ -336,8 +386,8 @@ test("saveUsageCache/loadUsageCache round-trips file states", async (t) => {
 				parsed: {
 					sessionId: "s1",
 					messages: [
-						{ provider: "anthropic", model: "claude-fable-5", cost: 1.5, input: 10, output: 20, cacheRead: 30, cacheWrite: 40, timestamp: TS_TODAY },
-						{ provider: "openai", model: "gpt-5.6-sol", cost: 0.25, input: 1, output: 2, cacheRead: 3, cacheWrite: 4, timestamp: TS_OLD },
+						{ provider: "anthropic", model: "claude-fable-5", thinkingLevel: "xhigh", cost: 1.5, input: 10, output: 20, cacheRead: 30, cacheWrite: 40, reasoning: 7, timestamp: TS_TODAY },
+						{ provider: "openai", model: "gpt-5.6-sol", thinkingLevel: "", cost: 0.25, input: 1, output: 2, cacheRead: 3, cacheWrite: 4, reasoning: 0, timestamp: TS_OLD },
 					],
 				},
 			},
@@ -364,21 +414,35 @@ test("loadUsageCache rejects wrong versions and malformed entries", async (t) =>
 	writeFileSync(cachePath, JSON.stringify({ version: 999, names: [], files: {} }));
 	assert.equal((await loadUsageCache(cachePath)).size, 0);
 
+	// v1 caches (pre-thinking-level) must be rejected wholesale, forcing a rebuild.
 	writeFileSync(
 		cachePath,
 		JSON.stringify({
 			version: 1,
 			names: ["p", "m"],
+			files: { "/v1.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", messages: [[0, 1, 1, 1, 1, 0, 0, TS_TODAY]] } },
+		})
+	);
+	assert.equal((await loadUsageCache(cachePath)).size, 0);
+
+	writeFileSync(
+		cachePath,
+		JSON.stringify({
+			version: 2,
+			names: ["p", "m", "high"],
 			files: {
-				"/ok.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", messages: [[0, 1, 1, 1, 1, 0, 0, TS_TODAY]] },
+				"/ok.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", messages: [[0, 1, 1, 1, 1, 0, 0, TS_TODAY, 2, 5]] },
 				"/bad-tuple.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", messages: [[0, 1, 1]] },
-				"/bad-name-idx.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", messages: [[7, 1, 1, 1, 1, 0, 0, TS_TODAY]] },
+				"/bad-name-idx.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", messages: [[7, 1, 1, 1, 1, 0, 0, TS_TODAY, 2, 0]] },
+				"/bad-level-idx.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", messages: [[0, 1, 1, 1, 1, 0, 0, TS_TODAY, 9, 0]] },
 				"/bad-shape.jsonl": { size: "x", mtimeMs: 2, sessionId: "s", messages: [] },
 			},
 		})
 	);
 	const loaded = await loadUsageCache(cachePath);
 	assert.deepEqual([...loaded.keys()], ["/ok.jsonl"]);
+	assert.equal(loaded.get("/ok.jsonl").parsed.messages[0].thinkingLevel, "high");
+	assert.equal(loaded.get("/ok.jsonl").parsed.messages[0].reasoning, 5);
 });
 
 test("loadUsageCache returns empty for a missing cache file", async (t) => {
