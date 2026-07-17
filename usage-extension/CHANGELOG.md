@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0] - 2026-07-17
+
+### Changed
+- **Cache-miss taxonomy split into three behaviours**, each with its own alarm: resuming a conversation after a break (cache expired), switching models mid-conversation (the previous model's cache doesn't transfer), and true mid-session prefix changes (no break, compaction, or model switch to explain them). Validated against a second public corpus (badlogicgames/pi-mono, 628 sessions).
+- **Insights sections reordered facts-first**: “Where it went” (structure) now comes before “Worth attention” (alarms).
+- **pi's built-in test providers excluded**: `faux-provider` and `fake-provider` never call a real API and no longer appear in tables, graphs, totals, or insights.
+
 ## [0.7.2] - 2026-07-17
 
 ### Changed

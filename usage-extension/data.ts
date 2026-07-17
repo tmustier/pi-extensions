@@ -76,9 +76,11 @@ interface PeriodRawData {
 	sessionCosts: Map<string, number>;
 	/** Cost of each session's first-ever message falling in this period. */
 	upfrontCost: number;
-	/** Cache misses after >TTL_GAP_MS idle — expired-cache re-warms. */
+	/** Cache misses after >TTL_GAP_MS idle — resuming after the cache expired. */
 	ttlMissCost: number;
-	/** Cache misses without an idle gap (compaction excluded) — prefix changes. */
+	/** Cache misses right after a mid-session model switch (no idle gap). */
+	modelSwitchMissCost: number;
+	/** Cache misses with no idle gap, compaction, or model switch — true prefix changes. */
 	prefixMissCost: number;
 	reasoningTokens: number;
 	outputTokens: number;
@@ -92,6 +94,8 @@ interface MessageMeta {
 	gapMs: number;
 	/** Context size of the previous assistant message in the same file; 0 when first. */
 	prevCtx: number;
+	/** True when the provider/model differs from the previous assistant message. */
+	modelSwitched: boolean;
 	/** True for the first deduped message of a session across all its files. */
 	isSessionStart: boolean;
 }
@@ -514,6 +518,7 @@ function emptyPeriodRawData(): PeriodRawData {
 		sessionCosts: new Map(),
 		upfrontCost: 0,
 		ttlMissCost: 0,
+		modelSwitchMissCost: 0,
 		prefixMissCost: 0,
 		reasoningTokens: 0,
 		outputTokens: 0,
@@ -640,6 +645,9 @@ function addMessagesToUsageData(
 		const msg = messages[mi]!;
 		const mm = meta[mi]!;
 
+		// pi's built-in test providers never call a real API — keep them out of stats.
+		if (EXCLUDED_PROVIDERS.has(msg.provider)) continue;
+
 		// Day-indexed cost totals power the burn-trend insight.
 		if (msg.timestamp > 0) {
 			const dayIdx = Math.floor((msg.timestamp - todayMs) / DAY_MS);
@@ -704,6 +712,7 @@ function addMessagesToUsageData(
 				msg.cacheRead < Math.min(MISS_MAX_CACHE_READ, 0.3 * mm.prevCtx)
 			) {
 				if (mm.gapMs > TTL_GAP_MS) raw.ttlMissCost += msg.cost;
+				else if (mm.gapMs >= 0 && mm.modelSwitched) raw.modelSwitchMissCost += msg.cost;
 				else if (mm.gapMs >= 0) raw.prefixMissCost += msg.cost;
 			}
 			raw.reasoningTokens += msg.reasoning;
@@ -943,6 +952,7 @@ export async function collectUsageData(options: CollectUsageOptions = {}): Promi
 			meta.push({
 				gapMs: prev && prev.timestamp > 0 && m.timestamp > 0 ? m.timestamp - prev.timestamp : -1,
 				prevCtx: prev ? prev.input + prev.cacheRead + prev.cacheWrite : 0,
+				modelSwitched: prev !== null && (prev.provider !== m.provider || prev.model !== m.model),
 				isSessionStart: false,
 			});
 		}
@@ -1002,6 +1012,9 @@ const TREND_LOW_RATIO = 0.6;
 const TTL_GAP_MS = 5 * 60_000;
 const MISS_MIN_PREV_CONTEXT = 20_000;
 const MISS_MAX_CACHE_READ = 5_000;
+/** pi's built-in test providers never send anything to a real API. */
+const EXCLUDED_PROVIDERS = new Set(["faux-provider", "fake-provider"]);
+
 const CACHE_MISS_ALARM_PERCENT = 2;
 const CACHE_MISS_ALARM_MIN_COST = 1;
 // Concentration / upfront alarms
@@ -1045,9 +1058,20 @@ function computeInsights(raw: PeriodRawData, trend: TrendInfo | null): PeriodIns
 		insights.push({
 			kind: "alarm",
 			stat: fmtMoney(raw.ttlMissCost),
-			headline: `spent re-sending conversations after a break (${fmtPercent(ttlPct)} of this period)`,
+			headline: `spent resuming conversations after a break (${fmtPercent(ttlPct)} of this period)`,
 			advice:
 				"Sent context is only reusable for a few minutes. After a longer pause, the next message pays to send the whole conversation again. Replying while a session is fresh avoids this.",
+		});
+	}
+
+	const switchPct = (raw.modelSwitchMissCost / total) * 100;
+	if (switchPct >= CACHE_MISS_ALARM_PERCENT && raw.modelSwitchMissCost >= CACHE_MISS_ALARM_MIN_COST) {
+		insights.push({
+			kind: "alarm",
+			stat: fmtMoney(raw.modelSwitchMissCost),
+			headline: `spent switching models mid-conversation (${fmtPercent(switchPct)} of this period)`,
+			advice:
+				"Changing model re-sends the whole conversation at full price — the previous model's saved context doesn't transfer. Switching between tasks instead of mid-conversation avoids this.",
 		});
 	}
 
@@ -1058,7 +1082,7 @@ function computeInsights(raw: PeriodRawData, trend: TrendInfo | null): PeriodIns
 			stat: fmtMoney(raw.prefixMissCost),
 			headline: `spent re-sending conversations mid-session (${fmtPercent(prefixPct)} of this period)`,
 			advice:
-				"These messages paid full price for context that had already been sent, without a pause to explain it. Usually a tool or workflow is restarting or rewriting conversations. Worth a look if it stays high.",
+				"These messages paid full price for context that had already been sent — with no break, compaction, or model switch to explain it. Usually a tool or workflow is restarting or rewriting conversations. Worth a look if it stays high.",
 		});
 	}
 
