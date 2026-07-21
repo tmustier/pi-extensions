@@ -77,6 +77,7 @@ interface LoopState {
 	startedAt: string;
 	completedAt?: string;
 	lastReflectionAt: number; // Last iteration we reflected at
+	ownerSessionId?: string; // Session that currently owns automatic prompt injection for this loop
 }
 
 const STATUS_ICONS: Record<LoopStatus, string> = { active: "▶", paused: "⏸", completed: "✓" };
@@ -89,6 +90,7 @@ export default function (pi: ExtensionAPI) {
 	const ralphDir = (ctx: ExtensionContext) => path.resolve(ctx.cwd, RALPH_DIR);
 	const archiveDir = (ctx: ExtensionContext) => path.join(ralphDir(ctx), "archive");
 	const sanitize = (name: string) => name.replace(/[^a-zA-Z0-9_-]/g, "_").replace(/_+/g, "_");
+	const sessionId = (ctx: ExtensionContext) => ctx.sessionManager?.getSessionId?.();
 
 	function getPath(ctx: ExtensionContext, name: string, ext: string, archived = false): string {
 		const dir = archived ? archiveDir(ctx) : ralphDir(ctx);
@@ -175,6 +177,25 @@ export default function (pi: ExtensionAPI) {
 			.filter((s): s is LoopState => s !== null);
 	}
 
+	function isOwnedByCurrentSession(ctx: ExtensionContext, state: LoopState): boolean {
+		const currentSessionId = sessionId(ctx);
+		return Boolean(currentSessionId && state.ownerSessionId === currentSessionId);
+	}
+
+	function getCurrentOwnedState(ctx: ExtensionContext): LoopState | null {
+		if (!currentLoop) return null;
+		const state = loadState(ctx, currentLoop);
+		if (!state || !isOwnedByCurrentSession(ctx, state)) {
+			currentLoop = null;
+			return null;
+		}
+		return state;
+	}
+
+	function findActiveOwnedState(ctx: ExtensionContext): LoopState | undefined {
+		return listLoops(ctx).find((state) => state.status === "active" && isOwnedByCurrentSession(ctx, state));
+	}
+
 	// --- Loop state transitions ---
 
 	function pauseLoop(ctx: ExtensionContext, state: LoopState, message?: string): void {
@@ -217,7 +238,7 @@ export default function (pi: ExtensionAPI) {
 	function updateUI(ctx: ExtensionContext): void {
 		if (!ctx.hasUI) return;
 
-		const state = currentLoop ? loadState(ctx, currentLoop) : null;
+		const state = getCurrentOwnedState(ctx);
 		if (!state) {
 			ctx.ui.setStatus("ralph", undefined);
 			ctx.ui.setWidget("ralph", undefined);
@@ -349,6 +370,7 @@ export default function (pi: ExtensionAPI) {
 				status: "active",
 				startedAt: existing?.startedAt || new Date().toISOString(),
 				lastReflectionAt: 0,
+				ownerSessionId: sessionId(ctx),
 			};
 
 			saveState(ctx, state);
@@ -364,20 +386,13 @@ export default function (pi: ExtensionAPI) {
 		},
 
 		stop(_rest, ctx) {
-			if (!currentLoop) {
-				// Check persisted state for any active loop
-				const active = listLoops(ctx).find((l) => l.status === "active");
-				if (active) {
-					pauseLoop(ctx, active, `Paused Ralph loop: ${active.name} (iteration ${active.iteration})`);
-				} else {
-					ctx.ui.notify("No active Ralph loop", "warning");
-				}
+			const state = getCurrentOwnedState(ctx) ?? findActiveOwnedState(ctx);
+			if (!state) {
+				ctx.ui.notify("No active Ralph loop owned by this session", "warning");
+				updateUI(ctx);
 				return;
 			}
-			const state = loadState(ctx, currentLoop);
-			if (state) {
-				pauseLoop(ctx, state, `Paused Ralph loop: ${currentLoop} (iteration ${state.iteration})`);
-			}
+			pauseLoop(ctx, state, `Paused Ralph loop: ${state.name} (iteration ${state.iteration})`);
 		},
 
 		resume(rest, ctx) {
@@ -397,14 +412,16 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
-			// Pause current loop if different
+			// Pause this session's current loop if different. A loop transferred to
+			// another session must not be mutated from the stale former owner.
 			if (currentLoop && currentLoop !== loopName) {
-				const curr = loadState(ctx, currentLoop);
+				const curr = getCurrentOwnedState(ctx);
 				if (curr) pauseLoop(ctx, curr);
 			}
 
 			state.status = "active";
 			state.active = true;
+			state.ownerSessionId = sessionId(ctx);
 			state.iteration++;
 			saveState(ctx, state);
 			currentLoop = loopName;
@@ -604,18 +621,10 @@ Examples:
 				return;
 			}
 
-			let state = currentLoop ? loadState(ctx, currentLoop) : null;
+			const state = getCurrentOwnedState(ctx) ?? findActiveOwnedState(ctx);
 			if (!state) {
-				const active = listLoops(ctx).find((l) => l.status === "active");
-				if (!active) {
-					if (ctx.hasUI) ctx.ui.notify("No active Ralph loop", "warning");
-					return;
-				}
-				state = active;
-			}
-
-			if (state.status !== "active") {
-				if (ctx.hasUI) ctx.ui.notify(`Loop "${state.name}" is not active`, "warning");
+				if (ctx.hasUI) ctx.ui.notify("No active Ralph loop owned by this session", "warning");
+				updateUI(ctx);
 				return;
 			}
 
@@ -665,6 +674,7 @@ Examples:
 				status: "active",
 				startedAt: new Date().toISOString(),
 				lastReflectionAt: 0,
+				ownerSessionId: sessionId(ctx),
 			};
 
 			saveState(ctx, state);
@@ -692,13 +702,10 @@ Examples:
 		],
 		parameters: Type.Object({}),
 		async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
-			if (!currentLoop) {
-				return { content: [{ type: "text", text: "No active Ralph loop." }], details: {} };
-			}
-
-			const state = loadState(ctx, currentLoop);
+			const state = getCurrentOwnedState(ctx);
 			if (!state || state.status !== "active") {
-				return { content: [{ type: "text", text: "Ralph loop is not active." }], details: {} };
+				updateUI(ctx);
+				return { content: [{ type: "text", text: "No active Ralph loop owned by this session." }], details: {} };
 			}
 
 			if (ctx.hasPendingMessages()) {
@@ -748,9 +755,11 @@ Examples:
 	// --- Event handlers ---
 
 	pi.on("before_agent_start", async (event, ctx) => {
-		if (!currentLoop) return;
-		const state = loadState(ctx, currentLoop);
-		if (!state || state.status !== "active") return;
+		const state = getCurrentOwnedState(ctx);
+		if (!state || state.status !== "active") {
+			updateUI(ctx);
+			return;
+		}
 
 		const iterStr = `${state.iteration}${state.maxIterations > 0 ? `/${state.maxIterations}` : ""}`;
 
@@ -771,9 +780,11 @@ Examples:
 	});
 
 	pi.on("agent_end", async (event, ctx) => {
-		if (!currentLoop) return;
-		const state = loadState(ctx, currentLoop);
-		if (!state || state.status !== "active") return;
+		const state = getCurrentOwnedState(ctx);
+		if (!state || state.status !== "active") {
+			updateUI(ctx);
+			return;
+		}
 
 		// Check for completion marker
 		const lastAssistant = [...event.messages].reverse().find((m) => m.role === "assistant");
@@ -814,14 +825,13 @@ Examples:
 
 	pi.on("session_start", async (_event, ctx) => {
 		const active = listLoops(ctx).filter((l) => l.status === "active");
+		const owned = active.filter((state) => isOwnedByCurrentSession(ctx, state));
 
-		// Rehydrate currentLoop from disk. The module is re-initialized on
-		// session reload (including auto-compaction and /compact), which would
-		// otherwise leave `currentLoop` null and silently break ralph_done,
-		// agent_end, and before_agent_start. Pick the most-recently-updated
-		// active loop when there are multiple, using the state file mtime.
-		if (!currentLoop && active.length > 0) {
-			const mostRecent = active.reduce((best, candidate) => {
+		// Rehydrate only loops that are owned by this Pi session. Older state
+		// files do not have ownerSessionId, so a new unrelated session must use
+		// /ralph resume <name> before Ralph injects loop instructions.
+		if (!currentLoop && owned.length > 0) {
+			const mostRecent = owned.reduce((best, candidate) => {
 				const bestMtime = safeMtimeMs(getPath(ctx, best.name, ".state.json"));
 				const candidateMtime = safeMtimeMs(getPath(ctx, candidate.name, ".state.json"));
 				return candidateMtime > bestMtime ? candidate : best;
@@ -839,9 +849,7 @@ Examples:
 	});
 
 	pi.on("session_shutdown", async (_event, ctx) => {
-		if (currentLoop) {
-			const state = loadState(ctx, currentLoop);
-			if (state) saveState(ctx, state);
-		}
+		const state = getCurrentOwnedState(ctx);
+		if (state) saveState(ctx, state);
 	});
 }

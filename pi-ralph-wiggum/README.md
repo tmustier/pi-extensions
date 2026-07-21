@@ -51,6 +51,12 @@ You ask Pi to set up a ralph-wiggum loop.
   - You hit `esc` (pausing the loop)
 If you hit `esc`, you can run `/ralph-stop` to clear the loop. Alternatively, just tell Pi to continue to keep going.
 
+## Iterations, sessions and context windows
+
+An iteration is a new agent turn in the same Pi session, not a fresh context window. `ralph_done` queues the next prompt and the task file carries durable progress, while Pi's normal compaction can summarise older conversation when the context grows. This extension deliberately uses that flat, in-session design; it does not launch a new Pi process or session for each iteration.
+
+Each active loop is owned by the Pi session that started or explicitly resumed it. Reloading or compacting that same session restores its loop automatically. A different session in the same working directory can see that active loops exist, but it does not receive Ralph prompt injection unless the user explicitly runs `/ralph resume <name>`, which transfers ownership.
+
 ## Completion gate
 
 For build/test/refactor tasks, Ralph prompts the agent not to complete based only on checked checklist items. Before sending `<promise>COMPLETE</promise>`, the agent should:

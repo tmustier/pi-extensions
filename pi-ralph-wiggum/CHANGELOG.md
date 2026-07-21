@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- Bind active Ralph loops to their owning Pi session. Reloads and compaction restore only that session's loop; unrelated sessions sharing the same working directory no longer receive Ralph prompt injection or mutate the loop. `/ralph resume <name>` explicitly transfers ownership.
+
+Thanks to @juicetin for the detailed report, regression test, and implementation ([#50](https://github.com/tmustier/pi-extensions/issues/50), [#52](https://github.com/tmustier/pi-extensions/pull/52)).
+
+### Documentation
+- Clarify that Ralph iterations are turns within one Pi session and context window, with normal Pi compaction, rather than fresh sessions per iteration.
+
+Thanks to @rhossack and @RichardScottOZ for prompting the clarification ([#46](https://github.com/tmustier/pi-extensions/issues/46)).
+
 ## [0.2.2] - 2026-07-04
 
 ### Changed
