@@ -28,9 +28,10 @@
  * the user has lost is the task thread.
  *
  * Model: defaults to the user's currently active model with reasoning/thinking
- * disabled and cache writes disabled. This piggybacks on whatever auth the user
- * already has configured (including custom providers) so there are no login
- * surprises. Override explicitly with `--recap-model "<provider>/<id>"`.
+ * disabled and cache writes disabled. This piggybacks on the user's configured
+ * auth. Custom providers using a built-in pi-ai API work normally; providers
+ * with a custom API handler are skipped silently. Override explicitly with
+ * `--recap-model "<provider>/<id>"`.
  *
  * Flags:
  *   --recap-away-seconds <n>   Continuous blur before an away recap (default 90)
@@ -307,32 +308,44 @@ async function generateRecap(
 		transcript.slice(0, TRANSCRIPT_CHAR_CAP) +
 		"\n</transcript>";
 
-	const response = await completeSimple(
-		model,
-		{
-			// Some providers (notably openai-codex-responses) require a non-empty
-			// top-level instruction string even for simple one-shot completions.
-			systemPrompt: "You write terse, concrete session recaps for a coding agent UI.",
-			messages: [
-				{
-					role: "user",
-					content: [{ type: "text", text: prompt }],
-					timestamp: Date.now(),
-				},
-			],
-		},
-		{
-			apiKey: auth.apiKey,
-			headers: auth.headers,
-			env: auth.env,
-			signal,
-			// Recaps are tiny, throwaway UI hints. Do not pay to create/read prompt
-			// cache entries, and do not spend reasoning tokens. Claude Code's away
-			// summary path likewise disables thinking for this job.
-			cacheRetention: "none",
-			maxTokens: 256,
-		},
-	);
+	let response;
+	try {
+		response = await completeSimple(
+			model,
+			{
+				// Some providers (notably openai-codex-responses) require a non-empty
+				// top-level instruction string even for simple one-shot completions.
+				systemPrompt: "You write terse, concrete session recaps for a coding agent UI.",
+				messages: [
+					{
+						role: "user",
+						content: [{ type: "text", text: prompt }],
+						timestamp: Date.now(),
+					},
+				],
+			},
+			{
+				apiKey: auth.apiKey,
+				headers: auth.headers,
+				env: auth.env,
+				signal,
+				// Recaps are tiny, throwaway UI hints. Do not pay to create/read prompt
+				// cache entries, and do not spend reasoning tokens. Claude Code's away
+				// summary path likewise disables thinking for this job.
+				cacheRetention: "none",
+				maxTokens: 256,
+			},
+		);
+	} catch (err) {
+		// Custom providers registered only with pi (e.g. via a bridge extension)
+		// are unknown to pi-ai's compat provider registry, so completeSimple
+		// cannot route the call. Skip the recap silently, matching the documented
+		// "failed auth resolution → skipped silently" behavior.
+		if (err instanceof Error && err.message.startsWith("No API provider registered for api:")) {
+			return undefined;
+		}
+		throw err;
+	}
 
 	const text = response.content
 		.filter((c): c is { type: "text"; text: string } => c.type === "text")
