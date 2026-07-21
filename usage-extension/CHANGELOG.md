@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.9.2] - 2026-07-21
+
+### Fixed
+- Include usage persisted by Pi 0.81.0 on tool results, compactions, and branch summaries. Auxiliary cost and token fields now participate in `/usage` accounting under the same synthetic `Tools / summaries` bucket as Pi's footer and `/session`, while `Msgs` remains an assistant-message count.
+- Keep auxiliary usage out of conversation context/cache-miss classification, attribute it separately in Insights, and deduplicate copied auxiliary entries by stable session entry id.
+
+### Internal
+- Cache format bumped to **v4**. The first `/usage` open after upgrading performs a one-off rebuild so previously ignored auxiliary entries are ingested.
+
 ## [0.9.1] - 2026-07-17
 
 ### Changed

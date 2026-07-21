@@ -673,7 +673,11 @@ class UsageComponent {
 		const th = this.theme;
 		const stats = this.data[this.activeTab];
 		const { insights } = stats.insights;
-		const hasMessages = stats.totals.messages > 0;
+		const hasUsage =
+			stats.totals.messages > 0 ||
+			stats.totals.cost > 0 ||
+			stats.totals.tokens.total > 0 ||
+			stats.totals.tokens.cacheRead > 0;
 		const hasCost = stats.totals.cost > 0;
 		const lines: string[] = [];
 
@@ -687,7 +691,7 @@ class UsageComponent {
 		}
 		lines.push("");
 
-		if (!hasMessages) {
+		if (!hasUsage) {
 			lines.push(th.fg("dim", "  No usage recorded for this period."));
 			lines.push("");
 			return lines;

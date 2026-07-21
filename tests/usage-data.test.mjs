@@ -29,6 +29,10 @@ function sessionLine(id, ts, cwd = "/tmp") {
 	return JSON.stringify({ type: "session", version: 3, id, timestamp: new Date(ts).toISOString(), cwd });
 }
 
+function usage({ cost = 1, input = 100, output = 50, cacheRead = 0, cacheWrite = 0, reasoning = 0 } = {}) {
+	return { input, output, cacheRead, cacheWrite, reasoning, cost: { total: cost } };
+}
+
 function assistantLine({ ts, provider = "anthropic", model = "claude-fable-5", cost = 1, input = 100, output = 50, cacheRead = 0, cacheWrite = 0, reasoning = 0 }) {
 	return JSON.stringify({
 		type: "message",
@@ -40,9 +44,52 @@ function assistantLine({ ts, provider = "anthropic", model = "claude-fable-5", c
 			content: [{ type: "text", text: "hi" }],
 			provider,
 			model,
-			usage: { input, output, cacheRead, cacheWrite, reasoning, cost: { total: cost } },
+			usage: usage({ cost, input, output, cacheRead, cacheWrite, reasoning }),
 			timestamp: ts,
 		},
+	});
+}
+
+function toolResultLine({ id = "tool1", ts, ...usageValues }) {
+	return JSON.stringify({
+		type: "message",
+		id,
+		parentId: null,
+		timestamp: new Date(ts).toISOString(),
+		message: {
+			role: "toolResult",
+			toolCallId: `call-${id}`,
+			toolName: "nested_llm",
+			content: [{ type: "text", text: "done" }],
+			usage: usage(usageValues),
+			isError: false,
+			timestamp: ts,
+		},
+	});
+}
+
+function compactionLine({ id = "compact1", ts, ...usageValues }) {
+	return JSON.stringify({
+		type: "compaction",
+		id,
+		parentId: null,
+		timestamp: new Date(ts).toISOString(),
+		summary: "summary",
+		firstKeptEntryId: "kept",
+		tokensBefore: 1000,
+		usage: usage(usageValues),
+	});
+}
+
+function branchSummaryLine({ id = "branch1", ts, ...usageValues }) {
+	return JSON.stringify({
+		type: "branch_summary",
+		id,
+		parentId: null,
+		timestamp: new Date(ts).toISOString(),
+		fromId: "old-leaf",
+		summary: "branch summary",
+		usage: usage(usageValues),
 	});
 }
 
@@ -81,6 +128,8 @@ test("parseSessionBuffer extracts session id and assistant messages from compact
 		provider: "anthropic",
 		model: "claude-fable-5",
 		thinkingLevel: "",
+		source: "assistant",
+		sourceId: "",
 		cost: 2.5,
 		input: 10,
 		output: 20,
@@ -91,6 +140,32 @@ test("parseSessionBuffer extracts session id and assistant messages from compact
 		afterCompaction: false,
 	});
 	assert.equal(parsed.cwd, "/tmp");
+});
+
+test("parseSessionBuffer extracts Pi 0.81 tool and summary usage without consuming compaction state", async () => {
+	const content = [
+		sessionLine("s1", TS_TODAY),
+		assistantLine({ ts: TS_TODAY, cost: 1 }),
+		toolResultLine({ id: "tool-usage", ts: TS_TODAY + 1000, cost: 2, input: 20, output: 2, cacheRead: 3, cacheWrite: 4, reasoning: 1 }),
+		compactionLine({ id: "compact-usage", ts: TS_TODAY + 2000, cost: 3, input: 30, output: 3 }),
+		// Python-style spacing exercises the branch-summary pre-filter variant.
+		`{"type": "branch_summary", "id": "branch-usage", "timestamp": "${new Date(TS_TODAY + 3000).toISOString()}", "fromId": "old", "summary": "branch", "usage": ${JSON.stringify(usage({ cost: 4, input: 40, output: 4 }))}}`,
+		assistantLine({ ts: TS_TODAY + 4000, cost: 5 }),
+	].join("\n");
+
+	const parsed = await parseSessionBuffer(Buffer.from(content, "utf8"));
+	assert.equal(parsed.messages.length, 5);
+	assert.deepEqual(parsed.messages.map((m) => m.source), ["assistant", "auxiliary", "auxiliary", "auxiliary", "assistant"]);
+	assert.deepEqual(parsed.messages.map((m) => m.cost), [1, 2, 3, 4, 5]);
+	assert.deepEqual(parsed.messages.slice(1, 4).map((m) => [m.provider, m.model, m.thinkingLevel]), [
+		["Tools", "summaries", "Tools/summaries"],
+		["Tools", "summaries", "Tools/summaries"],
+		["Tools", "summaries", "Tools/summaries"],
+	]);
+	assert.deepEqual(parsed.messages.slice(1, 4).map((m) => m.sourceId), ["tool-usage", "compact-usage", "branch-usage"]);
+	assert.equal(parsed.messages[1].reasoning, 1);
+	assert.equal(parsed.messages[1].timestamp, TS_TODAY + 1000);
+	assert.equal(parsed.messages[4].afterCompaction, true, "auxiliary entries must not clear the pending compaction marker");
 });
 
 test("parseSessionBuffer flags the first assistant message after a compaction entry", async () => {
@@ -169,6 +244,9 @@ test("parseSessionBuffer ignores pre-filter false positives and messages without
 		userLine(TS_TODAY, 'observed "role":"assistant" and "type":"session" in a log'),
 		// Assistant message without usage data — excluded.
 		'{"type":"message","id":"n","message":{"role":"assistant","provider":"p","model":"m","content":[]}}',
+		// Tool result without usage, and an explicitly empty Usage object — excluded.
+		'{"type":"message","id":"t0","message":{"role":"toolResult","toolName":"x","content":[]}}',
+		'{"type":"message","id":"t1","message":{"role":"toolResult","toolName":"x","content":[],"usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"cost":{"total":0}}}}',
 	].join("\n");
 
 	const parsed = await parseSessionBuffer(Buffer.from(content, "utf8"));
@@ -261,6 +339,63 @@ test("collectUsageData aggregates periods, providers, and dedupes branched histo
 	assert.equal(anthropic.models.get("claude-fable-5").messages, 2);
 	assert.equal(openai.messages, 1);
 	assert.equal(openai.cost, 4);
+});
+
+test("collectUsageData includes tool and summary usage without inflating assistant message counts", async (t) => {
+	const { sessionsDir, cachePath } = fixture(t);
+	writeFileSync(
+		join(sessionsDir, "auxiliary.jsonl"),
+		[
+			sessionLine("s1", TS_TODAY, "/projects/auxiliary"),
+			assistantLine({ ts: TS_TODAY, cost: 1, input: 10, output: 1, reasoning: 1 }),
+			toolResultLine({ id: "tool-a", ts: TS_TODAY + 1000, cost: 2, input: 20, output: 2, cacheRead: 3, cacheWrite: 4, reasoning: 2 }),
+			compactionLine({ id: "compact-a", ts: TS_TODAY + 2000, cost: 3, input: 30, output: 3 }),
+			branchSummaryLine({ id: "branch-a", ts: TS_TODAY + 3000, cost: 4, input: 40, output: 4 }),
+		].join("\n") + "\n"
+	);
+
+	const data = await collectUsageData({ sessionsDir, cachePath, now: NOW });
+	assert.ok(data);
+	assert.equal(data.today.totals.cost, 10);
+	assert.equal(data.today.totals.messages, 1, "Msgs remains an assistant-message count");
+	assert.equal(data.today.totals.sessions, 1);
+	assert.equal(data.today.totals.tokens.total, 11 + 26 + 33 + 44);
+	assert.equal(data.today.totals.tokens.cacheRead, 3);
+
+	const auxiliary = data.today.providers.get("Tools");
+	assert.ok(auxiliary);
+	assert.equal(auxiliary.cost, 9);
+	assert.equal(auxiliary.messages, 0);
+	assert.equal(auxiliary.sessions.size, 1);
+	assert.equal(auxiliary.models.get("summaries").cost, 9);
+	assert.equal(auxiliary.models.get("summaries").messages, 0);
+
+	const hourMs = 3_600_000;
+	const bucket = data.hourly.get(Math.floor(TS_TODAY / hourMs) * hourMs);
+	const auxiliaryCell = bucket.get("Tools\u0000summaries\u0000Tools/summaries");
+	assert.equal(auxiliaryCell.cost, 9);
+	assert.equal(auxiliaryCell.messages, 0);
+	assert.equal(auxiliaryCell.reasoning, 2);
+
+	const overhead = findInsight(data, "today", /usage reported by tools and conversation summaries/);
+	assert.ok(overhead);
+	assert.equal(overhead.kind, "structure");
+	assert.equal(overhead.stat, "90%");
+});
+
+test("collectUsageData dedupes copied auxiliary entries by id without collapsing parallel peers", async (t) => {
+	const { sessionsDir, cachePath } = fixture(t);
+	const copied = toolResultLine({ id: "copied-tool", ts: TS_TODAY, cost: 2, input: 20, output: 2 });
+	const parallel = toolResultLine({ id: "parallel-tool", ts: TS_TODAY, cost: 2, input: 20, output: 2 });
+	writeFileSync(join(sessionsDir, "a.jsonl"), [sessionLine("s1", TS_TODAY), copied].join("\n") + "\n");
+	writeFileSync(join(sessionsDir, "b.jsonl"), [sessionLine("s2", TS_TODAY), copied, parallel].join("\n") + "\n");
+
+	const data = await collectUsageData({ sessionsDir, cachePath, now: NOW });
+	assert.equal(data.today.totals.cost, 4, "one copied entry plus one distinct parallel entry");
+	assert.equal(data.today.totals.messages, 0);
+	assert.equal(data.today.totals.sessions, 2);
+	assert.equal(data.today.providers.get("Tools").models.get("summaries").cost, 4);
+	assert.equal(findInsight(data, "today", /usage reported by tools and conversation summaries/).stat, "100%");
 });
 
 test("collectUsageData buckets the rolling 30-day window from midnight 29 days back", async (t) => {
@@ -382,7 +517,7 @@ test("collectUsageData survives a corrupt cache file", async (t) => {
 
 	// Cache was rebuilt.
 	const cacheJson = JSON.parse(readFileSync(cachePath, "utf8"));
-	assert.equal(cacheJson.version, 3);
+	assert.equal(cacheJson.version, 4);
 });
 
 test("collectUsageData works with the cache disabled", async (t) => {
@@ -413,8 +548,8 @@ test("saveUsageCache/loadUsageCache round-trips file states", async (t) => {
 					sessionId: "s1",
 					cwd: "/home/u/projects/x",
 					messages: [
-						{ provider: "anthropic", model: "claude-fable-5", thinkingLevel: "xhigh", cost: 1.5, input: 10, output: 20, cacheRead: 30, cacheWrite: 40, reasoning: 7, timestamp: TS_TODAY, afterCompaction: true },
-						{ provider: "openai", model: "gpt-5.6-sol", thinkingLevel: "", cost: 0.25, input: 1, output: 2, cacheRead: 3, cacheWrite: 4, reasoning: 0, timestamp: TS_OLD, afterCompaction: false },
+						{ provider: "anthropic", model: "claude-fable-5", thinkingLevel: "xhigh", source: "assistant", sourceId: "", cost: 1.5, input: 10, output: 20, cacheRead: 30, cacheWrite: 40, reasoning: 7, timestamp: TS_TODAY, afterCompaction: true },
+						{ provider: "Tools", model: "summaries", thinkingLevel: "Tools/summaries", source: "auxiliary", sourceId: "summary-a", cost: 0.25, input: 1, output: 2, cacheRead: 3, cacheWrite: 4, reasoning: 0, timestamp: TS_OLD, afterCompaction: false },
 					],
 				},
 			},
@@ -464,17 +599,30 @@ test("loadUsageCache rejects wrong versions and malformed entries", async (t) =>
 	);
 	assert.equal((await loadUsageCache(cachePath)).size, 0);
 
+	// v3 caches predate tool/summary usage and must be rebuilt too.
 	writeFileSync(
 		cachePath,
 		JSON.stringify({
 			version: 3,
 			names: ["p", "m", "high"],
+			files: { "/v3.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [[0, 1, 1, 1, 1, 0, 0, TS_TODAY, 2, 5, 1]] } },
+		})
+	);
+	assert.equal((await loadUsageCache(cachePath)).size, 0);
+
+	writeFileSync(
+		cachePath,
+		JSON.stringify({
+			version: 4,
+			names: ["p", "m", "high", "entry-a"],
 			files: {
-				"/ok.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [[0, 1, 1, 1, 1, 0, 0, TS_TODAY, 2, 5, 1]] },
+				"/ok.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [[0, 1, 1, 1, 1, 0, 0, TS_TODAY, 2, 5, 1, 1, 3]] },
 				"/bad-tuple.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [[0, 1, 1]] },
-				"/bad-name-idx.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [[7, 1, 1, 1, 1, 0, 0, TS_TODAY, 2, 0, 0]] },
-				"/bad-level-idx.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [[0, 1, 1, 1, 1, 0, 0, TS_TODAY, 9, 0, 0]] },
-				"/no-cwd.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", messages: [[0, 1, 1, 1, 1, 0, 0, TS_TODAY, 2, 0, 0]] },
+				"/bad-name-idx.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [[7, 1, 1, 1, 1, 0, 0, TS_TODAY, 2, 0, 0, 0, 3]] },
+				"/bad-level-idx.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [[0, 1, 1, 1, 1, 0, 0, TS_TODAY, 9, 0, 0, 0, 3]] },
+				"/bad-source.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [[0, 1, 1, 1, 1, 0, 0, TS_TODAY, 2, 0, 0, 7, 3]] },
+				"/bad-source-id.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [[0, 1, 1, 1, 1, 0, 0, TS_TODAY, 2, 0, 0, 0, 9]] },
+				"/no-cwd.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", messages: [[0, 1, 1, 1, 1, 0, 0, TS_TODAY, 2, 0, 0, 0, 3]] },
 				"/bad-shape.jsonl": { size: "x", mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [] },
 			},
 		})
@@ -484,6 +632,8 @@ test("loadUsageCache rejects wrong versions and malformed entries", async (t) =>
 	assert.equal(loaded.get("/ok.jsonl").parsed.messages[0].thinkingLevel, "high");
 	assert.equal(loaded.get("/ok.jsonl").parsed.messages[0].reasoning, 5);
 	assert.equal(loaded.get("/ok.jsonl").parsed.messages[0].afterCompaction, true);
+	assert.equal(loaded.get("/ok.jsonl").parsed.messages[0].source, "auxiliary");
+	assert.equal(loaded.get("/ok.jsonl").parsed.messages[0].sourceId, "entry-a");
 	assert.equal(loaded.get("/ok.jsonl").parsed.cwd, "/w");
 });
 
@@ -502,6 +652,9 @@ test("insights classify resume vs model-switch vs prefix misses and exclude comp
 			sessionLine("s1", TS_TODAY),
 			// Establishes a large previous context.
 			assistantLine({ ts: TS_TODAY, cost: 1, input: 1000, cacheRead: 100000 }),
+			// Interleaved auxiliary usage must not replace the previous assistant or
+			// dilute the percentages for assistant-turn/cache insights.
+			toolResultLine({ id: "nested-between-turns", ts: TS_TODAY + 1000, cost: 100, input: 1, output: 1 }),
 			// >5min idle, cacheRead ~0 → resume-after-break (TTL) miss.
 			assistantLine({ ts: TS_TODAY + SIX_MIN, cost: 10, input: 100000, cacheRead: 0 }),
 			// Short gap, cacheRead ~0 → true prefix-change miss.
@@ -519,12 +672,15 @@ test("insights classify resume vs model-switch vs prefix misses and exclude comp
 	assert.ok(ttl, "resume alarm fires");
 	assert.equal(ttl.kind, "alarm");
 	assert.equal(ttl.stat, "$10.00");
+	assert.match(ttl.headline, /12% of assistant-message cost/);
 	const prefix = findInsight(data, "today", /re-sending conversations mid-session/);
 	assert.ok(prefix, "prefix alarm fires");
 	assert.equal(prefix.stat, "$5.00", "compaction- and switch-adjacent misses are excluded from prefix cost");
+	assert.match(prefix.headline, /6\.0% of assistant-message cost/);
 	const sw = findInsight(data, "today", /switching models mid-conversation/);
 	assert.ok(sw, "model-switch alarm fires");
 	assert.equal(sw.stat, "$60.00");
+	assert.match(sw.headline, /72% of assistant-message cost/);
 });
 
 test("pi test providers are excluded from all stats", async (t) => {
@@ -578,6 +734,9 @@ test("insights include context tax, project mix, and reasoning share", async (t)
 			sessionLine("sa", TS_TODAY, alpha),
 			assistantLine({ ts: TS_TODAY, cost: 6, input: 200000, output: 50 }),
 			assistantLine({ ts: TS_TODAY + 1000, cost: 6, input: 200000, output: 50 }),
+			// A large auxiliary call contributes to project/total cost but not the
+			// assistant-message denominator of the context insight.
+			toolResultLine({ id: "alpha-tool", ts: TS_TODAY + 1500, cost: 16, input: 10, output: 1 }),
 		].join("\n") + "\n"
 	);
 	writeFileSync(
@@ -593,12 +752,13 @@ test("insights include context tax, project mix, and reasoning share", async (t)
 	const ctx = findInsight(data, "today", /≥150k tokens loaded/);
 	assert.ok(ctx, "context tax shows");
 	assert.equal(ctx.kind, "structure");
-	assert.equal(ctx.stat, "75%"); // 12 of 16
+	assert.equal(ctx.stat, "75%"); // 12 of 16 assistant-message dollars
+	assert.match(ctx.headline, /assistant-message cost/);
 	assert.match(ctx.headline, /\$6\.00\/msg vs \$2\.00 under 100k/);
 	const proj = findInsight(data, "today", /~\/projects\/alpha/);
 	assert.ok(proj, "project mix shows");
-	assert.equal(proj.stat, "75%");
-	assert.match(proj.headline, /~\/projects\/beta 25%/, "worktree collapses to its repository");
+	assert.equal(proj.stat, "88%");
+	assert.match(proj.headline, /~\/projects\/beta 13%/, "auxiliary cost is included and the worktree collapses");
 	const reas = findInsight(data, "today", /hidden reasoning/);
 	assert.ok(reas, "reasoning share shows");
 	assert.equal(reas.stat, "33%"); // 100 of 300 output tokens

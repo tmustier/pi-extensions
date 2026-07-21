@@ -66,8 +66,12 @@ interface CostCount {
 }
 
 interface PeriodRawData {
+	/** All recorded cost, including usage reported by tools and summaries. */
 	totalCost: number;
-	totalMessages: number;
+	/** Cost attached to assistant messages, used as the turn-insight denominator. */
+	assistantCost: number;
+	/** Usage reported by tool results, compactions, and branch summaries. */
+	auxiliaryCost: number;
 	/** Messages at ≥ CTX_TAX_THRESHOLD context. */
 	ctxHigh: CostCount;
 	/** Messages below CTX_LOW_THRESHOLD context (comparison group). */
@@ -164,11 +168,22 @@ export type TabName = "today" | "thisWeek" | "lastWeek" | "last30Days" | "allTim
 
 export const TAB_ORDER: TabName[] = ["today", "thisWeek", "lastWeek", "last30Days", "allTime"];
 
+export type UsageSource = "assistant" | "auxiliary";
+
+/** Pi's own label for usage that cannot be attributed to a provider/model. */
+export const AUXILIARY_PROVIDER = "Tools";
+export const AUXILIARY_MODEL = "summaries";
+export const AUXILIARY_THINKING_LEVEL = "Tools/summaries";
+
 export interface SessionMessage {
 	provider: string;
 	model: string;
 	/** Thinking level active when the message was produced; "" when unknown. */
 	thinkingLevel: string;
+	/** Assistant response, or usage reported by a tool/summary entry. */
+	source: UsageSource;
+	/** Session entry id used to dedupe copied auxiliary entries; empty for assistant messages. */
+	sourceId: string;
 	cost: number;
 	input: number;
 	output: number;
@@ -190,7 +205,7 @@ export interface ParsedSessionFile {
 	sessionId: string;
 	/** Working directory from the session header; "" when absent. */
 	cwd: string;
-	/** Extracted assistant messages, pre-dedupe. Dedupe happens at aggregation. */
+	/** Extracted assistant and auxiliary usage records, pre-dedupe. */
 	messages: SessionMessage[];
 }
 
@@ -252,30 +267,50 @@ const NEWLINE = 0x0a;
 // only cost a wasted JSON.parse — the parsed entry is still shape-checked.
 const PATTERN_ASSISTANT_COMPACT = Buffer.from('"role":"assistant"');
 const PATTERN_ASSISTANT_SPACED = Buffer.from('"role": "assistant"');
+const PATTERN_TOOL_RESULT_COMPACT = Buffer.from('"role":"toolResult"');
+const PATTERN_TOOL_RESULT_SPACED = Buffer.from('"role": "toolResult"');
+const PATTERN_USAGE_COMPACT = Buffer.from('"usage":{');
+const PATTERN_USAGE_SPACED = Buffer.from('"usage": {');
 const PATTERN_SESSION_COMPACT = Buffer.from('"type":"session"');
 const PATTERN_SESSION_SPACED = Buffer.from('"type": "session"');
 const PATTERN_THINKING_COMPACT = Buffer.from('"type":"thinking_level_change"');
 const PATTERN_THINKING_SPACED = Buffer.from('"type": "thinking_level_change"');
 const PATTERN_COMPACTION_COMPACT = Buffer.from('"type":"compaction"');
 const PATTERN_COMPACTION_SPACED = Buffer.from('"type": "compaction"');
+const PATTERN_BRANCH_SUMMARY_COMPACT = Buffer.from('"type":"branch_summary"');
+const PATTERN_BRANCH_SUMMARY_SPACED = Buffer.from('"type": "branch_summary"');
 
 const PARSE_YIELD_EVERY_LINES = 2000;
 
 function lineMightBeRelevant(line: Buffer): boolean {
+	// Entry type/role fields are at the front of Pi's JSONL objects. Restrict
+	// those checks to a small prefix so multi-megabyte tool output is not scanned
+	// repeatedly for every possible entry shape.
+	const head = line.length > 1024 ? line.subarray(0, 1024) : line;
+	if (head.includes(PATTERN_ASSISTANT_COMPACT) || head.includes(PATTERN_ASSISTANT_SPACED)) return true;
+
+	if (head.includes(PATTERN_TOOL_RESULT_COMPACT) || head.includes(PATTERN_TOOL_RESULT_SPACED)) {
+		// Pi serializes optional tool usage after content/details and immediately
+		// before the small isError/timestamp suffix. Checking the tail preserves
+		// the fast path for ordinary tool results, which dominate session bytes.
+		const tail = line.length > 4096 ? line.subarray(line.length - 4096) : line;
+		return tail.includes(PATTERN_USAGE_COMPACT) || tail.includes(PATTERN_USAGE_SPACED);
+	}
+
 	return (
-		line.includes(PATTERN_ASSISTANT_COMPACT) ||
-		line.includes(PATTERN_SESSION_COMPACT) ||
-		line.includes(PATTERN_THINKING_COMPACT) ||
-		line.includes(PATTERN_COMPACTION_COMPACT) ||
-		line.includes(PATTERN_ASSISTANT_SPACED) ||
-		line.includes(PATTERN_SESSION_SPACED) ||
-		line.includes(PATTERN_THINKING_SPACED) ||
-		line.includes(PATTERN_COMPACTION_SPACED)
+		head.includes(PATTERN_SESSION_COMPACT) ||
+		head.includes(PATTERN_THINKING_COMPACT) ||
+		head.includes(PATTERN_COMPACTION_COMPACT) ||
+		head.includes(PATTERN_BRANCH_SUMMARY_COMPACT) ||
+		head.includes(PATTERN_SESSION_SPACED) ||
+		head.includes(PATTERN_THINKING_SPACED) ||
+		head.includes(PATTERN_COMPACTION_SPACED) ||
+		head.includes(PATTERN_BRANCH_SUMMARY_SPACED)
 	);
 }
 
 /**
- * Extract the session id and assistant messages from a session JSONL buffer.
+ * Extract the session id plus assistant/tool/summary usage from a JSONL buffer.
  * Returns partial results when aborted — callers must check `signal.aborted`
  * before caching or using the result.
  */
@@ -289,6 +324,44 @@ export async function parseSessionBuffer(buffer: Buffer, signal?: AbortSignal): 
 	// to the level active when it was produced.
 	let thinkingLevel = "";
 	let compactionPending = false;
+
+	const appendAuxiliaryUsage = (usage: unknown, timestamp: unknown, sourceId: unknown): void => {
+		if (!usage || typeof usage !== "object") return;
+		const persisted = usage as Record<string, unknown>;
+		const finiteNumber = (value: unknown): number =>
+			typeof value === "number" && Number.isFinite(value) ? value : 0;
+		const costObject = persisted.cost;
+		const cost =
+			costObject && typeof costObject === "object"
+				? finiteNumber((costObject as Record<string, unknown>).total)
+				: 0;
+		const input = finiteNumber(persisted.input);
+		const output = finiteNumber(persisted.output);
+		const cacheRead = finiteNumber(persisted.cacheRead);
+		const cacheWrite = finiteNumber(persisted.cacheWrite);
+		const reasoning = finiteNumber(persisted.reasoning);
+		// Match Pi's own breakdown: omit auxiliary buckets with neither billed
+		// cost nor token usage, even if a tool persisted an empty Usage object.
+		if (cost === 0 && input === 0 && output === 0 && cacheRead === 0 && cacheWrite === 0) return;
+
+		const parsedTimestamp = typeof timestamp === "number" ? timestamp : new Date(String(timestamp ?? "")).getTime();
+		messages.push({
+			provider: AUXILIARY_PROVIDER,
+			model: AUXILIARY_MODEL,
+			thinkingLevel: AUXILIARY_THINKING_LEVEL,
+			source: "auxiliary",
+			sourceId: typeof sourceId === "string" ? sourceId : "",
+			cost,
+			input,
+			output,
+			cacheRead,
+			cacheWrite,
+			reasoning,
+			timestamp: Number.isFinite(parsedTimestamp) ? parsedTimestamp : 0,
+			afterCompaction: false,
+		});
+	};
+
 	let start = 0;
 	let lineNumber = 0;
 
@@ -312,7 +385,10 @@ export async function parseSessionBuffer(buffer: Buffer, signal?: AbortSignal): 
 				} else if (entry.type === "thinking_level_change") {
 					if (typeof entry.thinkingLevel === "string") thinkingLevel = entry.thinkingLevel;
 				} else if (entry.type === "compaction") {
+					appendAuxiliaryUsage(entry.usage, entry.timestamp, entry.id);
 					compactionPending = true;
+				} else if (entry.type === "branch_summary") {
+					appendAuxiliaryUsage(entry.usage, entry.timestamp, entry.id);
 				} else if (entry.type === "message" && entry.message?.role === "assistant") {
 					const msg = entry.message;
 					if (msg.usage && msg.provider && msg.model) {
@@ -321,6 +397,8 @@ export async function parseSessionBuffer(buffer: Buffer, signal?: AbortSignal): 
 							provider: msg.provider,
 							model: msg.model,
 							thinkingLevel,
+							source: "assistant",
+							sourceId: "",
 							cost: msg.usage.cost?.total || 0,
 							input: msg.usage.input || 0,
 							output: msg.usage.output || 0,
@@ -332,6 +410,9 @@ export async function parseSessionBuffer(buffer: Buffer, signal?: AbortSignal): 
 						});
 						compactionPending = false;
 					}
+				} else if (entry.type === "message" && entry.message?.role === "toolResult") {
+					const msg = entry.message;
+					appendAuxiliaryUsage(msg.usage, msg.timestamp ?? entry.timestamp, entry.id);
 				}
 			} catch {
 				// Skip malformed lines
@@ -348,7 +429,7 @@ export async function parseSessionBuffer(buffer: Buffer, signal?: AbortSignal): 
 // On-disk cache
 // =============================================================================
 
-const CACHE_VERSION = 3;
+const CACHE_VERSION = 4;
 
 type CachedMessageTuple = [
 	providerIdx: number,
@@ -362,6 +443,8 @@ type CachedMessageTuple = [
 	thinkingLevelIdx: number,
 	reasoning: number,
 	afterCompaction: 0 | 1,
+	auxiliary: 0 | 1,
+	sourceIdIdx: number,
 ];
 
 interface CacheFileEntry {
@@ -405,14 +488,21 @@ export async function loadUsageCache(cachePath: string): Promise<Map<string, Cac
 		const messages: SessionMessage[] = [];
 		let valid = true;
 		for (const tuple of entry.messages) {
-			if (!Array.isArray(tuple) || tuple.length !== 11) {
+			if (!Array.isArray(tuple) || tuple.length !== 13) {
 				valid = false;
 				break;
 			}
 			const provider = names[tuple[0]];
 			const model = names[tuple[1]];
 			const thinkingLevel = names[tuple[8]];
-			if (typeof provider !== "string" || typeof model !== "string" || typeof thinkingLevel !== "string") {
+			const sourceId = names[tuple[12]];
+			if (
+				typeof provider !== "string" ||
+				typeof model !== "string" ||
+				typeof thinkingLevel !== "string" ||
+				typeof sourceId !== "string" ||
+				(tuple[11] !== 0 && tuple[11] !== 1)
+			) {
 				valid = false;
 				break;
 			}
@@ -420,6 +510,8 @@ export async function loadUsageCache(cachePath: string): Promise<Map<string, Cac
 				provider,
 				model,
 				thinkingLevel,
+				source: tuple[11] === 1 ? "auxiliary" : "assistant",
+				sourceId,
 				cost: Number(tuple[2]) || 0,
 				input: Number(tuple[3]) || 0,
 				output: Number(tuple[4]) || 0,
@@ -472,6 +564,8 @@ export async function saveUsageCache(cachePath: string, states: Map<string, Cach
 				intern(m.thinkingLevel),
 				m.reasoning,
 				m.afterCompaction ? 1 : 0,
+				m.source === "auxiliary" ? 1 : 0,
+				intern(m.source === "auxiliary" ? m.sourceId : ""),
 			]),
 		};
 	}
@@ -511,7 +605,8 @@ function emptyTimeFilteredStats(): TimeFilteredStats {
 function emptyPeriodRawData(): PeriodRawData {
 	return {
 		totalCost: 0,
-		totalMessages: 0,
+		assistantCost: 0,
+		auxiliaryCost: 0,
 		ctxHigh: { cost: 0, messages: 0 },
 		ctxLow: { cost: 0, messages: 0 },
 		projectCosts: new Map(),
@@ -581,7 +676,7 @@ function addToHourlyBuckets(hourly: Map<number, Map<HourlyKey, HourlyCell>>, msg
 		cell = { messages: 0, cost: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0 };
 		bucket.set(key, cell);
 	}
-	cell.messages++;
+	if (msg.source === "assistant") cell.messages++;
 	cell.cost += msg.cost;
 	cell.input += msg.input;
 	cell.output += msg.output;
@@ -594,9 +689,10 @@ function addToHourlyBuckets(hourly: Map<number, Map<HourlyKey, HourlyCell>>, msg
 function accumulateStats(
 	target: BaseStats,
 	cost: number,
-	tokens: { total: number; input: number; output: number; cacheRead: number; cacheWrite: number }
+	tokens: { total: number; input: number; output: number; cacheRead: number; cacheWrite: number },
+	countMessage: boolean
 ): void {
-	target.messages++;
+	if (countMessage) target.messages++;
 	target.cost += cost;
 	target.tokens.total += tokens.total;
 	target.tokens.input += tokens.input;
@@ -683,18 +779,30 @@ function addMessagesToUsageData(
 				providerStats.models.set(msg.model, modelStats);
 			}
 
+			const isAssistant = msg.source === "assistant";
 			modelStats.sessions.add(sessionId);
-			accumulateStats(modelStats, msg.cost, tokens);
+			accumulateStats(modelStats, msg.cost, tokens, isAssistant);
 
 			providerStats.sessions.add(sessionId);
-			accumulateStats(providerStats, msg.cost, tokens);
+			accumulateStats(providerStats, msg.cost, tokens, isAssistant);
 
-			accumulateStats(stats.totals, msg.cost, tokens);
+			accumulateStats(stats.totals, msg.cost, tokens, isAssistant);
 			sessionContributed[period] = true;
 
 			const raw = rawByPeriod[period];
 			raw.totalCost += msg.cost;
-			raw.totalMessages++;
+			raw.projectCosts.set(project, (raw.projectCosts.get(project) ?? 0) + msg.cost);
+			raw.sessionCosts.set(sessionId, (raw.sessionCosts.get(sessionId) ?? 0) + msg.cost);
+
+			// Auxiliary calls belong in accounting totals, project/session mix, and
+			// burn trend. They are not assistant turns, so do not let their synthetic
+			// model identity or nested context distort turn/cache insights.
+			if (!isAssistant) {
+				raw.auxiliaryCost += msg.cost;
+				continue;
+			}
+			raw.assistantCost += msg.cost;
+
 			const ctx = msg.input + msg.cacheRead + msg.cacheWrite;
 			if (ctx >= CTX_TAX_THRESHOLD) {
 				raw.ctxHigh.cost += msg.cost;
@@ -703,8 +811,6 @@ function addMessagesToUsageData(
 				raw.ctxLow.cost += msg.cost;
 				raw.ctxLow.messages++;
 			}
-			raw.projectCosts.set(project, (raw.projectCosts.get(project) ?? 0) + msg.cost);
-			raw.sessionCosts.set(sessionId, (raw.sessionCosts.get(sessionId) ?? 0) + msg.cost);
 			if (mm.isSessionStart) raw.upfrontCost += msg.cost;
 			if (
 				!msg.afterCompaction &&
@@ -942,12 +1048,22 @@ export async function collectUsageData(options: CollectUsageOptions = {}): Promi
 		const rawMsgs = state.parsed.messages;
 		const deduped: SessionMessage[] = [];
 		const meta: MessageMeta[] = [];
-		for (let i = 0; i < rawMsgs.length; i++) {
-			const m = rawMsgs[i]!;
-			const hash = `${m.timestamp}:${m.input + m.output + m.cacheRead + m.cacheWrite}`;
+		let previousAssistant: SessionMessage | null = null;
+		for (const m of rawMsgs) {
+			// Auxiliary usage is interleaved with conversation entries, but it must
+			// not become the "previous message" for cache-miss classification.
+			const prev = m.source === "assistant" ? previousAssistant : null;
+			if (m.source === "assistant") previousAssistant = m;
+
+			// Pi entry ids survive copied branch history and distinguish parallel
+			// tool results that happen to report identical usage in the same ms.
+			const tokenFingerprint = m.input + m.output + m.cacheRead + m.cacheWrite;
+			const hash =
+				m.source === "auxiliary" && m.sourceId
+					? `auxiliary:${m.sourceId}:${m.timestamp}:${tokenFingerprint}`
+					: `${m.source}:${m.timestamp}:${tokenFingerprint}`;
 			if (seenHashes.has(hash)) continue;
 			seenHashes.add(hash);
-			const prev = i > 0 ? rawMsgs[i - 1]! : null;
 			deduped.push(m);
 			meta.push({
 				gapMs: prev && prev.timestamp > 0 && m.timestamp > 0 ? m.timestamp - prev.timestamp : -1,
@@ -957,9 +1073,10 @@ export async function collectUsageData(options: CollectUsageOptions = {}): Promi
 			});
 		}
 		if (deduped.length === 0) continue;
-		if (!seenSessions.has(state.parsed.sessionId)) {
+		const firstAssistantIndex = deduped.findIndex((m) => m.source === "assistant");
+		if (firstAssistantIndex !== -1 && !seenSessions.has(state.parsed.sessionId)) {
 			seenSessions.add(state.parsed.sessionId);
-			meta[0]!.isSessionStart = true;
+			meta[firstAssistantIndex]!.isSessionStart = true;
 		}
 
 		addMessagesToUsageData(
@@ -1045,42 +1162,44 @@ function fmtPercent(p: number): string {
  * distinct empty-state for that case.
  */
 function computeInsights(raw: PeriodRawData, trend: TrendInfo | null): PeriodInsights {
-	if (raw.totalMessages === 0 || raw.totalCost <= 0) {
+	if (raw.totalCost <= 0) {
 		return { insights: [] };
 	}
 	const total = raw.totalCost;
+	const assistantTotal = raw.assistantCost;
+	const assistantPctLabel = raw.auxiliaryCost > 0 ? "assistant-message cost" : "this period";
 	const insights: Insight[] = [];
 
 	// --- Alarms (listed first) ---
 
-	const ttlPct = (raw.ttlMissCost / total) * 100;
+	const ttlPct = assistantTotal > 0 ? (raw.ttlMissCost / assistantTotal) * 100 : 0;
 	if (ttlPct >= CACHE_MISS_ALARM_PERCENT && raw.ttlMissCost >= CACHE_MISS_ALARM_MIN_COST) {
 		insights.push({
 			kind: "alarm",
 			stat: fmtMoney(raw.ttlMissCost),
-			headline: `spent resuming conversations after a break (${fmtPercent(ttlPct)} of this period)`,
+			headline: `spent resuming conversations after a break (${fmtPercent(ttlPct)} of ${assistantPctLabel})`,
 			advice:
 				"Sent context is only reusable for a few minutes. After a longer pause, the next message pays to send the whole conversation again. Replying while a session is fresh avoids this.",
 		});
 	}
 
-	const switchPct = (raw.modelSwitchMissCost / total) * 100;
+	const switchPct = assistantTotal > 0 ? (raw.modelSwitchMissCost / assistantTotal) * 100 : 0;
 	if (switchPct >= CACHE_MISS_ALARM_PERCENT && raw.modelSwitchMissCost >= CACHE_MISS_ALARM_MIN_COST) {
 		insights.push({
 			kind: "alarm",
 			stat: fmtMoney(raw.modelSwitchMissCost),
-			headline: `spent switching models mid-conversation (${fmtPercent(switchPct)} of this period)`,
+			headline: `spent switching models mid-conversation (${fmtPercent(switchPct)} of ${assistantPctLabel})`,
 			advice:
 				"Changing model re-sends the whole conversation at full price — the previous model's saved context doesn't transfer. Switching between tasks instead of mid-conversation avoids this.",
 		});
 	}
 
-	const prefixPct = (raw.prefixMissCost / total) * 100;
+	const prefixPct = assistantTotal > 0 ? (raw.prefixMissCost / assistantTotal) * 100 : 0;
 	if (prefixPct >= CACHE_MISS_ALARM_PERCENT && raw.prefixMissCost >= CACHE_MISS_ALARM_MIN_COST) {
 		insights.push({
 			kind: "alarm",
 			stat: fmtMoney(raw.prefixMissCost),
-			headline: `spent re-sending conversations mid-session (${fmtPercent(prefixPct)} of this period)`,
+			headline: `spent re-sending conversations mid-session (${fmtPercent(prefixPct)} of ${assistantPctLabel})`,
 			advice:
 				"These messages paid full price for context that had already been sent — with no break, compaction, or model switch to explain it. Usually a tool or workflow is restarting or rewriting conversations. Worth a look if it stays high.",
 		});
@@ -1100,17 +1219,17 @@ function computeInsights(raw: PeriodRawData, trend: TrendInfo | null): PeriodIns
 		}
 	}
 
-	const upfrontPct = (raw.upfrontCost / total) * 100;
+	const upfrontPct = assistantTotal > 0 ? (raw.upfrontCost / assistantTotal) * 100 : 0;
 	if (upfrontPct >= UPFRONT_ALARM_PERCENT) {
 		insights.push({
 			kind: "alarm",
 			stat: fmtMoney(raw.upfrontCost),
-			headline: `spent on the opening message of new sessions (${fmtPercent(upfrontPct)} of this period)`,
+			headline: `spent on the opening message of new sessions (${fmtPercent(upfrontPct)} of ${assistantPctLabel})`,
 			advice: "A session's first message sends everything from scratch. Fewer, longer sessions cut this overhead.",
 		});
 	}
 
-	if (total >= LEVERAGE_MIN_COST && raw.freshTokens >= LEVERAGE_MIN_FRESH_TOKENS) {
+	if (assistantTotal >= LEVERAGE_MIN_COST && raw.freshTokens >= LEVERAGE_MIN_FRESH_TOKENS) {
 		const leverage = raw.cacheReadTokens / raw.freshTokens;
 		if (leverage < LEVERAGE_FLOOR) {
 			insights.push({
@@ -1125,8 +1244,20 @@ function computeInsights(raw: PeriodRawData, trend: TrendInfo | null): PeriodIns
 
 	// --- Structure (always-on) ---
 
-	if (raw.ctxHigh.messages > 0) {
-		const pct = (raw.ctxHigh.cost / total) * 100;
+	if (raw.auxiliaryCost > 0) {
+		const pct = (raw.auxiliaryCost / total) * 100;
+		if (pct >= 1) {
+			insights.push({
+				kind: "structure",
+				stat: fmtPercent(pct),
+				headline: "of your cost came from usage reported by tools and conversation summaries",
+				advice: "Pi records this separately because it cannot be attributed reliably to a specific provider and model.",
+			});
+		}
+	}
+
+	if (raw.ctxHigh.messages > 0 && assistantTotal > 0) {
+		const pct = (raw.ctxHigh.cost / assistantTotal) * 100;
 		if (pct >= 1) {
 			const avgHigh = raw.ctxHigh.cost / raw.ctxHigh.messages;
 			const avgLow = raw.ctxLow.messages > 0 ? raw.ctxLow.cost / raw.ctxLow.messages : 0;
@@ -1137,7 +1268,7 @@ function computeInsights(raw: PeriodRawData, trend: TrendInfo | null): PeriodIns
 			insights.push({
 				kind: "structure",
 				stat: fmtPercent(pct),
-				headline: `of your cost came from messages with ≥${formatThresholdTokens(CTX_TAX_THRESHOLD)} tokens loaded${cmp}`,
+				headline: `of your ${raw.auxiliaryCost > 0 ? "assistant-message cost" : "cost"} came from messages with ≥${formatThresholdTokens(CTX_TAX_THRESHOLD)} tokens loaded${cmp}`,
 				advice: "Long conversations cost more per message. /compact mid-task and /clear between tasks keep them lean.",
 			});
 		}

@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.59] - 2026-07-21
+
+### Fixed
+- `usage-extension` 0.9.2: include Pi 0.81.0 tool, compaction, and branch-summary usage in cost/token totals under `Tools / summaries`, without inflating assistant-message counts or conversation cache insights. Cache format v4 performs a one-off rebuild.
+
 ## [0.1.58] - 2026-07-21
 
 ### Changed

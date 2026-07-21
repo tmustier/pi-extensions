@@ -7,7 +7,9 @@ A Pi extension that displays aggregated usage statistics across all sessions.
 ## Compatibility
 
 - **Pi version:** 0.42.4+
-- **Last updated:** 2026-07-17 (0.9.1)
+- **Last updated:** 2026-07-21 (0.9.2)
+
+Pi 0.81.0+ persists nested tool, compaction, and branch-summary usage. `/usage` includes that auxiliary usage in totals under `Tools / summaries`; older Pi versions remain supported but do not record these entries.
 
 ## Installation
 
@@ -83,6 +85,7 @@ The **Insights** view has two sections, facts first:
 
 | Insight | Detail |
 |---|---|
+| Tool and summary usage | share of cost reported by nested tool calls, compaction, and branch summarization (Pi 0.81.0+) |
 | Context tax | share of cost spent at ≥ 150k context, with the average per-message cost vs messages under 100k |
 | Project mix | top 3 project directories by cost, derived from each session's working directory (worktrees collapse into their repository; hidden when one project is ≥ 90% — you already know) |
 | Reasoning share | share of output tokens that were hidden reasoning (recorded by pi 0.80.3+ only; hidden below 5%) |
@@ -136,7 +139,7 @@ The **Graphs** view plots usage over time for the active period as a braille lin
 - **Buckets**: hourly for Today / This Week / Last Week, daily for Last 30 Days / All Time.
 - **Line clipping**: every series (provider, model, thinking level, `other`, Total) is drawn only between its first and last bucket with usage, so late-starting or retired series don't drag a flat zero/flat tail across the whole period.
 
-Thinking levels are replayed from `thinking_level_change` entries in each session file; messages before the first recorded change appear as `unknown`. Reasoning token counts come from `usage.reasoning` where providers report them; pi only records this field since **pi 0.80.3 (30 June 2026)**, so earlier sessions show zero reasoning tokens even though thinking models were in use.
+Thinking levels are replayed from `thinking_level_change` entries in each session file; messages before the first recorded change appear as `unknown`. Auxiliary usage has no reliable thinking-level attribution and appears as `Tools/summaries` in that grouping. Reasoning token counts come from `usage.reasoning` where providers report them; pi only records this field since **pi 0.80.3 (30 June 2026)**, so earlier sessions show zero reasoning tokens even though thinking models were in use.
 
 ### Time Periods
 
@@ -160,8 +163,8 @@ Time periods are calculated in the local timezone where Pi runs. If you want to 
 |--------|-------------|
 | **Provider / Model** | Provider name, expandable to show models |
 | **Sessions** | Number of unique sessions |
-| **Msgs** | Number of assistant messages |
-| **Cost** | Total cost in USD (from API response) |
+| **Msgs** | Number of assistant messages; auxiliary `Tools / summaries` usage does not inflate this count |
+| **Cost** | Total cost in USD (from API response), including usage reported by tools and summaries |
 | **Tokens** | Fresh tokens for the turn: input + output + cache write |
 | **↑In** | Fresh input tokens: input + cache write *(dimmed)* |
 | **↓Out** | Output tokens *(dimmed)* |
@@ -195,13 +198,13 @@ On narrow terminals, `/usage` automatically switches to a compact table instead 
 - **On-disk cache.** Per-file extraction results are cached in `<agentDir>/usage-extension-cache.json` (respects `PI_CODING_AGENT_DIR`), keyed by file size + mtime. Warm opens only re-parse session files that changed since the last run — on a 5.2 GB / 3,310-file corpus that takes the open from ~17 s to ~0.3 s.
 - **First open** after install (or after deleting the cache) does a one-off full build, showing the usual cancellable loader. Cancelling saves partial progress, so the next open resumes where it left off.
 - The cache is safe to delete at any time; it is rebuilt automatically. Corrupt or version-mismatched caches are ignored and rebuilt rather than trusted.
-- **0.7.0 bumps the cache format to v3** (adds session working directory and compaction markers; 0.6.0's v2 added thinking level and reasoning tokens). The first open after upgrading does a one-off full rebuild (with a progress message and live file counter), then warm opens are fast again.
+- **0.9.2 bumps the cache format to v4** to include Pi 0.81.0 tool and summary usage (v3 added session working directory and compaction markers; v2 added thinking level and reasoning tokens). The first open after upgrading does a one-off full rebuild (with a progress message and live file counter), then warm opens are fast again.
 
 ## Provider Notes
 
 ### Cost Tracking
 
-Cost data comes directly from the API response (`usage.cost.total`). Accuracy depends on the provider reporting costs.
+Cost data comes directly from persisted `usage.cost.total` values. For assistant messages it is grouped by provider/model. Pi 0.81.0+ also persists usage reported by nested tools, compaction, and branch summarization; because those entries do not carry reliable provider/model attribution, `/usage` groups them under `Tools / summaries`, matching Pi's `/session` breakdown. Accuracy depends on the provider or tool reporting costs.
 
 ### Cache Tokens
 
@@ -219,9 +222,9 @@ The "Cache" column combines both read and write tokens.
 
 ## Data Source
 
-Statistics are parsed recursively from session files in `~/.pi/agent/sessions/`, including nested subagent runs such as `run-0/` directories. Each session is a JSONL file containing message entries with usage data.
+Statistics are parsed recursively from session files in `~/.pi/agent/sessions/`, including nested subagent runs such as `run-0/` directories. Each session is a JSONL file containing assistant messages and, on Pi 0.81.0+, optional usage on tool-result, compaction, and branch-summary entries.
 
-Assistant messages duplicated across branched session files are deduplicated by timestamp + total tokens, matching the extension's previous behavior while still including recursive subagent sessions.
+Assistant messages duplicated across branched session files are deduplicated by timestamp + total tokens. Auxiliary usage is deduplicated by its stable session entry id, which avoids collapsing parallel tools that happen to report identical usage. Tool and summary usage contributes cost and tokens to totals, graphs, project/session mix, and burn trend, but does not count as an assistant message or distort conversation context/cache insights.
 
 Respects the `PI_CODING_AGENT_DIR` environment variable if set.
 
