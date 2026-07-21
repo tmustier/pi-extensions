@@ -1243,251 +1243,102 @@ function addMessagesToUsageData(
 }
 
 // =============================================================================
-// Nested tool-usage reconciliation
+// Nested tool-usage accounting
 // =============================================================================
 
-// Costs are persisted as decimal USD but accumulated through binary floating
-// point. Compare exact picodollar units so subtraction noise is normalised
-// without admitting fuzzy token/cost matches.
-const USAGE_COST_SCALE = 1_000_000_000_000;
-const USAGE_FIELDS = ["input", "output", "cacheRead", "cacheWrite"] as const;
+// Recognised nested-agent tool results report usage for child runs that
+// pi-subagents also persists as ordinary session files, which this scan
+// already counts with full model attribution. When every child session file
+// behind a report is part of the scan, the children speak for themselves and
+// the parent's aggregate is skipped. Otherwise the aggregate (or, for pre-0.81
+// legacy entries, each unresolved child's reported usage) is counted under
+// Tools / summaries.
+//
+// Copied branch history gets a new parent filename, so a copy's runId-derived
+// child paths can dangle even though the original's resolve. Resolved child
+// identities are therefore unioned across all copies of an entry before any
+// emission, and identical emissions collapse in the sourceId dedupe.
 
-function usageCostUnits(cost: number): number {
-	return Math.round(cost * USAGE_COST_SCALE);
+interface ScannedSessionIndex {
+	/** Resolved paths of scanned files that have a session header. */
+	paths: Set<string>;
+	/** Directory of each scanned file → number of scanned files inside it. */
+	fileCountByDir: Map<string, number>;
 }
 
-function emptyUsageAmount(): UsageAmount {
-	return { cost: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0 };
-}
-
-function addUsageAmount(target: UsageAmount, usage: UsageAmount): void {
-	target.cost += usage.cost;
-	target.input += usage.input;
-	target.output += usage.output;
-	target.cacheRead += usage.cacheRead;
-	target.cacheWrite += usage.cacheWrite;
-	target.reasoning += usage.reasoning;
-}
-
-function usageAmountHasValue(usage: UsageAmount): boolean {
-	return usage.cost !== 0 || usage.input !== 0 || usage.output !== 0 || usage.cacheRead !== 0 || usage.cacheWrite !== 0;
-}
-
-function usageTokenKey(usage: UsageAmount): string {
-	return `${usage.input}:${usage.output}:${usage.cacheRead}:${usage.cacheWrite}`;
-}
-
-interface ChildUsageIndex {
-	prefixes: UsageAmount[];
-	prefixIndexesByTokens: Map<string, number[]>;
-}
-
-function buildChildUsageIndex(messages: SessionMessage[]): ChildUsageIndex {
-	const prefixes: UsageAmount[] = [emptyUsageAmount()];
-	const prefixIndexesByTokens = new Map<string, number[]>([[usageTokenKey(prefixes[0]!), [0]]]);
-	for (const message of messages) {
-		if (message.source !== "assistant") continue;
-		const next = { ...prefixes[prefixes.length - 1]! };
-		addUsageAmount(next, message);
-		const index = prefixes.length;
-		prefixes.push(next);
-		const key = usageTokenKey(next);
-		const indexes = prefixIndexesByTokens.get(key);
-		if (indexes) indexes.push(index);
-		else prefixIndexesByTokens.set(key, [index]);
-	}
-	return { prefixes, prefixIndexesByTokens };
-}
-
-/** Return reasoning from an exact contiguous assistant-usage span, if present. */
-function findChildUsageSpan(index: ChildUsageIndex, expected: UsageAmount): UsageAmount | null {
-	for (let endIndex = 1; endIndex < index.prefixes.length; endIndex++) {
-		const end = index.prefixes[endIndex]!;
-		const requiredPrefix = {
-			cost: 0,
-			input: end.input - expected.input,
-			output: end.output - expected.output,
-			cacheRead: end.cacheRead - expected.cacheRead,
-			cacheWrite: end.cacheWrite - expected.cacheWrite,
-			reasoning: 0,
-		};
-		if (USAGE_FIELDS.some((field) => requiredPrefix[field] < 0)) continue;
-		const startIndexes = index.prefixIndexesByTokens.get(usageTokenKey(requiredPrefix));
-		if (!startIndexes) continue;
-		for (const startIndex of startIndexes) {
-			if (startIndex >= endIndex) break;
-			const start = index.prefixes[startIndex]!;
-			if (usageCostUnits(end.cost - start.cost) === usageCostUnits(expected.cost)) {
-				return { ...expected, reasoning: end.reasoning - start.reasoning };
-			}
-		}
-	}
-	return null;
-}
-
-interface ResolvedSessionState {
-	filePath: string;
-	state: CachedFileState;
-}
-
-interface ToolReconciliationIndex {
-	byPath: Map<string, ResolvedSessionState>;
-	filesByDir: Map<string, ResolvedSessionState[]>;
-	usageByPath: Map<string, ChildUsageIndex>;
-}
-
-function buildToolReconciliationIndex(states: Map<string, CachedFileState>): ToolReconciliationIndex {
-	const byPath = new Map<string, ResolvedSessionState>();
-	const filesByDir = new Map<string, ResolvedSessionState[]>();
+function buildScannedSessionIndex(states: Map<string, CachedFileState>): ScannedSessionIndex {
+	const paths = new Set<string>();
+	const fileCountByDir = new Map<string, number>();
 	for (const [filePath, state] of states) {
+		if (!state.parsed.sessionId) continue;
 		const resolved = resolve(filePath);
-		const item = { filePath: resolved, state };
-		byPath.set(resolved, item);
+		paths.add(resolved);
 		const dir = dirname(resolved);
-		const siblings = filesByDir.get(dir);
-		if (siblings) siblings.push(item);
-		else filesByDir.set(dir, [item]);
+		fileCountByDir.set(dir, (fileCountByDir.get(dir) ?? 0) + 1);
 	}
-	return { byPath, filesByDir, usageByPath: new Map() };
+	return { paths, fileCountByDir };
 }
 
-function resolveChildSession(
+function childSessionScanned(
 	parentFilePath: string,
 	tool: ToolUsageRecord,
 	child: ChildToolUsage,
-	index: ToolReconciliationIndex
-): ResolvedSessionState | null {
-	const candidates: string[] = [];
+	index: ScannedSessionIndex
+): boolean {
 	if (child.sessionFile) {
-		candidates.push(isAbsolute(child.sessionFile) ? child.sessionFile : resolve(dirname(parentFilePath), child.sessionFile));
+		const explicit = isAbsolute(child.sessionFile)
+			? resolve(child.sessionFile)
+			: resolve(dirname(parentFilePath), child.sessionFile);
+		if (index.paths.has(explicit)) return true;
 	}
 	if (tool.runId) {
-		const runDir = join(dirname(parentFilePath), basename(parentFilePath, ".jsonl"), tool.runId, `run-${child.resultIndex}`);
-		candidates.push(join(runDir, "session.jsonl"));
-		const filesInRunDir = index.filesByDir.get(resolve(runDir));
-		if (filesInRunDir?.length === 1) candidates.push(filesInRunDir[0]!.filePath);
+		const runDir = resolve(dirname(parentFilePath), basename(parentFilePath, ".jsonl"), tool.runId, `run-${child.resultIndex}`);
+		// The run directory holds exactly one session per child run, so either the
+		// conventional name or a lone scanned file inside it identifies the child.
+		if (index.paths.has(join(runDir, "session.jsonl"))) return true;
+		if (index.fileCountByDir.get(runDir) === 1) return true;
 	}
-	for (const candidate of candidates) {
-		const resolved = index.byPath.get(resolve(candidate));
-		if (resolved?.state.parsed.sessionId) return resolved;
-	}
-	return null;
+	return false;
 }
 
-interface ToolUsageOccurrence {
-	parentFilePath: string;
-	tool: ToolUsageRecord;
+/** Identity of one child slot of one tool entry, stable across copied history. */
+function toolChildIdentity(tool: ToolUsageRecord, child: ChildToolUsage): string {
+	const fingerprint = child.usage.input + child.usage.output + child.usage.cacheRead + child.usage.cacheWrite;
+	return `${tool.sourceId}:${tool.timestamp}:${child.resultIndex}:${fingerprint}`;
 }
 
-interface ChildUsageOccurrence extends ToolUsageOccurrence {
-	child: ChildToolUsage;
-}
-
-function toolUsageIdentity(tool: ToolUsageRecord): string {
-	const reported = tool.reportedUsage ? `${usageTokenKey(tool.reportedUsage)}:${usageCostUnits(tool.reportedUsage.cost)}` : "legacy";
-	const children = tool.children
-		.map((child) => `${child.resultIndex}:${usageTokenKey(child.usage)}:${usageCostUnits(child.usage.cost)}`)
-		.join("|");
-	// Pi entry ids are short rather than globally unique. Timestamp and usage
-	// distinguish an unrelated collision while copied branch history stays grouped.
-	return `${tool.sourceId ? `id:${tool.sourceId}` : "anonymous"}:${tool.timestamp}:${reported}:${children}`;
-}
-
-function matchedChildUsage(occurrences: ChildUsageOccurrence[], index: ToolReconciliationIndex): UsageAmount | null {
-	for (const occurrence of occurrences) {
-		const childSession = resolveChildSession(occurrence.parentFilePath, occurrence.tool, occurrence.child, index);
-		if (!childSession) continue;
-		let childIndex = index.usageByPath.get(childSession.filePath);
-		if (!childIndex) {
-			childIndex = buildChildUsageIndex(childSession.state.parsed.messages);
-			index.usageByPath.set(childSession.filePath, childIndex);
-		}
-		const matched = findChildUsageSpan(childIndex, occurrence.child.usage);
-		if (matched) return matched;
-	}
-	return null;
-}
-
-function reconcileToolUsageGroup(occurrences: ToolUsageOccurrence[], index: ToolReconciliationIndex): SessionMessage[] {
-	const representative = occurrences[0]!.tool;
-	const reportedUsage = occurrences.find((occurrence) => occurrence.tool.reportedUsage)?.tool.reportedUsage ?? null;
-	const childGroups = new Map<string, ChildUsageOccurrence[]>();
-	for (const occurrence of occurrences) {
-		for (const child of occurrence.tool.children) {
-			const key = `${child.resultIndex}:${usageTokenKey(child.usage)}:${usageCostUnits(child.usage.cost)}`;
-			let group = childGroups.get(key);
-			if (!group) {
-				group = [];
-				childGroups.set(key, group);
-			}
-			group.push({ ...occurrence, child });
-		}
-	}
-
-	const covered = emptyUsageAmount();
-	const uncovered: ChildToolUsage[] = [];
-	for (const childOccurrences of childGroups.values()) {
-		const child = childOccurrences[0]!.child;
-		const matched = matchedChildUsage(childOccurrences, index);
-		if (matched) addUsageAmount(covered, matched);
-		else uncovered.push(child);
-	}
-
-	if (reportedUsage) {
-		const canSubtract =
-			USAGE_FIELDS.every((field) => covered[field] <= reportedUsage[field]) &&
-			usageCostUnits(covered.cost) <= usageCostUnits(reportedUsage.cost);
-		const residual = canSubtract
-			? {
-					cost: Math.max(0, reportedUsage.cost - covered.cost),
-					input: reportedUsage.input - covered.input,
-					output: reportedUsage.output - covered.output,
-					cacheRead: reportedUsage.cacheRead - covered.cacheRead,
-					cacheWrite: reportedUsage.cacheWrite - covered.cacheWrite,
-					reasoning: Math.max(0, reportedUsage.reasoning - covered.reasoning),
-				}
-			: reportedUsage;
-		return usageAmountHasValue(residual) ? [auxiliaryMessage(residual, representative.timestamp, representative.sourceId)] : [];
-	}
-
-	// Before Pi 0.81, recognised nested-agent tools could only persist exact
-	// child usage in details. Count just the children not already represented
-	// by a recursively scanned session.
-	return uncovered.map((child) => {
-		const childSourceId = representative.sourceId ? `${representative.sourceId}:child:${child.resultIndex}` : "";
-		return auxiliaryMessage(child.usage, representative.timestamp, childSourceId);
-	});
-}
-
-function reconcileAllToolUsages(
-	states: Map<string, CachedFileState>,
-	index: ToolReconciliationIndex
-): Map<string, SessionMessage[]> {
-	const groups = new Map<string, ToolUsageOccurrence[]>();
-	for (const [parentFilePath, state] of states) {
+function resolvedToolChildIdentities(states: Map<string, CachedFileState>, index: ScannedSessionIndex): Set<string> {
+	const resolved = new Set<string>();
+	for (const [filePath, state] of states) {
 		for (const tool of state.parsed.toolUsages) {
-			const key = toolUsageIdentity(tool);
-			let group = groups.get(key);
-			if (!group) {
-				group = [];
-				groups.set(key, group);
+			if (!tool.sourceId) continue;
+			for (const child of tool.children) {
+				if (childSessionScanned(filePath, tool, child, index)) resolved.add(toolChildIdentity(tool, child));
 			}
-			group.push({ parentFilePath, tool });
 		}
 	}
-
-	const byParentFile = new Map<string, SessionMessage[]>();
-	for (const occurrences of groups.values()) {
-		const parentFilePath = occurrences[0]!.parentFilePath;
-		const messages = reconcileToolUsageGroup(occurrences, index);
-		if (messages.length === 0) continue;
-		const existing = byParentFile.get(parentFilePath);
-		if (existing) existing.push(...messages);
-		else byParentFile.set(parentFilePath, messages);
-	}
-	return byParentFile;
+	return resolved;
 }
 
+function toolUsageMessages(
+	parentFilePath: string,
+	tool: ToolUsageRecord,
+	index: ScannedSessionIndex,
+	resolvedChildren: Set<string>
+): SessionMessage[] {
+	const scanned = (child: ChildToolUsage) =>
+		childSessionScanned(parentFilePath, tool, child, index) ||
+		(tool.sourceId !== "" && resolvedChildren.has(toolChildIdentity(tool, child)));
+	if (tool.reportedUsage) {
+		if (tool.children.length > 0 && tool.children.every(scanned)) return [];
+		return [auxiliaryMessage(tool.reportedUsage, tool.timestamp, tool.sourceId)];
+	}
+	// Before Pi 0.81, recognised nested-agent tools persisted per-child usage in
+	// details only. Count just the children whose sessions this scan cannot see.
+	return tool.children
+		.filter((child) => !scanned(child))
+		.map((child) => auxiliaryMessage(child.usage, tool.timestamp, tool.sourceId ? `${tool.sourceId}:child:${child.resultIndex}` : ""));
+}
 // =============================================================================
 // Collection orchestration
 // =============================================================================
@@ -1684,8 +1535,8 @@ export async function collectUsageData(options: CollectUsageOptions = {}): Promi
 	const costByDayIdx = new Map<number, number>();
 	const seenSessions = new Set<string>();
 	const seenHashes = new Set<string>();
-	const toolReconciliation = buildToolReconciliationIndex(current);
-	const reconciledToolMessages = reconcileAllToolUsages(current, toolReconciliation);
+	const scannedSessions = buildScannedSessionIndex(current);
+	const resolvedToolChildren = resolvedToolChildIdentities(current, scannedSessions);
 	let processedFiles = 0;
 
 	for (const filePath of filePaths) {
@@ -1700,8 +1551,8 @@ export async function collectUsageData(options: CollectUsageOptions = {}): Promi
 		// Deduplicate copied history across branched session files, computing
 		// adjacency metadata (idle gaps, previous context) on the raw file order
 		// so branch copies do not distort miss classification.
-		const toolMessages = reconciledToolMessages.get(filePath);
-		const rawMsgs = toolMessages ? [...state.parsed.messages, ...toolMessages] : state.parsed.messages;
+		const toolMessages = state.parsed.toolUsages.flatMap((tool) => toolUsageMessages(filePath, tool, scannedSessions, resolvedToolChildren));
+		const rawMsgs = toolMessages.length > 0 ? [...state.parsed.messages, ...toolMessages] : state.parsed.messages;
 		const deduped: SessionMessage[] = [];
 		const meta: MessageMeta[] = [];
 		let previousAssistant: SessionMessage | null = null;

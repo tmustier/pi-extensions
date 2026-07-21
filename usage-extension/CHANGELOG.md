@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.9.4] - 2026-07-22
+
+### Changed
+- Radically simplified nested-agent reconciliation. Child sessions on disk are now trusted as the record: when every child session file behind a tool report is part of the scan, the parent's aggregate is skipped; otherwise the whole report (or each unresolved legacy child) is counted under `Tools / summaries`. This replaces 0.9.3's exact contiguous token-and-cost vector matching and residual arithmetic (~250 lines) with a file-existence check — validated byte-identical against 0.9.3 on a 10 GB / 6,166-session corpus.
+- Resolved child identities are unioned across copied parent history before emission, because branch copies change runId-derived child paths. Same outcome as 0.9.3's global reconciliation, without vector identity keys.
+- Known trade-offs: a crash-truncated child session slightly undercounts, and a partially-missing child set counts the full aggregate (slight overcount). Neither case appeared in the audit corpus.
+
+### Internal
+- Cache format stays **v5** — no rebuild on upgrade.
+
 ## [0.9.3] - 2026-07-22
 
 ### Fixed

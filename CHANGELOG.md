@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.61] - 2026-07-22
+
+### Changed
+- `usage-extension` 0.9.4: radically simplified nested-agent reconciliation — scanned child session files are trusted as the record and matching parent aggregates are skipped via a file-existence check, replacing 0.9.3's exact vector matching. Byte-identical totals on the validation corpus; cache stays v5 with no rebuild.
+
 ## [0.1.60] - 2026-07-22
 
 ### Fixed

@@ -9,7 +9,7 @@ A Pi extension that displays aggregated usage statistics across all sessions.
 - **Pi version:** 0.42.4+
 - **Last updated:** 2026-07-22 (0.9.3)
 
-Pi 0.81.0+ can persist tool-result, compaction, and branch-summary usage. `/usage` includes that auxiliary usage in totals under `Tools / summaries`. Nested-agent reports are reconciled against recursively scanned child sessions, so a child call is counted once; when only part of an aggregate is already present, only the unmatched residual is added. Older Pi versions remain supported.
+Pi 0.81.0+ can persist tool-result, compaction, and branch-summary usage. `/usage` includes that auxiliary usage in totals under `Tools / summaries`. Nested-agent reports are reconciled against recursively scanned child sessions, so a child call is counted once: when every child session file behind a report is part of the scan, the children are the record and the parent's aggregate is skipped; otherwise the report is counted. Older Pi versions remain supported.
 
 ## Installation
 
@@ -227,7 +227,7 @@ The "Cache" column combines both read and write tokens.
 
 Statistics are parsed recursively from session files in `~/.pi/agent/sessions/`, including nested subagent runs such as `run-0/` directories. Each session is a JSONL file containing assistant messages and, on Pi 0.81.0+, optional usage on tool-result, compaction, and branch-summary entries.
 
-Assistant messages duplicated across branched session files are deduplicated by timestamp + total tokens. Auxiliary usage is deduplicated by its stable session entry id, which avoids collapsing parallel tools that happen to report identical usage. Tool reports are reconciled globally across copied parent history: an exact contiguous child-session token-and-cost vector suppresses the matching portion of the parent aggregate, while missing children and unmatched residuals stay under `Tools / summaries`. Tool and summary usage contributes cost and tokens to totals, graphs, project/session mix, and burn trend, but does not count as an assistant message or distort conversation context/cache insights.
+Assistant messages duplicated across branched session files are deduplicated by timestamp + total tokens. Auxiliary usage is deduplicated by its stable session entry id, which avoids collapsing parallel tools that happen to report identical usage. Nested-agent reports are suppressed when their child session files are part of the scan (resolved across all copies of the parent entry, since branch copies change runId-derived paths); reports whose children are missing stay under `Tools / summaries`. Tool and summary usage contributes cost and tokens to totals, graphs, project/session mix, and burn trend, but does not count as an assistant message or distort conversation context/cache insights.
 
 Respects the `PI_CODING_AGENT_DIR` environment variable if set.
 

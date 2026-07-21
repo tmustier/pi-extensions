@@ -459,7 +459,7 @@ test("collectUsageData suppresses canonical tool usage already present in a link
 	assert.equal(data.today.providers.has("Tools"), false);
 });
 
-test("collectUsageData counts only the unmatched residual of mixed child usage", async (t) => {
+test("collectUsageData counts the full aggregate when any child session is missing", async (t) => {
 	const { sessionsDir, cachePath } = fixture(t);
 	const parentPath = join(sessionsDir, "mixed.jsonl");
 	const childPath = join(sessionsDir, "mixed", "run-a", "run-0", "session.jsonl");
@@ -485,19 +485,16 @@ test("collectUsageData counts only the unmatched residual of mixed child usage",
 	);
 
 	const data = await collectUsageData({ sessionsDir, cachePath, now: NOW });
-	assert.equal(data.today.totals.cost, 5, "the $2 child plus the $3 residual, not the $5 report again");
+	// One child is missing, so the $5 aggregate is counted whole next to the
+	// scanned $2 child — a deliberate small overcount instead of residual math.
+	assert.equal(data.today.totals.cost, 7);
 	assert.equal(data.today.totals.messages, 1);
 	assert.equal(data.today.providers.get("anthropic").cost, 2);
-	assert.equal(data.today.providers.get("Tools").cost, 3);
-	const toolsReasoning = [...data.hourly.values()].reduce(
-		(total, cells) => total + [...cells.entries()].reduce((sum, [key, cell]) => sum + (key.startsWith("Tools\0") ? cell.reasoning : 0), 0),
-		0
-	);
-	assert.equal(toolsReasoning, 3);
-	assert.equal(data.today.providers.get("Tools").models.get("summaries").cost, 3);
+	assert.equal(data.today.providers.get("Tools").cost, 5);
+	assert.equal(data.today.providers.get("Tools").models.get("summaries").cost, 5);
 });
 
-test("collectUsageData backfills legacy nested usage only when no scanned child span represents it", async (t) => {
+test("collectUsageData backfills legacy nested usage only when no scanned child session represents it", async (t) => {
 	const { sessionsDir, cachePath } = fixture(t);
 	const parentPath = join(sessionsDir, "legacy.jsonl");
 	const childPath = join(sessionsDir, "legacy", "run-a", "run-0", "session.jsonl");
@@ -532,7 +529,7 @@ test("collectUsageData backfills legacy nested usage only when no scanned child 
 	assert.equal(data.today.providers.get("Tools").cost, 3);
 });
 
-test("collectUsageData requires an exact cost vector before suppressing linked child usage", async (t) => {
+test("collectUsageData trusts scanned child sessions over their reported usage", async (t) => {
 	const { sessionsDir, cachePath } = fixture(t);
 	const childPath = join(sessionsDir, "exact-child.jsonl");
 	writeFileSync(
@@ -552,8 +549,10 @@ test("collectUsageData requires an exact cost vector before suppressing linked c
 	);
 
 	const data = await collectUsageData({ sessionsDir, cachePath, now: NOW });
-	assert.equal(data.today.totals.cost, 4.000001);
-	assert.equal(data.today.providers.get("Tools").cost, 2.000001);
+	// The child session file exists, so it is the record — the reported child
+	// usage is skipped even though rounding noise makes the vectors differ.
+	assert.equal(data.today.totals.cost, 2);
+	assert.equal(data.today.providers.has("Tools"), false);
 });
 
 test("collectUsageData dedupes copied legacy child reports by parent entry id", async (t) => {
@@ -572,7 +571,7 @@ test("collectUsageData dedupes copied legacy child reports by parent entry id", 
 	assert.equal(data.today.providers.get("Tools").cost, 3);
 });
 
-test("collectUsageData reconciles copied tool reports globally rather than trusting the first parent copy", async (t) => {
+test("collectUsageData suppresses copied tool reports when any copy resolves its children", async (t) => {
 	const { sessionsDir, cachePath } = fixture(t);
 	const childPath = join(sessionsDir, "child.jsonl");
 	writeFileSync(
