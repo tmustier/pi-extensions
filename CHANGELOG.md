@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.60] - 2026-07-22
+
+### Fixed
+- `usage-extension` 0.9.3: reconcile nested-agent tool reports with recursively scanned child sessions using exact token-and-cost vectors, count only unmatched aggregate residuals, and backfill legacy child reports only when no scanned child span represents them. Cache format v5 performs a one-off rebuild.
+
 ## [0.1.59] - 2026-07-21
 
 ### Fixed

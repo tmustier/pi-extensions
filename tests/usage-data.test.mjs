@@ -68,6 +68,41 @@ function toolResultLine({ id = "tool1", ts, ...usageValues }) {
 	});
 }
 
+function childUsage(values = {}) {
+	const persisted = usage(values);
+	return { ...persisted, cost: persisted.cost.total, turns: 1 };
+}
+
+function nestedToolResultLine({ id = "nested1", ts, runId = "run-a", reported = null, children = [], content = "done" }) {
+	return JSON.stringify({
+		type: "message",
+		id,
+		parentId: null,
+		timestamp: new Date(ts).toISOString(),
+		message: {
+			role: "toolResult",
+			toolCallId: `call-${id}`,
+			toolName: "subagent",
+			content: [{ type: "text", text: content }],
+			details: {
+				mode: children.length > 1 ? "parallel" : "single",
+				runId,
+				results: children.map((child, index) => ({
+					agent: `agent-${index}`,
+					task: "test",
+					exitCode: 0,
+					...(child.messages ? { messages: child.messages } : {}),
+					usage: childUsage(child),
+					...(child.sessionFile ? { sessionFile: child.sessionFile } : {}),
+				})),
+			},
+			...(reported ? { usage: usage(reported) } : {}),
+			isError: false,
+			timestamp: ts,
+		},
+	});
+}
+
 function compactionLine({ id = "compact1", ts, ...usageValues }) {
 	return JSON.stringify({
 		type: "compaction",
@@ -154,18 +189,20 @@ test("parseSessionBuffer extracts Pi 0.81 tool and summary usage without consumi
 	].join("\n");
 
 	const parsed = await parseSessionBuffer(Buffer.from(content, "utf8"));
-	assert.equal(parsed.messages.length, 5);
-	assert.deepEqual(parsed.messages.map((m) => m.source), ["assistant", "auxiliary", "auxiliary", "auxiliary", "assistant"]);
-	assert.deepEqual(parsed.messages.map((m) => m.cost), [1, 2, 3, 4, 5]);
-	assert.deepEqual(parsed.messages.slice(1, 4).map((m) => [m.provider, m.model, m.thinkingLevel]), [
-		["Tools", "summaries", "Tools/summaries"],
+	assert.equal(parsed.messages.length, 4);
+	assert.deepEqual(parsed.messages.map((m) => m.source), ["assistant", "auxiliary", "auxiliary", "assistant"]);
+	assert.deepEqual(parsed.messages.map((m) => m.cost), [1, 3, 4, 5]);
+	assert.deepEqual(parsed.messages.slice(1, 3).map((m) => [m.provider, m.model, m.thinkingLevel]), [
 		["Tools", "summaries", "Tools/summaries"],
 		["Tools", "summaries", "Tools/summaries"],
 	]);
-	assert.deepEqual(parsed.messages.slice(1, 4).map((m) => m.sourceId), ["tool-usage", "compact-usage", "branch-usage"]);
-	assert.equal(parsed.messages[1].reasoning, 1);
-	assert.equal(parsed.messages[1].timestamp, TS_TODAY + 1000);
-	assert.equal(parsed.messages[4].afterCompaction, true, "auxiliary entries must not clear the pending compaction marker");
+	assert.deepEqual(parsed.messages.slice(1, 3).map((m) => m.sourceId), ["compact-usage", "branch-usage"]);
+	assert.equal(parsed.toolUsages.length, 1);
+	assert.equal(parsed.toolUsages[0].sourceId, "tool-usage");
+	assert.equal(parsed.toolUsages[0].reportedUsage.cost, 2);
+	assert.equal(parsed.toolUsages[0].reportedUsage.reasoning, 1);
+	assert.equal(parsed.toolUsages[0].timestamp, TS_TODAY + 1000);
+	assert.equal(parsed.messages[3].afterCompaction, true, "auxiliary entries must not clear the pending compaction marker");
 });
 
 test("parseSessionBuffer flags the first assistant message after a compaction entry", async () => {
@@ -383,6 +420,196 @@ test("collectUsageData includes tool and summary usage without inflating assista
 	assert.equal(overhead.stat, "90%");
 });
 
+test("collectUsageData suppresses canonical tool usage already present in a linked child session", async (t) => {
+	const { sessionsDir, cachePath } = fixture(t);
+	const parentPath = join(sessionsDir, "parent.jsonl");
+	const childPath = join(sessionsDir, "parent", "run-a", "run-0", "session.jsonl");
+	mkdirSync(join(childPath, ".."), { recursive: true });
+	writeFileSync(
+		childPath,
+		[sessionLine("child", TS_TODAY), assistantLine({ ts: TS_TODAY + 1000, cost: 3, input: 30, output: 3, cacheRead: 4 })].join("\n") + "\n"
+	);
+	writeFileSync(
+		parentPath,
+		[
+			sessionLine("parent", TS_TODAY),
+			nestedToolResultLine({
+				id: "reported-child",
+				ts: TS_TODAY + 2000,
+				reported: { cost: 3, input: 30, output: 3, cacheRead: 4 },
+				children: [{
+					cost: 3,
+					input: 30,
+					output: 3,
+					cacheRead: 4,
+					sessionFile: childPath,
+					// Old pi-subagents records retained messages before direct child usage.
+					// The large-line parser must skip this nested usage rather than select it.
+					messages: [{ role: "assistant", usage: usage({ cost: 99, input: 99, output: 99 }) }],
+				}],
+				content: "x".repeat(70 * 1024), // exercise the allocation-safe large-line parser
+			}),
+		].join("\n") + "\n"
+	);
+
+	const data = await collectUsageData({ sessionsDir, cachePath, now: NOW });
+	assert.equal(data.today.totals.cost, 3);
+	assert.equal(data.today.totals.messages, 1);
+	assert.equal(data.today.totals.sessions, 1, "the empty parent must not become a second contributing session");
+	assert.equal(data.today.providers.has("Tools"), false);
+});
+
+test("collectUsageData counts only the unmatched residual of mixed child usage", async (t) => {
+	const { sessionsDir, cachePath } = fixture(t);
+	const parentPath = join(sessionsDir, "mixed.jsonl");
+	const childPath = join(sessionsDir, "mixed", "run-a", "run-0", "session.jsonl");
+	mkdirSync(join(childPath, ".."), { recursive: true });
+	writeFileSync(
+		childPath,
+		[sessionLine("child", TS_TODAY), assistantLine({ ts: TS_TODAY + 1000, cost: 2, input: 20, output: 2, reasoning: 2 })].join("\n") + "\n"
+	);
+	writeFileSync(
+		parentPath,
+		[
+			sessionLine("parent", TS_TODAY),
+			nestedToolResultLine({
+				id: "mixed-children",
+				ts: TS_TODAY + 2000,
+				reported: { cost: 5, input: 50, output: 5, reasoning: 5 },
+				children: [
+					{ cost: 2, input: 20, output: 2, reasoning: 2 }, // resolved through the standard derived path
+					{ cost: 3, input: 30, output: 3, reasoning: 3, sessionFile: join(sessionsDir, "missing.jsonl") },
+				],
+			}),
+		].join("\n") + "\n"
+	);
+
+	const data = await collectUsageData({ sessionsDir, cachePath, now: NOW });
+	assert.equal(data.today.totals.cost, 5, "the $2 child plus the $3 residual, not the $5 report again");
+	assert.equal(data.today.totals.messages, 1);
+	assert.equal(data.today.providers.get("anthropic").cost, 2);
+	assert.equal(data.today.providers.get("Tools").cost, 3);
+	const toolsReasoning = [...data.hourly.values()].reduce(
+		(total, cells) => total + [...cells.entries()].reduce((sum, [key, cell]) => sum + (key.startsWith("Tools\0") ? cell.reasoning : 0), 0),
+		0
+	);
+	assert.equal(toolsReasoning, 3);
+	assert.equal(data.today.providers.get("Tools").models.get("summaries").cost, 3);
+});
+
+test("collectUsageData backfills legacy nested usage only when no scanned child span represents it", async (t) => {
+	const { sessionsDir, cachePath } = fixture(t);
+	const parentPath = join(sessionsDir, "legacy.jsonl");
+	const childPath = join(sessionsDir, "legacy", "run-a", "run-0", "session.jsonl");
+	mkdirSync(join(childPath, ".."), { recursive: true });
+	writeFileSync(
+		childPath,
+		[
+			sessionLine("child", TS_TODAY),
+			assistantLine({ ts: TS_TODAY + 1000, cost: 7, input: 70, output: 7 }),
+			assistantLine({ ts: TS_TODAY + 2000, cost: 2, input: 20, output: 2 }),
+			assistantLine({ ts: TS_TODAY + 3000, cost: 8, input: 80, output: 8 }),
+		].join("\n") + "\n"
+	);
+	writeFileSync(
+		parentPath,
+		[
+			sessionLine("parent", TS_TODAY),
+			nestedToolResultLine({
+				id: "legacy-children",
+				ts: TS_TODAY + 4000,
+				children: [
+					{ cost: 2, input: 20, output: 2 }, // exact middle span in the derived child session
+					{ cost: 3, input: 30, output: 3, sessionFile: join(sessionsDir, "gone.jsonl") },
+				],
+			}),
+		].join("\n") + "\n"
+	);
+
+	const data = await collectUsageData({ sessionsDir, cachePath, now: NOW });
+	assert.equal(data.today.totals.cost, 20, "$17 in the child session plus only the missing $3 legacy result");
+	assert.equal(data.today.totals.messages, 3);
+	assert.equal(data.today.providers.get("Tools").cost, 3);
+});
+
+test("collectUsageData requires an exact cost vector before suppressing linked child usage", async (t) => {
+	const { sessionsDir, cachePath } = fixture(t);
+	const childPath = join(sessionsDir, "exact-child.jsonl");
+	writeFileSync(
+		childPath,
+		[sessionLine("child", TS_TODAY), assistantLine({ ts: TS_TODAY + 1000, cost: 2, input: 20, output: 2 })].join("\n") + "\n"
+	);
+	writeFileSync(
+		join(sessionsDir, "parent.jsonl"),
+		[
+			sessionLine("parent", TS_TODAY),
+			nestedToolResultLine({
+				id: "near-not-exact",
+				ts: TS_TODAY + 2000,
+				children: [{ cost: 2.000001, input: 20, output: 2, sessionFile: childPath }],
+			}),
+		].join("\n") + "\n"
+	);
+
+	const data = await collectUsageData({ sessionsDir, cachePath, now: NOW });
+	assert.equal(data.today.totals.cost, 4.000001);
+	assert.equal(data.today.providers.get("Tools").cost, 2.000001);
+});
+
+test("collectUsageData dedupes copied legacy child reports by parent entry id", async (t) => {
+	const { sessionsDir, cachePath } = fixture(t);
+	const copied = nestedToolResultLine({
+		id: "copied-legacy",
+		ts: TS_TODAY,
+		children: [{ cost: 3, input: 30, output: 3, sessionFile: join(sessionsDir, "missing.jsonl") }],
+	});
+	writeFileSync(join(sessionsDir, "a.jsonl"), [sessionLine("s1", TS_TODAY), copied].join("\n") + "\n");
+	writeFileSync(join(sessionsDir, "b.jsonl"), [sessionLine("s2", TS_TODAY), copied].join("\n") + "\n");
+
+	const data = await collectUsageData({ sessionsDir, cachePath, now: NOW });
+	assert.equal(data.today.totals.cost, 3);
+	assert.equal(data.today.totals.messages, 0);
+	assert.equal(data.today.providers.get("Tools").cost, 3);
+});
+
+test("collectUsageData reconciles copied tool reports globally rather than trusting the first parent copy", async (t) => {
+	const { sessionsDir, cachePath } = fixture(t);
+	const childPath = join(sessionsDir, "child.jsonl");
+	writeFileSync(
+		childPath,
+		[sessionLine("child", TS_TODAY), assistantLine({ ts: TS_TODAY + 1000, cost: 3, input: 30, output: 3 })].join("\n") + "\n"
+	);
+	writeFileSync(
+		join(sessionsDir, "a.jsonl"),
+		[
+			sessionLine("a", TS_TODAY),
+			nestedToolResultLine({
+				id: "copied-linked",
+				ts: TS_TODAY + 2000,
+				reported: { cost: 3, input: 30, output: 3 },
+				children: [{ cost: 3, input: 30, output: 3, sessionFile: join(sessionsDir, "missing.jsonl") }],
+			}),
+		].join("\n") + "\n"
+	);
+	writeFileSync(
+		join(sessionsDir, "b.jsonl"),
+		[
+			sessionLine("b", TS_TODAY),
+			nestedToolResultLine({
+				id: "copied-linked",
+				ts: TS_TODAY + 2000,
+				reported: { cost: 3, input: 30, output: 3 },
+				children: [{ cost: 3, input: 30, output: 3, sessionFile: childPath }],
+			}),
+		].join("\n") + "\n"
+	);
+
+	const data = await collectUsageData({ sessionsDir, cachePath, now: NOW });
+	assert.equal(data.today.totals.cost, 3);
+	assert.equal(data.today.totals.messages, 1);
+	assert.equal(data.today.providers.has("Tools"), false);
+});
+
 test("collectUsageData dedupes copied auxiliary entries by id without collapsing parallel peers", async (t) => {
 	const { sessionsDir, cachePath } = fixture(t);
 	const copied = toolResultLine({ id: "copied-tool", ts: TS_TODAY, cost: 2, input: 20, output: 2 });
@@ -517,7 +744,7 @@ test("collectUsageData survives a corrupt cache file", async (t) => {
 
 	// Cache was rebuilt.
 	const cacheJson = JSON.parse(readFileSync(cachePath, "utf8"));
-	assert.equal(cacheJson.version, 4);
+	assert.equal(cacheJson.version, 5);
 });
 
 test("collectUsageData works with the cache disabled", async (t) => {
@@ -551,10 +778,21 @@ test("saveUsageCache/loadUsageCache round-trips file states", async (t) => {
 						{ provider: "anthropic", model: "claude-fable-5", thinkingLevel: "xhigh", source: "assistant", sourceId: "", cost: 1.5, input: 10, output: 20, cacheRead: 30, cacheWrite: 40, reasoning: 7, timestamp: TS_TODAY, afterCompaction: true },
 						{ provider: "Tools", model: "summaries", thinkingLevel: "Tools/summaries", source: "auxiliary", sourceId: "summary-a", cost: 0.25, input: 1, output: 2, cacheRead: 3, cacheWrite: 4, reasoning: 0, timestamp: TS_OLD, afterCompaction: false },
 					],
+					toolUsages: [
+						{
+							sourceId: "tool-a",
+							timestamp: TS_TODAY,
+							reportedUsage: { cost: 2, input: 20, output: 2, cacheRead: 3, cacheWrite: 4, reasoning: 1 },
+							runId: "run-a",
+							children: [
+								{ resultIndex: 0, sessionFile: "/tmp/child.jsonl", usage: { cost: 2, input: 20, output: 2, cacheRead: 3, cacheWrite: 4, reasoning: 0 } },
+							],
+						},
+					],
 				},
 			},
 		],
-		["/tmp/empty.jsonl", { size: 1, mtimeMs: 2, parsed: { sessionId: "", cwd: "", messages: [] } }],
+		["/tmp/empty.jsonl", { size: 1, mtimeMs: 2, parsed: { sessionId: "", cwd: "", messages: [], toolUsages: [] } }],
 	]);
 
 	await saveUsageCache(cachePath, states);
@@ -567,6 +805,7 @@ test("saveUsageCache/loadUsageCache round-trips file states", async (t) => {
 	assert.equal(a.parsed.sessionId, "s1");
 	assert.equal(a.parsed.cwd, "/home/u/projects/x");
 	assert.deepEqual(a.parsed.messages, states.get("/tmp/a.jsonl").parsed.messages);
+	assert.deepEqual(a.parsed.toolUsages, states.get("/tmp/a.jsonl").parsed.toolUsages);
 	assert.equal(loaded.get("/tmp/empty.jsonl").parsed.sessionId, "");
 });
 
@@ -610,20 +849,26 @@ test("loadUsageCache rejects wrong versions and malformed entries", async (t) =>
 	);
 	assert.equal((await loadUsageCache(cachePath)).size, 0);
 
+	// v4 caches have canonical tool usage but not the child-linkage metadata
+	// needed to reconcile recursively scanned sessions.
+	writeFileSync(cachePath, JSON.stringify({ version: 4, names: [], files: {} }));
+	assert.equal((await loadUsageCache(cachePath)).size, 0);
+
 	writeFileSync(
 		cachePath,
 		JSON.stringify({
-			version: 4,
+			version: 5,
 			names: ["p", "m", "high", "entry-a"],
 			files: {
-				"/ok.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [[0, 1, 1, 1, 1, 0, 0, TS_TODAY, 2, 5, 1, 1, 3]] },
-				"/bad-tuple.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [[0, 1, 1]] },
-				"/bad-name-idx.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [[7, 1, 1, 1, 1, 0, 0, TS_TODAY, 2, 0, 0, 0, 3]] },
-				"/bad-level-idx.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [[0, 1, 1, 1, 1, 0, 0, TS_TODAY, 9, 0, 0, 0, 3]] },
-				"/bad-source.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [[0, 1, 1, 1, 1, 0, 0, TS_TODAY, 2, 0, 0, 7, 3]] },
-				"/bad-source-id.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [[0, 1, 1, 1, 1, 0, 0, TS_TODAY, 2, 0, 0, 0, 9]] },
-				"/no-cwd.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", messages: [[0, 1, 1, 1, 1, 0, 0, TS_TODAY, 2, 0, 0, 0, 3]] },
-				"/bad-shape.jsonl": { size: "x", mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [] },
+				"/ok.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [[0, 1, 1, 1, 1, 0, 0, TS_TODAY, 2, 5, 1, 1, 3]], toolUsages: [] },
+				"/bad-tuple.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [[0, 1, 1]], toolUsages: [] },
+				"/bad-name-idx.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [[7, 1, 1, 1, 1, 0, 0, TS_TODAY, 2, 0, 0, 0, 3]], toolUsages: [] },
+				"/bad-level-idx.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [[0, 1, 1, 1, 1, 0, 0, TS_TODAY, 9, 0, 0, 0, 3]], toolUsages: [] },
+				"/bad-source.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [[0, 1, 1, 1, 1, 0, 0, TS_TODAY, 2, 0, 0, 7, 3]], toolUsages: [] },
+				"/bad-source-id.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [[0, 1, 1, 1, 1, 0, 0, TS_TODAY, 2, 0, 0, 0, 9]], toolUsages: [] },
+				"/bad-tool.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [], toolUsages: [[3, TS_TODAY, [1, 2], 3, []]] },
+				"/no-cwd.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", messages: [[0, 1, 1, 1, 1, 0, 0, TS_TODAY, 2, 0, 0, 0, 3]], toolUsages: [] },
+				"/bad-shape.jsonl": { size: "x", mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [], toolUsages: [] },
 			},
 		})
 	);

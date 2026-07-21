@@ -7,9 +7,9 @@ A Pi extension that displays aggregated usage statistics across all sessions.
 ## Compatibility
 
 - **Pi version:** 0.42.4+
-- **Last updated:** 2026-07-21 (0.9.2)
+- **Last updated:** 2026-07-22 (0.9.3)
 
-Pi 0.81.0+ persists nested tool, compaction, and branch-summary usage. `/usage` includes that auxiliary usage in totals under `Tools / summaries`; older Pi versions remain supported but do not record these entries.
+Pi 0.81.0+ can persist tool-result, compaction, and branch-summary usage. `/usage` includes that auxiliary usage in totals under `Tools / summaries`. Nested-agent reports are reconciled against recursively scanned child sessions, so a child call is counted once; when only part of an aggregate is already present, only the unmatched residual is added. Older Pi versions remain supported.
 
 ## Installation
 
@@ -198,13 +198,16 @@ On narrow terminals, `/usage` automatically switches to a compact table instead 
 - **On-disk cache.** Per-file extraction results are cached in `<agentDir>/usage-extension-cache.json` (respects `PI_CODING_AGENT_DIR`), keyed by file size + mtime. Warm opens only re-parse session files that changed since the last run — on a 5.2 GB / 3,310-file corpus that takes the open from ~17 s to ~0.3 s.
 - **First open** after install (or after deleting the cache) does a one-off full build, showing the usual cancellable loader. Cancelling saves partial progress, so the next open resumes where it left off.
 - The cache is safe to delete at any time; it is rebuilt automatically. Corrupt or version-mismatched caches are ignored and rebuilt rather than trusted.
-- **0.9.2 bumps the cache format to v4** to include Pi 0.81.0 tool and summary usage (v3 added session working directory and compaction markers; v2 added thinking level and reasoning tokens). The first open after upgrading does a one-off full rebuild (with a progress message and live file counter), then warm opens are fast again.
+- **0.9.3 bumps the cache format to v5** to retain child-session linkage for tool-usage reconciliation (v4 added Pi 0.81.0 tool and summary usage; v3 added session working directory and compaction markers; v2 added thinking level and reasoning tokens). The first open after upgrading does a one-off full rebuild (with a progress message and live file counter), then warm opens are fast again.
+- Large nested-agent tool results use an allocation-safe metadata parser: multi-megabyte output bodies are scanned as bytes rather than decoded and JSON-parsed in full.
 
 ## Provider Notes
 
 ### Cost Tracking
 
-Cost data comes directly from persisted `usage.cost.total` values. For assistant messages it is grouped by provider/model. Pi 0.81.0+ also persists usage reported by nested tools, compaction, and branch summarization; because those entries do not carry reliable provider/model attribution, `/usage` groups them under `Tools / summaries`, matching Pi's `/session` breakdown. Accuracy depends on the provider or tool reporting costs.
+Cost data comes directly from persisted usage values. For assistant messages it is grouped by provider/model. Pi 0.81.0+ can also persist usage reported by tools, compaction, and branch summarization; because those entries do not carry reliable provider/model attribution, `/usage` groups them under `Tools / summaries`, matching Pi's `/session` breakdown. Recognised legacy `subagent` and `subagent_wait` details are used as a fallback when their child session is no longer available. Accuracy depends on the provider or tool reporting costs.
+
+Only persisted usage can be counted. Pi did not add usage metadata retroactively, so historical compaction or branch-summary entries written without `usage` remain unmetered: their exact token and cost vectors cannot be reconstructed. The compatibility audit corpus contained 2,753 such compactions and 20 branch summaries.
 
 ### Cache Tokens
 
@@ -224,7 +227,7 @@ The "Cache" column combines both read and write tokens.
 
 Statistics are parsed recursively from session files in `~/.pi/agent/sessions/`, including nested subagent runs such as `run-0/` directories. Each session is a JSONL file containing assistant messages and, on Pi 0.81.0+, optional usage on tool-result, compaction, and branch-summary entries.
 
-Assistant messages duplicated across branched session files are deduplicated by timestamp + total tokens. Auxiliary usage is deduplicated by its stable session entry id, which avoids collapsing parallel tools that happen to report identical usage. Tool and summary usage contributes cost and tokens to totals, graphs, project/session mix, and burn trend, but does not count as an assistant message or distort conversation context/cache insights.
+Assistant messages duplicated across branched session files are deduplicated by timestamp + total tokens. Auxiliary usage is deduplicated by its stable session entry id, which avoids collapsing parallel tools that happen to report identical usage. Tool reports are reconciled globally across copied parent history: an exact contiguous child-session token-and-cost vector suppresses the matching portion of the parent aggregate, while missing children and unmatched residuals stay under `Tools / summaries`. Tool and summary usage contributes cost and tokens to totals, graphs, project/session mix, and burn trend, but does not count as an assistant message or distort conversation context/cache insights.
 
 Respects the `PI_CODING_AGENT_DIR` environment variable if set.
 
