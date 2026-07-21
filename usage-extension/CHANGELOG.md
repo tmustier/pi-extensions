@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.9.3] - 2026-07-22
+
+### Fixed
+- Reconcile nested-agent tool usage against recursively scanned child sessions using exact contiguous token-and-cost vectors. Canonical tool aggregates now exclude child usage already counted from session files, and mixed aggregates add only the unmatched residual under `Tools / summaries`.
+- Reconcile globally across copied parent history, so a stale copy with a missing child path cannot win deduplication and reintroduce usage represented by another copy's linked child session.
+- Backfill recognised legacy `subagent` and `subagent_wait` child usage only when no scanned child-session span represents it.
+
+### Performance
+- Extract accounting metadata from large tool results without decoding or JSON-parsing multi-megabyte output bodies.
+
+### Internal
+- Cache format bumped to **v5** to retain tool reports and child-session linkage. The first `/usage` open after upgrading performs a one-off rebuild.
+- Document the irrecoverable historical boundary: compaction and branch-summary entries written without usage metadata remain unmetered. The compatibility audit found 2,753 such compactions and 20 branch summaries.
+
 ## [0.9.2] - 2026-07-21
 
 ### Fixed
