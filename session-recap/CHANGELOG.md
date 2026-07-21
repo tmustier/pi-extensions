@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- Skip recap generation silently when the active model uses a custom API handler that is registered only in Pi's runtime and cannot be resolved by pi-ai's standalone compatibility layer. Users can still select a supported recap model with `--recap-model`.
+
+Thanks to @timvdhoorn for reporting and fixing the custom-provider failure ([#81](https://github.com/tmustier/pi-extensions/pull/81)).
+
 ## [0.2.1] - 2026-07-05
 
 ### Fixed

@@ -28,9 +28,10 @@
  * the user has lost is the task thread.
  *
  * Model: defaults to the user's currently active model with reasoning/thinking
- * disabled and cache writes disabled. This piggybacks on whatever auth the user
- * already has configured (including custom providers) so there are no login
- * surprises. Override explicitly with `--recap-model "<provider>/<id>"`.
+ * disabled and cache writes disabled. This piggybacks on the user's configured
+ * auth. Custom providers using a built-in pi-ai API work normally; providers
+ * with a custom API handler are skipped silently. Override explicitly with
+ * `--recap-model "<provider>/<id>"`.
  *
  * Flags:
  *   --recap-away-seconds <n>   Continuous blur before an away recap (default 90)
@@ -340,7 +341,7 @@ async function generateRecap(
 		// are unknown to pi-ai's compat provider registry, so completeSimple
 		// cannot route the call. Skip the recap silently, matching the documented
 		// "failed auth resolution → skipped silently" behavior.
-		if (err instanceof Error && err.message.includes("No API provider registered")) {
+		if (err instanceof Error && err.message.startsWith("No API provider registered for api:")) {
 			return undefined;
 		}
 		throw err;

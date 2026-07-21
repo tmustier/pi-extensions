@@ -33,13 +33,13 @@ If focus events cause any weirdness in your terminal, run with `--recap-disable-
 
 ## Model
 
-Defaults to the **currently active model** in your Pi session, but with recap-specific low-cost settings. This piggybacks on whatever auth you already have (including custom providers registered via `pi.registerProvider`), so there are no login surprises.
+Defaults to the **currently active model** in your Pi session, but with recap-specific low-cost settings. This piggybacks on the auth you already have configured, so there are no extra login prompts. Custom providers registered through `pi.registerProvider` work when they use one of pi-ai's built-in API types. Providers that register a custom API handler only inside Pi's runtime are skipped silently because pi-ai's standalone compatibility layer cannot route the recap call; use `--recap-model` to select a supported provider if you still want recaps in those sessions.
 
 - No tools or Agent Skills are loaded into the recap call — only a compact two-tier transcript is sent (recent activity in detail, plus your earlier prompts and any compaction summary for task framing), capped at ~12k chars.
 - Reasoning/thinking is disabled for the recap call.
 - Prompt cache writes/reads are disabled with `cacheRetention: "none"`.
 - Output is capped with `maxTokens: 256`.
-- No active model or failed auth resolution → the recap is skipped silently.
+- No active model, failed auth resolution, or an unsupported custom API handler → the recap is skipped silently.
 
 Override with `--recap-model "<provider>/<id>"` if you want a specific model regardless of the session's active one.
 
