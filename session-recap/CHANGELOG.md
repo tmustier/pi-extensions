@@ -1,9 +1,10 @@
 # Changelog
 
-## [Unreleased]
+## [0.2.2] - 2026-07-21
 
 ### Fixed
 - Skip recap generation silently when the active model uses a custom API handler that is registered only in Pi's runtime and cannot be resolved by pi-ai's standalone compatibility layer. Users can still select a supported recap model with `--recap-model`.
+- Publish the metadata-only branch deduplication fix listed under 0.2.1. Version 0.2.2 is the first npm release since 0.2.0.
 
 Thanks to @timvdhoorn for reporting and fixing the custom-provider failure ([#81](https://github.com/tmustier/pi-extensions/pull/81)).
 

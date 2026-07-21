@@ -1,6 +1,11 @@
 # Changelog
 
-## [Unreleased]
+## [0.1.58] - 2026-07-21
+
+### Changed
+- Bundle `@tmustier/pi-ralph-wiggum` 0.2.3, which binds loops to their owning Pi session and documents how iterations share a session and use normal compaction. Thanks to @juicetin for the fix and regression test ([#50](https://github.com/tmustier/pi-extensions/issues/50), [#52](https://github.com/tmustier/pi-extensions/pull/52)), and to @rhossack and @RichardScottOZ for prompting the documentation clarification ([#46](https://github.com/tmustier/pi-extensions/issues/46)).
+- Bundle `@tmustier/pi-session-recap` 0.2.2, which silently skips unsupported runtime-only custom API handlers instead of logging a recap failure. Thanks to @timvdhoorn for reporting and fixing the custom-provider failure ([#81](https://github.com/tmustier/pi-extensions/pull/81)).
+- Exclude nested development `node_modules` trees from the root npm package and document pre-publish tarball inspection.
 
 ### Removed
 - Remove the retired Tessl `skill-review-and-optimize` workflows. They had no configured Tessl token, reported authentication failures as successful checks, and could no longer provide useful skill review or optimization feedback.

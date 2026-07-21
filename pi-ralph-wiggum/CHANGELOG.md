@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.2.3] - 2026-07-21
 
 ### Fixed
 - Bind active Ralph loops to their owning Pi session. Reloads and compaction restore only that session's loop; unrelated sessions sharing the same working directory no longer receive Ralph prompt injection or mutate the loop. `/ralph resume <name>` explicitly transfers ownership.

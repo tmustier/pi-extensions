@@ -4,6 +4,11 @@
 .build/
 .research/
 
+# Dependency/install artifacts
+node_modules/
+**/node_modules/
+package-lock.json
+
 # Unrelated extensions for npm root package
 control/
 review/
