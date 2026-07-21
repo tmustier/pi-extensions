@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Removed
+- Remove the retired Tessl `skill-review-and-optimize` workflows. They had no configured Tessl token, reported authentication failures as successful checks, and could no longer provide useful skill review or optimization feedback.
+
+Thanks to @popey for the advance retirement notice ([#48](https://github.com/tmustier/pi-extensions/issues/48)).
+
 ## [0.1.57] - 2026-07-17
 
 ### Changed
