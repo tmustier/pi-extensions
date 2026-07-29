@@ -2,7 +2,7 @@
  * /usage - Usage statistics dashboard
  *
  * Shows an inline view with usage stats grouped by provider.
- * - Tab cycles: Today → This Week → Last Week → All Time
+ * - Tab cycles: Today → This Week → Last Week → Last 30 Days → Monthly → All Time
  * - Arrow keys navigate providers
  * - Enter expands/collapses to show models
  *
@@ -274,6 +274,7 @@ const TAB_LABELS: Record<TabName, string> = {
 	thisWeek: "This Week",
 	lastWeek: "Last Week",
 	last30Days: "Last 30 Days",
+	monthly: "Monthly",
 	allTime: "All Time",
 };
 
@@ -753,12 +754,16 @@ class UsageComponent {
 
 	private renderTabs(width: number, layout: TableLayout): string[] {
 		const th = this.theme;
+		const tabLabel = (tab: TabName): string =>
+			tab === "monthly"
+				? new Date(this.data.bounds.monthStartMs).toLocaleDateString(undefined, { month: "short", year: "numeric" })
+				: TAB_LABELS[tab];
 		const fullTabs = TAB_ORDER.map((tab) => {
-			const label = TAB_LABELS[tab];
+			const label = tabLabel(tab);
 			return tab === this.activeTab ? th.fg("accent", `[${label}]`) : th.fg("dim", ` ${label} `);
 		}).join("  ");
 
-		const activeTabOnly = th.fg("accent", `[${TAB_LABELS[this.activeTab]}]`);
+		const activeTabOnly = th.fg("accent", `[${tabLabel(this.activeTab)}]`);
 		const tabLine = pickFittingText(width, [
 			fullTabs,
 			`${activeTabOnly}  ${th.fg("dim", "[Tab/←→]")}`,

@@ -21,6 +21,7 @@ const BOUNDS = {
 	weekStartMs: new Date(2026, 6, 13, 0, 0, 0).getTime(), // Monday
 	lastWeekStartMs: new Date(2026, 6, 6, 0, 0, 0).getTime(),
 	last30DaysStartMs: new Date(2026, 5, 16, 0, 0, 0).getTime(),
+	monthStartMs: new Date(2026, 6, 1, 0, 0, 0).getTime(),
 	nowMs: NOW,
 };
 
@@ -196,6 +197,18 @@ test("buildGraphModel uses daily buckets and the domain rules per period", () =>
 	assert.equal(m30.series[0].total, 3, "out-of-window usage must be excluded");
 	assert.equal(m30.domainStartMs, BOUNDS.last30DaysStartMs);
 	assert.equal(m30.domainEndMs, NOW);
+
+	const monthly = buildGraphModel(hourly, {
+		period: "monthly",
+		metric: "cost",
+		groupBy: "total",
+		cumulative: false,
+		bounds: BOUNDS,
+	});
+	assert.equal(monthly.bucketMs, DAY);
+	assert.equal(monthly.series[0].total, 2, "previous-month usage must be excluded");
+	assert.equal(monthly.domainStartMs, BOUNDS.monthStartMs);
+	assert.equal(monthly.domainEndMs, NOW);
 
 	// lastWeek has a fixed end (this Monday), not now.
 	const lw = buildGraphModel(hourly, {

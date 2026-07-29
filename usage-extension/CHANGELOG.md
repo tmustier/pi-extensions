@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **Monthly period.** New tab labelled with the current month and year (for example, `Jul 2026`), covering the calendar month from local midnight on the first day. Available in graphs, table, insights, and exports.
+
 ## [0.9.4] - 2026-07-22
 
 ### Changed

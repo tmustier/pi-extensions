@@ -150,6 +150,7 @@ export interface PeriodBounds {
 	weekStartMs: number;
 	lastWeekStartMs: number;
 	last30DaysStartMs: number;
+	monthStartMs: number;
 	nowMs: number;
 }
 
@@ -158,15 +159,16 @@ export interface UsageData {
 	thisWeek: TimeFilteredStats;
 	lastWeek: TimeFilteredStats;
 	last30Days: TimeFilteredStats;
+	monthly: TimeFilteredStats;
 	allTime: TimeFilteredStats;
 	/** Deduped usage bucketed by hour start (ms) → series key → metrics. */
 	hourly: Map<number, Map<HourlyKey, HourlyCell>>;
 	bounds: PeriodBounds;
 }
 
-export type TabName = "today" | "thisWeek" | "lastWeek" | "last30Days" | "allTime";
+export type TabName = "today" | "thisWeek" | "lastWeek" | "last30Days" | "monthly" | "allTime";
 
-export const TAB_ORDER: TabName[] = ["today", "thisWeek", "lastWeek", "last30Days", "allTime"];
+export const TAB_ORDER: TabName[] = ["today", "thisWeek", "lastWeek", "last30Days", "monthly", "allTime"];
 
 export type UsageSource = "assistant" | "auxiliary";
 
@@ -1061,6 +1063,7 @@ function emptyUsageData(bounds: PeriodBounds): UsageData {
 		thisWeek: emptyTimeFilteredStats(),
 		lastWeek: emptyTimeFilteredStats(),
 		last30Days: emptyTimeFilteredStats(),
+		monthly: emptyTimeFilteredStats(),
 		allTime: emptyTimeFilteredStats(),
 		hourly: new Map(),
 		bounds,
@@ -1113,7 +1116,8 @@ function getPeriodsForTimestamp(
 	todayMs: number,
 	weekStartMs: number,
 	lastWeekStartMs: number,
-	last30DaysStartMs: number
+	last30DaysStartMs: number,
+	monthStartMs: number
 ): TabName[] {
 	const periods: TabName[] = ["allTime"];
 	if (timestamp >= todayMs) periods.push("today");
@@ -1123,6 +1127,7 @@ function getPeriodsForTimestamp(
 		periods.push("lastWeek");
 	}
 	if (timestamp >= last30DaysStartMs) periods.push("last30Days");
+	if (timestamp >= monthStartMs) periods.push("monthly");
 	return periods;
 }
 
@@ -1139,10 +1144,11 @@ function addMessagesToUsageData(
 	weekStartMs: number,
 	lastWeekStartMs: number,
 	last30DaysStartMs: number,
+	monthStartMs: number,
 	rawByPeriod: Record<TabName, PeriodRawData>,
 	costByDayIdx: Map<number, number>
 ): void {
-	const sessionContributed = { today: false, thisWeek: false, lastWeek: false, last30Days: false, allTime: false };
+	const sessionContributed = { today: false, thisWeek: false, lastWeek: false, last30Days: false, monthly: false, allTime: false };
 
 	for (let mi = 0; mi < messages.length; mi++) {
 		const msg = messages[mi]!;
@@ -1159,7 +1165,7 @@ function addMessagesToUsageData(
 
 		addToHourlyBuckets(data.hourly, msg);
 
-		const periods = getPeriodsForTimestamp(msg.timestamp, todayMs, weekStartMs, lastWeekStartMs, last30DaysStartMs);
+		const periods = getPeriodsForTimestamp(msg.timestamp, todayMs, weekStartMs, lastWeekStartMs, last30DaysStartMs, monthStartMs);
 		const tokens = {
 			// Count fresh tokens processed this turn.
 			// Include cacheWrite because those prompt tokens were newly written and billed.
@@ -1239,6 +1245,7 @@ function addMessagesToUsageData(
 	if (sessionContributed.thisWeek) data.thisWeek.totals.sessions++;
 	if (sessionContributed.lastWeek) data.lastWeek.totals.sessions++;
 	if (sessionContributed.last30Days) data.last30Days.totals.sessions++;
+	if (sessionContributed.monthly) data.monthly.totals.sessions++;
 	if (sessionContributed.allTime) data.allTime.totals.sessions++;
 }
 
@@ -1401,6 +1408,11 @@ export async function collectUsageData(options: CollectUsageOptions = {}): Promi
 	startOfLast30Days.setDate(startOfLast30Days.getDate() - 29);
 	const last30DaysStartMs = startOfLast30Days.getTime();
 
+	// Current calendar month from local midnight on the first day.
+	const startOfMonth = new Date(startOfToday);
+	startOfMonth.setDate(1);
+	const monthStartMs = startOfMonth.getTime();
+
 	// 1. Discover session files.
 	const filePaths = await getAllSessionFiles(sessionsDir, signal);
 	if (signal?.aborted) return null;
@@ -1524,12 +1536,13 @@ export async function collectUsageData(options: CollectUsageOptions = {}): Promi
 	}
 
 	// 6. Aggregate in sorted path order with cross-file dedupe.
-	const data = emptyUsageData({ todayMs, weekStartMs, lastWeekStartMs, last30DaysStartMs, nowMs: now.getTime() });
+	const data = emptyUsageData({ todayMs, weekStartMs, lastWeekStartMs, last30DaysStartMs, monthStartMs, nowMs: now.getTime() });
 	const rawByPeriod: Record<TabName, PeriodRawData> = {
 		today: emptyPeriodRawData(),
 		thisWeek: emptyPeriodRawData(),
 		lastWeek: emptyPeriodRawData(),
 		last30Days: emptyPeriodRawData(),
+		monthly: emptyPeriodRawData(),
 		allTime: emptyPeriodRawData(),
 	};
 	const costByDayIdx = new Map<number, number>();
@@ -1596,6 +1609,7 @@ export async function collectUsageData(options: CollectUsageOptions = {}): Promi
 			weekStartMs,
 			lastWeekStartMs,
 			last30DaysStartMs,
+			monthStartMs,
 			rawByPeriod,
 			costByDayIdx
 		);
