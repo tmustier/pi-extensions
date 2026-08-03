@@ -1,57 +1,31 @@
 # session-recap
 
-"While you were away" recap for Pi, modelled on Claude Code's away-summary. When you've genuinely been away from a Pi session, a short recap is drafted while you're gone and parked above the editor so it's waiting when you return.
+A configurable recap widget for Pi. It covers terminal absence, idle turns, resumed sessions, manual `/recap`, and long active agent runs.
 
-![session-recap widget in a live Pi session](./assets/recap.png)
+Default live output:
 
-Built for multi-clauding / multi-pi workflows where several agent sessions run in parallel tabs.
-
-The recap orients rather than reports: it states the high-level task first (what you're building or debugging), then the concrete next step — the last assistant message is already on screen; what you've lost after a context switch is the task thread.
-
-## How it triggers
-
-1. **Away timer.** The extension enables terminal focus reporting (DECSET `?1004`) on session start. After the terminal has been continuously blurred for `--recap-away-seconds` (default 90s), a recap is generated and shown, so it's parked above the editor when you refocus.
-2. **Turn ends while you're away.** If the agent finishes a turn while the terminal is blurred — the prime multi-tab moment — a recap is drafted after a short debounce.
-3. **Idle fallback.** Only on terminals that haven't demonstrated focus-reporting support: `--recap-idle-seconds` (default 120s) after the last `turn_end` with no input, a recap is generated anyway. The first real focus event disarms this path for the session.
-
-Also fires automatically on `/resume` and `/fork` so you know where the prior session left off.
-
-Clears cleanly on: next user input, new turn start, session reload, or session shutdown.
-
-Quick alt-tabs cost nothing: no model call is made until you've actually been away for the full threshold. If you return while a recap is still drafting, it's allowed to finish — it lands moments after you're back, which is exactly when it helps.
-
-## Terminal compatibility
-
-| Terminal | Focus reporting | Notes |
-|---|---|---|
-| iTerm2, Ghostty, Alacritty, Kitty, WezTerm, xterm | ✅ | Works out of the box. |
-| VS Code integrated terminal, Warp | ✅ | Works. |
-| Apple Terminal | ⚠️ Partial | Idle fallback covers it. |
-| tmux | ✅ (with config) | Add `set -g focus-events on` to `~/.tmux.conf`, then `tmux source-file ~/.tmux.conf`. |
-
-If focus events cause any weirdness in your terminal, run with `--recap-disable-focus` and the idle fallback still works.
-
-## Model
-
-Defaults to the **currently active model** in your Pi session, but with recap-specific low-cost settings. This piggybacks on the auth you already have configured, so there are no extra login prompts. Custom providers registered through `pi.registerProvider` work when they use one of pi-ai's built-in API types. Providers that register a custom API handler only inside Pi's runtime are skipped silently because pi-ai's standalone compatibility layer cannot route the recap call; use `--recap-model` to select a supported provider if you still want recaps in those sessions.
-
-- No tools or Agent Skills are loaded into the recap call — only a compact two-tier transcript is sent (recent activity in detail, plus your earlier prompts and any compaction summary for task framing), capped at ~12k chars.
-- Reasoning/thinking is disabled for the recap call.
-- Prompt cache writes/reads are disabled with `cacheRetention: "none"`.
-- Output is capped with `maxTokens: 256`.
-- No active model, failed auth resolution, or an unsupported custom API handler → the recap is skipped silently.
-
-Override with `--recap-model "<provider>/<id>"` if you want a specific model regardless of the session's active one.
+```text
+✦ recap
+Done: Added config loading and tests.
+Now: Running the typecheck.
+Next: Fix any type errors, then review the diff.
+```
 
 ## Install
 
-### Pi package manager
+Install the standalone npm package:
+
+```bash
+pi install npm:@tmustier/pi-session-recap
+```
+
+Or install it from this extension collection:
 
 ```bash
 pi install git:github.com/tmustier/pi-extensions
 ```
 
-Filter to just this extension in `~/.pi/agent/settings.json`:
+To load only this extension from the collection, filter it in `~/.pi/agent/settings.json`:
 
 ```json
 {
@@ -64,47 +38,116 @@ Filter to just this extension in `~/.pi/agent/settings.json`:
 }
 ```
 
-### Local clone
+## Triggers and lifecycle
+
+- **Live:** starts with `agent_start`. The first eligible model call is 120 seconds later. After a recap becomes visible, the next live call waits at least 90 seconds and requires meaningful new streaming, tool, or finalized-message activity.
+- **Away:** continuous terminal blur arms a 90-second timer through DECSET `?1004` focus reporting.
+- **Turn ended while away:** a 3-second debounce handles the common multi-tab completion case.
+- **Idle:** after `turn_end`, used only until the terminal proves that focus events work.
+- **Resume/fork:** runs after `session_start` for the prior branch.
+- **Manual:** `/recap` runs immediately and has priority over an automatic request.
+
+Events update an in-memory live snapshot; they do not call the model. One polling scheduler owns live calls. It includes current `message_update` text, `tool_execution_start/update/end`, finalized messages, turn boundaries, and the persisted branch. This covers one long tool, continuous output, and multi-turn loops.
+
+Only one recap call runs at a time. A completed snapshot may be slightly stale if work advanced during generation; request ownership prevents an older call from overwriting a newer one. New user input and session shutdown abort active calls. `agent_end` stops the live scheduler. `lifecycle.liveWidgetOnAgentEnd` selects `keep` or `clear`.
+
+## Configuration
+
+[`defaults.json`](defaults.json) is the shipped, authoritative full default configuration. Put partial strict-JSON overrides at:
+
+1. `~/.pi/agent/session-recap.json`, or `$PI_CODING_AGENT_DIR/session-recap.json`
+2. `<ctx.cwd>/.pi/session-recap.json`
+3. the path in `$PI_SESSION_RECAP_CONFIG`
+4. the path passed through `--recap-config` (wins over the environment variable)
+
+The project layer is loaded only when Pi reports `ctx.isProjectTrusted()`. Untrusted clones cannot change recap prompts, terminal focus sequences, model selection, or other settings through `<ctx.cwd>/.pi/session-recap.json`. Global config and paths explicitly selected through the environment or CLI remain user-controlled and load regardless of project trust.
+
+Shipped defaults have the lowest priority. The environment and CLI files are both loaded when both are set; CLI values win per key. Identical paths load once at their highest-precedence position. Objects deep-merge. Arrays replace arrays. Relative explicit paths resolve from `ctx.cwd`; `~/` expands to the home directory.
+
+The extension reloads config on `session_start`, every `agent_start`, and before `/recap`. Reloaded prompts, model and response settings, transcript limits, widget settings, enabled gates, and live eligibility timings are read by the next applicable check or model call; an already armed one-shot timer keeps its original deadline, then rechecks `enabled.automatic` and its reason flag before starting work. `agent_start` cancels a pending resume recap. The in-memory activity buffer options (`assistantCharsPerLiveVersion`, `toolUpdateCharsPerLiveVersion`, `maxLiveEvents`, `maxLiveEventChars`, `maxRunningTools`, and `liveAssistantChars`) and the `livePollMs` interval apply on the next `agent_start`, which preserves evidence already captured by the current run. A change to focus enablement, sequences, or parser cap safely disables the old terminal mode and reattaches the new parser. Focus input sequences must be non-empty, distinct, and not prefixes of each other. Widget/status key changes clear the old keys before rendering under new ones. Cancelling manual or idle work clears its owning drafting status even when widget lifecycle clearing is disabled. A malformed file, unknown key or event, wrong type, invalid enum, unsafe focus sequence, invalid cap, or invalid model candidate rejects the whole reload. Pi logs/notifies the exact path and retains the last valid canonical JSON config, or shipped defaults if none loaded. Deprecated flags are derived afterward and never mutate that canonical state. Missing optional files are ignored.
+
+Config is parsed only with `JSON.parse`. Prompt and output templates permit named text interpolation such as `{{transcript}}` and `{{done}}`. Unknown, nested, stray, or expression-like delimiters fail, including `{{{transcript}}}` and `{{transcript}}}`; ordinary single braces remain valid prose. There is no `eval`, module loading, Handlebars logic, or code execution.
+
+### Example
 
 ```json
 {
-  "extensions": [
-    "~/pi-extensions/session-recap/index.ts"
-  ]
+  "timings": {
+    "liveFirstMs": 180000,
+    "liveMinIntervalMs": 120000
+  },
+  "model": {
+    "candidates": ["anthropic/claude-haiku", "$active"],
+    "maxTokens": 192
+  },
+  "response": {
+    "template": "Done: {{done}}\nNow: {{current}}\nNext: {{next}}"
+  },
+  "lifecycle": {
+    "liveWidgetOnAgentEnd": "clear"
+  }
 }
 ```
 
-## Flags
+### Full field reference
 
-| Flag | Default | Description |
-|---|---|---|
-| `--recap-away-seconds <n>` | `90` | Seconds of continuous terminal blur before an away recap is generated. |
-| `--recap-idle-seconds <n>` | `120` | Idle-fallback delay after `turn_end`, used only when the terminal doesn't report focus. |
-| `--recap-disable-focus` | `false` | Disable DECSET `?1004` focus reporting. Idle fallback still runs. |
-| `--recap-during-active` | `false` | Allow away recaps while an agent turn is still running, instead of deferring to the end of the turn. |
-| `--recap-disable` | `false` | Disable the automatic recap entirely. `/recap` still works. |
-| `--recap-model "<p/id>"` | (active model) | Override the default, e.g. `anthropic/claude-sonnet-4-6`. |
+- `enabled`: toggles `automatic`, `manual`, `away`, `idle`, `resume`, `live`, and `focusReporting` independently.
+- `timings`: `awayMs`, `idleMs`, `postTurnDebounceMs`, `resumeDelayMs`, `liveFirstMs`, `liveMinIntervalMs`, and scheduler `livePollMs`.
+- `focus`: terminal `enableSequence`, `disableSequence`, `inSequence`, `outSequence`, parser `inputBufferCap`, `allowAwayDuringAgent`, and `finishDraftAfterRefocus`.
+- `activity`: persisted recap `assistantMinWords`; live dirty thresholds `assistantCharsPerLiveVersion` and `toolUpdateCharsPerLiveVersion`; allowed `liveEvents`; snapshot `maxLiveEvents` and `maxLiveEventChars`; running-tool map cap `maxRunningTools`. Missing tool-end events evict the oldest running record first at this cap.
+- `transcript`: caps for `earlierUserPrompts`, `earlierPromptChars`, `compactionSummaryChars`, `userChars`, `assistantChars`, `toolArgumentsChars`, `toolResultChars`, total input `totalChars`, current-request reserve `currentUserReserveChars`, newest persisted-detail reserve `persistedReserveChars`, live-section cap `liveMaxChars`, and current stream `liveAssistantChars`. The reserves protect the current request and newest persisted evidence before remaining space goes to high-priority live evidence; older framing uses only leftover space. Scarce budgets scale the protected sections proportionally. Rendered order remains framing, current request, persisted detail, live activity.
+- `model`: ordered `candidates` (`provider/id` or `$active`; IDs may contain further `/` characters), `reasoning`, `cacheRetention`, `maxTokens`, `fallbackOnAuthError`, `fallbackOnCompletionError`, and `silentUnsupportedApi`.
+- `prompts`: `system` plus reason-specific `away`, `idle`, `resume`, `manual`, and `live`. Reason prompts may interpolate only `{{transcript}}`.
+- `response.modes`: `plain` or `json` per reason. Default live mode is JSON; other reasons stay plain.
+- `response`: structured `fields`, deterministic `template`, `malformedFallback`, `emptyFieldFallback`, and visible `maxChars`.
+- `widget`: `key`, `statusKey`, `header`, theme color names, `wrapWidth`, `maxBodyLines`, `placement`, and `draftingStatus`.
+- `lifecycle`: `clearOnInput`, `clearOnAgentStart`, `clearOnTurnStart`, `liveWidgetOnAgentEnd`, `clearOnSessionShutdown`, and `persistWidgetAcrossResume`.
 
-> v0.1's `--recap-focus-min-seconds` was removed: recaps are no longer drafted on every focus-out, so there is no quick-glance suppression to tune.
+The defaults file gives exact types and current values. JSON arrays replace defaults, so include `$active` explicitly when active-model fallback is wanted. Timing zero means immediate where allowed; `livePollMs` stays positive. Every timing value must be at most Node's timer limit, `2147483647` ms. Zero prompt-count or per-component transcript caps disable that component. Transcript allocation reserves and the live-section cap, model/output/widget caps, focus parser capacity, running-tool cap, and activity dirty thresholds must stay positive integers.
 
-## Command
+## Models, output, cost
 
-| Command | Description |
-|---|---|
-| `/recap` | Force-generate a recap right now, bypassing the activity gate. |
+The sole default candidate is `$active`, so the package does not send transcript data to a provider other than the one already active in Pi. Auth or completion failure falls through only when more candidates are explicitly configured and the matching policy flag is enabled. Runtime-only custom APIs unsupported by `pi-ai/compat` can be skipped silently. Reasoning is off, cache retention is none, output is capped at 256 tokens, and transcript input is capped at 12,000 characters by default.
 
-## Behaviour notes
+To opt in to Luna first, configure the provider explicitly:
 
-- **Uses `turn_end`, not `agent_end`**, to arm triggers, so a turn that errors or is aborted still gets recapped — and the prompt asks the model to say so explicitly.
-- **No duplicate drafts**: the last-drafted recap prompt is fingerprinted; blur/refocus churn or session metadata-only changes reuse the recap rather than regenerating.
-- **Defers during active work by default**: if a trigger fires while a turn is still loading, the draft waits for the agent to finish, matching Claude Code's away-summary pending behaviour. Use `--recap-during-active` to allow mid-flight recaps.
-- **Aborts on new input**: any in-flight recap request is cancelled when you start typing or a new turn begins.
-- **No session persistence**: the recap lives only in the widget for the active session — nothing is stored.
+```json
+{
+  "model": {
+    "candidates": ["openai-codex/gpt-5.6-luna", "$active"]
+  }
+}
+```
 
-## Design
+Live mode requests evidence-bound JSON fields `done`, `current`, and `next`. Plain or fenced JSON is accepted. Wrong field types or malformed output display the configured safe fallback. Away, idle, resume, and manual modes default to plain text but can select the same JSON path.
 
-See [DESIGN.md](./DESIGN.md) for the design-of-record, including a comparison with Claude Code's actual away-summary implementation.
+At defaults, a continuously active run costs at most one recap request after two minutes and another no sooner than 90 seconds after the prior recap becomes visible, when meaningful activity exists. Actual provider billing follows the selected model. Raise `liveFirstMs` or `liveMinIntervalMs`, remove expensive candidates, or set `enabled.live` to `false` to reduce cost.
 
-## License
+## Terminal focus behavior
 
-MIT
+The extension writes DECSET `?1004` on session start and listens for `ESC[I` and `ESC[O`. iTerm2, Ghostty, Alacritty, Kitty, WezTerm, xterm, VS Code, and Warp generally support it. For tmux:
+
+```text
+set -g focus-events on
+```
+
+Apple Terminal may need the idle fallback. Set `enabled.focusReporting` to `false` if focus events interfere with input. The idle path remains available.
+
+## Flags and migration
+
+Canonical configuration is JSON. `--recap-config <path>` is the supported selector. These old flags remain as deprecated final in-memory overrides:
+
+- `--recap-away-seconds`
+- `--recap-idle-seconds`
+- `--recap-disable-focus`
+- `--recap-during-active`
+- `--recap-disable`
+- `--recap-model provider/id`
+
+Migrate them to `timings.awayMs`, `timings.idleMs`, `enabled.focusReporting`, `focus.allowAwayDuringAgent`, `enabled.automatic`, and `model.candidates`. The removed v0.1 `--recap-focus-min-seconds` has no replacement because quick focus changes do not call the model.
+
+## Residual constraints
+
+Protocol event names, request ownership, abort behavior, JSON parsing, required `done/current/next` semantics, SHA-256 deduplication, and the no-code template grammar remain implementation invariants. Making them configurable would weaken correctness or security. Widgets are not written into the session transcript or persisted across process shutdown. Focus support still depends on the terminal or multiplexer forwarding DECSET `?1004` events.
+
+See [DESIGN.md](DESIGN.md) for the state model.

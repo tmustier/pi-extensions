@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.62] - 2026-08-03
+
+### Changed
+- Bundle `@tmustier/pi-session-recap` 0.3.0 with strict layered JSON configuration, live `Done / Now / Next` recaps for long runs, bounded in-memory activity and transcripts, single-request scheduling, safe model fallback and templates, and focused lifecycle/configuration tests.
+
 ## [0.1.61] - 2026-07-22
 
 ### Changed

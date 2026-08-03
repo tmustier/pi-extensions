@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.3.0] - 2026-08-03
+
+### Added
+- Add shipped strict-JSON defaults plus deep-merged global, trusted-project, environment, and `--recap-config` overrides.
+- Add live recaps for long agent runs: first eligibility at 120 seconds, 90-second minimum refresh interval, meaningful-activity gating, current assistant/tool snapshots, and one scheduler/request slot.
+- Add safe text-only prompt/output templates and robust plain/fenced JSON parsing for default `Done / Now / Next` output.
+- Add deterministic tests for config precedence and failure safety, model fallback, templates, response parsing, focus parsing, live eligibility, completion-based throttling, long tools, fixed-length/capped tool updates, snapshot freshness, manual priority, and cleanup state.
+
+### Changed
+- Validate non-overlapping focus sequences, event names, non-empty provider/model candidates, model enums, integer counts, required positive caps, and Node's maximum timer delay before applying config; safely reattach focus reporting and clear renamed widget/status keys on reload.
+- Load environment and CLI config as separate layers, deduplicate identical paths at highest precedence, and report either missing configured file precisely.
+- Preserve current-request and newest persisted reserves before allocating capped live evidence; ignore empty assistant updates, clear cancelled drafting statuses, and remove completed tools from the running snapshot map.
+- Throttle visible live refreshes from successful completion rather than request start, and accumulate changed tool output beyond fixed-length/capped snapshots.
+- Move all consumer-tunable behavior from TypeScript defaults to `defaults.json`.
+- Default recap generation to `$active` with explicit `reasoning: "off"`, preventing implicit cross-provider transcript disclosure; Luna remains an explicit opt-in candidate.
+- Keep old behavior flags as deprecated in-memory overrides; JSON configuration is canonical.
+
+### Fixed
+- Ignore `<ctx.cwd>/.pi/session-recap.json` until Pi marks the project trusted; global and explicit environment/CLI config remain available.
+- Preserve newest streaming, finalized-assistant, running-tool, and tool-completion evidence under live caps, including `latest:` progress after long arguments.
+- Reserve transcript space for the current request and newest persisted detail before bounded live activity, including under small total caps.
+- Accept model IDs containing slashes by splitting candidates only at the first provider separator.
+- Preserve trailing errors and next steps when one assistant or tool-result entry exceeds its transcript cap.
+- Drain one pending away recap when `agent_end` clears and cancels the live request that owned the request slot while the terminal remains blurred.
+- Recheck automatic reason gates when delayed callbacks fire, cancel resume work on `agent_start`, and invalidate deferred away work on input, refocus, or shutdown.
+- Bound missing-end running-tool records with deterministic oldest-first eviction through `activity.maxRunningTools`.
+- Reject nested or stray template delimiters while preserving ordinary single braces in prose.
+
 ## [0.2.2] - 2026-07-21
 
 ### Fixed

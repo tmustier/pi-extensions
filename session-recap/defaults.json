@@ -1,0 +1,115 @@
+{
+  "enabled": {
+    "automatic": true,
+    "manual": true,
+    "away": true,
+    "idle": true,
+    "resume": true,
+    "live": true,
+    "focusReporting": true
+  },
+  "timings": {
+    "awayMs": 90000,
+    "idleMs": 120000,
+    "postTurnDebounceMs": 3000,
+    "resumeDelayMs": 300,
+    "liveFirstMs": 120000,
+    "liveMinIntervalMs": 90000,
+    "livePollMs": 1000
+  },
+  "focus": {
+    "enableSequence": "\u001b[?1004h",
+    "disableSequence": "\u001b[?1004l",
+    "inSequence": "\u001b[I",
+    "outSequence": "\u001b[O",
+    "inputBufferCap": 64,
+    "allowAwayDuringAgent": false,
+    "finishDraftAfterRefocus": true
+  },
+  "activity": {
+    "assistantMinWords": 30,
+    "assistantCharsPerLiveVersion": 80,
+    "toolUpdateCharsPerLiveVersion": 200,
+    "liveEvents": [
+      "message_update",
+      "message_end",
+      "tool_execution_start",
+      "tool_execution_update",
+      "tool_execution_end",
+      "turn_end"
+    ],
+    "maxLiveEvents": 40,
+    "maxLiveEventChars": 1200,
+    "maxRunningTools": 64
+  },
+  "transcript": {
+    "earlierUserPrompts": 4,
+    "earlierPromptChars": 300,
+    "compactionSummaryChars": 600,
+    "userChars": 1200,
+    "assistantChars": 1200,
+    "toolArgumentsChars": 280,
+    "toolResultChars": 400,
+    "totalChars": 12000,
+    "currentUserReserveChars": 1400,
+    "persistedReserveChars": 2200,
+    "liveMaxChars": 6000,
+    "liveAssistantChars": 2400
+  },
+  "model": {
+    "candidates": [
+      "$active"
+    ],
+    "reasoning": "off",
+    "cacheRetention": "none",
+    "maxTokens": 256,
+    "fallbackOnAuthError": true,
+    "fallbackOnCompletionError": true,
+    "silentUnsupportedApi": true
+  },
+  "prompts": {
+    "system": "You write terse, evidence-bound session recaps for a coding agent UI.",
+    "away": "The user is returning to this coding-agent session. Write a short orientation grounded only in the transcript. State the high-level task and concrete next step. If the turn failed or was aborted, say so. Return plain text only.\n\n<transcript>\n{{transcript}}\n</transcript>",
+    "idle": "The coding-agent session has been idle. Write a short orientation grounded only in the transcript. State the high-level task and concrete next step. Return plain text only.\n\n<transcript>\n{{transcript}}\n</transcript>",
+    "resume": "The user resumed or forked this coding-agent session. Write a short orientation grounded only in the transcript. State the high-level task and concrete next step. Return plain text only.\n\n<transcript>\n{{transcript}}\n</transcript>",
+    "manual": "Summarize this coding-agent session now, grounded only in the transcript. Return plain text unless the response mode requests JSON.\n\n<transcript>\n{{transcript}}\n</transcript>",
+    "live": "Summarize the active coding-agent run using only evidence in the snapshot. Return one JSON object with string fields done, current, and next. Use an empty string when a field is unknown; never invent progress.\n\n<snapshot>\n{{transcript}}\n</snapshot>"
+  },
+  "response": {
+    "modes": {
+      "away": "plain",
+      "idle": "plain",
+      "resume": "plain",
+      "manual": "plain",
+      "live": "json"
+    },
+    "fields": [
+      "done",
+      "current",
+      "next"
+    ],
+    "template": "Done: {{done}}\nNow: {{current}}\nNext: {{next}}",
+    "malformedFallback": "Recap unavailable: the model returned an invalid structured response.",
+    "emptyFieldFallback": "Unknown",
+    "maxChars": 1200
+  },
+  "widget": {
+    "key": "session-recap",
+    "statusKey": "session-recap",
+    "header": "✦ recap",
+    "headerColor": "accent",
+    "bodyColor": "dim",
+    "wrapWidth": 100,
+    "maxBodyLines": 6,
+    "placement": "aboveEditor",
+    "draftingStatus": "✦ drafting recap…"
+  },
+  "lifecycle": {
+    "clearOnInput": true,
+    "clearOnAgentStart": true,
+    "clearOnTurnStart": false,
+    "liveWidgetOnAgentEnd": "keep",
+    "clearOnSessionShutdown": true,
+    "persistWidgetAcrossResume": false
+  }
+}

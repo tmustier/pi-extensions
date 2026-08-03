@@ -1,7 +1,8 @@
 {
   "name": "@tmustier/pi-session-recap",
-  "version": "0.2.2",
-  "description": "While-you-were-away recap above the editor when you return to a Pi session. Keeps you in flow when multi-agenting.",
+  "version": "0.3.0",
+  "type": "module",
+  "description": "Configurable live, away, idle, resume, and manual session recaps for Pi.",
   "license": "MIT",
   "author": "Thomas Mustier",
   "keywords": [
@@ -29,6 +30,6 @@
     "@earendil-works/pi-coding-agent": "^0.80.3"
   },
   "scripts": {
-    "test": "node tests/unknown-api-provider.test.mjs"
+    "test": "node --test tests/*.test.mjs"
   }
 }
