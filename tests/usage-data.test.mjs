@@ -671,6 +671,11 @@ test("collectUsageData buckets Monthly from local midnight on the first day", as
 	assert.equal(data.monthly.totals.cost, 6);
 	assert.equal(data.monthly.totals.sessions, 1);
 	assert.equal(data.bounds.monthStartMs, TS_MONTH_EDGE_IN);
+	const june = new Date(2026, 5, 1).getTime();
+	assert.equal(data.months.get(june).totals.cost, 1);
+	assert.equal(data.months.get(june).totals.sessions, 1);
+	assert.equal(data.months.get(june).providers.get("anthropic").cost, 1);
+	assert.ok(data.months.get(june).insights.insights.length > 0);
 });
 
 test("collectUsageData ignores files without a session header", async (t) => {

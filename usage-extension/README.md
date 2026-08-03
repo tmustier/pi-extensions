@@ -149,10 +149,10 @@ Thinking levels are replayed from `thinking_level_change` entries in each sessio
 | **This Week** | From Monday 00:00 of the current week |
 | **Last Week** | Previous week (Monday 00:00 → this Monday 00:00) |
 | **Last 30 Days** | Rolling window: the last 30 calendar days including today (from midnight 29 days back) |
-| **Mon YYYY** *(e.g. Jul 2026)* | Current calendar month, from local midnight on the first day |
+| **‹Mon YYYY›** *(e.g. ‹Jul 2026›)* | Selected calendar month |
 | **All Time** | All recorded sessions |
 
-Use `Tab` or `←`/`→` to switch between periods.
+Use `Tab` or `←`/`→` to switch between periods. On the monthly period, `[` and `]` select the previous or next month with recorded usage.
 
 ### Timezone
 
@@ -180,6 +180,7 @@ On narrow terminals, `/usage` automatically switches to a compact table instead 
 | Key | Action |
 |-----|--------|
 | `Tab` / `←` `→` | Switch time period |
+| `[` `]` | Select previous/next recorded month *(monthly period)* |
 | `↑` `↓` | Select provider *(table)* / move legend cursor *(graphs)* |
 | `Enter` / `Space` | Expand/collapse provider *(table)* / toggle series visibility *(graphs)* |
 | `v` | Cycle Graphs → Table → Insights view |

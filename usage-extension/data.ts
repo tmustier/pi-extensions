@@ -161,6 +161,8 @@ export interface UsageData {
 	last30Days: TimeFilteredStats;
 	monthly: TimeFilteredStats;
 	allTime: TimeFilteredStats;
+	/** Calendar-month start (local ms) → stats. */
+	months: Map<number, TimeFilteredStats>;
 	/** Deduped usage bucketed by hour start (ms) → series key → metrics. */
 	hourly: Map<number, Map<HourlyKey, HourlyCell>>;
 	bounds: PeriodBounds;
@@ -1058,13 +1060,15 @@ export function projectLabelFromCwd(cwd: string): string {
 }
 
 function emptyUsageData(bounds: PeriodBounds): UsageData {
+	const monthly = emptyTimeFilteredStats();
 	return {
 		today: emptyTimeFilteredStats(),
 		thisWeek: emptyTimeFilteredStats(),
 		lastWeek: emptyTimeFilteredStats(),
 		last30Days: emptyTimeFilteredStats(),
-		monthly: emptyTimeFilteredStats(),
+		monthly,
 		allTime: emptyTimeFilteredStats(),
+		months: new Map([[bounds.monthStartMs, monthly]]),
 		hourly: new Map(),
 		bounds,
 	};
@@ -1146,9 +1150,11 @@ function addMessagesToUsageData(
 	last30DaysStartMs: number,
 	monthStartMs: number,
 	rawByPeriod: Record<TabName, PeriodRawData>,
+	rawByMonth: Map<number, PeriodRawData>,
 	costByDayIdx: Map<number, number>
 ): void {
 	const sessionContributed = { today: false, thisWeek: false, lastWeek: false, last30Days: false, monthly: false, allTime: false };
+	const monthsContributed = new Set<number>();
 
 	for (let mi = 0; mi < messages.length; mi++) {
 		const msg = messages[mi]!;
@@ -1176,46 +1182,31 @@ function addMessagesToUsageData(
 			cacheRead: msg.cacheRead,
 			cacheWrite: msg.cacheWrite,
 		};
-
-		for (const period of periods) {
-			const stats = data[period];
-
+		const add = (stats: TimeFilteredStats, raw: PeriodRawData): void => {
 			let providerStats = stats.providers.get(msg.provider);
 			if (!providerStats) {
 				providerStats = emptyProviderStats();
 				stats.providers.set(msg.provider, providerStats);
 			}
-
 			let modelStats = providerStats.models.get(msg.model);
 			if (!modelStats) {
 				modelStats = emptyModelStats();
 				providerStats.models.set(msg.model, modelStats);
 			}
-
 			const isAssistant = msg.source === "assistant";
 			modelStats.sessions.add(sessionId);
 			accumulateStats(modelStats, msg.cost, tokens, isAssistant);
-
 			providerStats.sessions.add(sessionId);
 			accumulateStats(providerStats, msg.cost, tokens, isAssistant);
-
 			accumulateStats(stats.totals, msg.cost, tokens, isAssistant);
-			sessionContributed[period] = true;
-
-			const raw = rawByPeriod[period];
 			raw.totalCost += msg.cost;
 			raw.projectCosts.set(project, (raw.projectCosts.get(project) ?? 0) + msg.cost);
 			raw.sessionCosts.set(sessionId, (raw.sessionCosts.get(sessionId) ?? 0) + msg.cost);
-
-			// Auxiliary calls belong in accounting totals, project/session mix, and
-			// burn trend. They are not assistant turns, so do not let their synthetic
-			// model identity or nested context distort turn/cache insights.
 			if (!isAssistant) {
 				raw.auxiliaryCost += msg.cost;
-				continue;
+				return;
 			}
 			raw.assistantCost += msg.cost;
-
 			const ctx = msg.input + msg.cacheRead + msg.cacheWrite;
 			if (ctx >= CTX_TAX_THRESHOLD) {
 				raw.ctxHigh.cost += msg.cost;
@@ -1225,11 +1216,7 @@ function addMessagesToUsageData(
 				raw.ctxLow.messages++;
 			}
 			if (mm.isSessionStart) raw.upfrontCost += msg.cost;
-			if (
-				!msg.afterCompaction &&
-				mm.prevCtx >= MISS_MIN_PREV_CONTEXT &&
-				msg.cacheRead < Math.min(MISS_MAX_CACHE_READ, 0.3 * mm.prevCtx)
-			) {
+			if (!msg.afterCompaction && mm.prevCtx >= MISS_MIN_PREV_CONTEXT && msg.cacheRead < Math.min(MISS_MAX_CACHE_READ, 0.3 * mm.prevCtx)) {
 				if (mm.gapMs > TTL_GAP_MS) raw.ttlMissCost += msg.cost;
 				else if (mm.gapMs >= 0 && mm.modelSwitched) raw.modelSwitchMissCost += msg.cost;
 				else if (mm.gapMs >= 0) raw.prefixMissCost += msg.cost;
@@ -1238,6 +1225,23 @@ function addMessagesToUsageData(
 			raw.outputTokens += msg.output;
 			raw.cacheReadTokens += msg.cacheRead;
 			raw.freshTokens += msg.input + msg.cacheWrite;
+		};
+
+		for (const period of periods) {
+			add(data[period], rawByPeriod[period]);
+			sessionContributed[period] = true;
+		}
+		if (msg.timestamp > 0) {
+			const month = new Date(msg.timestamp);
+			month.setDate(1);
+			month.setHours(0, 0, 0, 0);
+			const monthMs = month.getTime();
+			if (monthMs !== monthStartMs) {
+				if (!data.months.has(monthMs)) data.months.set(monthMs, emptyTimeFilteredStats());
+				if (!rawByMonth.has(monthMs)) rawByMonth.set(monthMs, emptyPeriodRawData());
+				add(data.months.get(monthMs)!, rawByMonth.get(monthMs)!);
+				monthsContributed.add(monthMs);
+			}
 		}
 	}
 
@@ -1245,7 +1249,8 @@ function addMessagesToUsageData(
 	if (sessionContributed.thisWeek) data.thisWeek.totals.sessions++;
 	if (sessionContributed.lastWeek) data.lastWeek.totals.sessions++;
 	if (sessionContributed.last30Days) data.last30Days.totals.sessions++;
-	if (sessionContributed.monthly) data.monthly.totals.sessions++;
+	if (sessionContributed.monthly) data.months.get(monthStartMs)!.totals.sessions++;
+	for (const monthMs of monthsContributed) data.months.get(monthMs)!.totals.sessions++;
 	if (sessionContributed.allTime) data.allTime.totals.sessions++;
 }
 
@@ -1545,6 +1550,7 @@ export async function collectUsageData(options: CollectUsageOptions = {}): Promi
 		monthly: emptyPeriodRawData(),
 		allTime: emptyPeriodRawData(),
 	};
+	const rawByMonth = new Map([[monthStartMs, rawByPeriod.monthly]]);
 	const costByDayIdx = new Map<number, number>();
 	const seenSessions = new Set<string>();
 	const seenHashes = new Set<string>();
@@ -1611,6 +1617,7 @@ export async function collectUsageData(options: CollectUsageOptions = {}): Promi
 			last30DaysStartMs,
 			monthStartMs,
 			rawByPeriod,
+			rawByMonth,
 			costByDayIdx
 		);
 	}
@@ -1626,6 +1633,9 @@ export async function collectUsageData(options: CollectUsageOptions = {}): Promi
 
 	for (const period of TAB_ORDER) {
 		data[period].insights = computeInsights(rawByPeriod[period], trend);
+	}
+	for (const [monthMs, raw] of rawByMonth) {
+		data.months.get(monthMs)!.insights = computeInsights(raw, trend);
 	}
 
 	return data;
