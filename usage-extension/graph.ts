@@ -283,6 +283,10 @@ export interface ChartRenderOptions {
 	formatValue: (value: number) => string;
 	formatTime: (ms: number) => string;
 	colorize?: ChartColorize;
+	/** ANSI-aware display-width measurement supplied by the UI layer. */
+	measureWidth?: (text: string) => number;
+	/** ANSI-aware truncation supplied by the UI layer. */
+	truncate?: (text: string, width: number) => string;
 }
 
 const BRAILLE_BASE = 0x2800;
@@ -298,16 +302,22 @@ const DOT_BITS = [
  */
 export function renderChart(model: GraphModel, options: ChartRenderOptions): string[] {
 	const colorize: ChartColorize = options.colorize ?? ((_i, text) => text);
+	const measureWidth = options.measureWidth ?? ((text: string) => Array.from(text).length);
+	const truncate = options.truncate ?? ((text: string, width: number) => Array.from(text).slice(0, width).join(""));
+	const safeWidth = Math.max(0, Math.floor(options.width));
 	const plotHeightForLabels = Math.max(options.height, 4);
 	const midRowForLabels = Math.floor((plotHeightForLabels - 1) / 2);
 	const midValue = (model.yMax * (plotHeightForLabels - 1 - midRowForLabels)) / (plotHeightForLabels - 1);
-	const yLabelWidth = Math.max(
-		options.formatValue(model.yMax).length,
-		options.formatValue(midValue).length,
-		options.formatValue(0).length
+	const yLabelWidth = Math.min(
+		Math.max(
+			measureWidth(options.formatValue(model.yMax)),
+			measureWidth(options.formatValue(midValue)),
+			measureWidth(options.formatValue(0))
+		),
+		Math.max(safeWidth - 2, 0)
 	);
-	const axisWidth = yLabelWidth + 2; // label + " ┤" / " │"
-	const plotWidth = Math.max(options.width - axisWidth, 10);
+	const axisWidth = Math.min(yLabelWidth + 2, safeWidth); // label + " ┤" / " │"
+	const plotWidth = Math.max(safeWidth - axisWidth, 0);
 	const plotHeight = Math.max(options.height, 4);
 	const dotW = plotWidth * 2;
 	const dotH = plotHeight * 4;
@@ -371,7 +381,10 @@ export function renderChart(model: GraphModel, options: ChartRenderOptions): str
 		else if (row === midRow && plotHeight > 2) label = options.formatValue(midValue);
 		else if (row === plotHeight - 1) label = options.formatValue(0);
 		const axisChar = label ? "┤" : "│";
-		let line = colorize(-1, label.padStart(yLabelWidth) + " " + axisChar);
+		const fittedLabel = truncate(label, yLabelWidth);
+		const labelPadding = " ".repeat(Math.max(yLabelWidth - measureWidth(fittedLabel), 0));
+		const axisPrefix = axisWidth === 0 ? "" : axisWidth === 1 ? axisChar : labelPadding + fittedLabel + " " + axisChar;
+		let line = colorize(-1, axisPrefix);
 		// Batch consecutive cells with the same owning series into one colorize
 		// call to keep ANSI overhead proportional to color changes, not cells.
 		let runOwner = -2;
@@ -391,21 +404,26 @@ export function renderChart(model: GraphModel, options: ChartRenderOptions): str
 			runText += mask === 0 ? " " : String.fromCharCode(BRAILLE_BASE + mask);
 		}
 		flush();
-		lines.push(line);
+		lines.push(truncate(line, safeWidth));
 	}
 
 	// X-axis labels: start, optional middle, end.
 	const startLabel = options.formatTime(model.domainStartMs);
 	const endLabel = options.formatTime(model.domainEndMs);
-	const midLabel = plotWidth >= startLabel.length + endLabel.length + 14 ? options.formatTime(model.domainStartMs + (model.domainEndMs - model.domainStartMs) / 2) : "";
-	let axis = " ".repeat(yLabelWidth + 2) + startLabel;
+	const startLabelWidth = measureWidth(startLabel);
+	const endLabelWidth = measureWidth(endLabel);
+	const midLabel =
+		plotWidth >= startLabelWidth + endLabelWidth + 14
+			? options.formatTime(model.domainStartMs + (model.domainEndMs - model.domainStartMs) / 2)
+			: "";
+	let axis = " ".repeat(axisWidth) + startLabel;
 	if (midLabel) {
-		const midPos = yLabelWidth + 2 + Math.floor(plotWidth / 2 - midLabel.length / 2);
+		const midPos = axisWidth + Math.floor(plotWidth / 2 - measureWidth(midLabel) / 2);
 		axis = axis.padEnd(midPos) + midLabel;
 	}
-	const endPos = yLabelWidth + 2 + plotWidth - endLabel.length;
+	const endPos = axisWidth + plotWidth - endLabelWidth;
 	axis = axis.padEnd(Math.max(endPos, axis.length + 1)) + endLabel;
-	lines.push(colorize(-1, axis));
+	lines.push(truncate(colorize(-1, axis), safeWidth));
 
 	return lines;
 }

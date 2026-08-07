@@ -61,11 +61,11 @@ In Pi, run:
 
 `/usage` has three view modes, shown as a tab strip in the title and cycled with `v`:
 
-- **Graphs** (default) — an interactive braille line-chart explorer for usage over time (screenshot at the top of this page, details below).
+- **Graphs** (default) - a responsive interactive braille line-chart explorer that expands to the available terminal width (screenshot at the top of this page, details below).
 - **Table** — per-provider / per-model stats with cost and token breakdown, with keyboard filtering (details below).
 - **Insights** — data-driven characteristics of your cost for the active time period (details below). Insights are **independent lenses**, not a breakdown, so they overlap and don't sum to 100%.
 
-Every view can export its current slice with `e` — see [Export](#export).
+Every view expands to the available terminal width and can export its current slice with `e` - see [Export](#export).
 
 ![Table view of /usage](screenshot.png)
 
