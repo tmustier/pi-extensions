@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- Graphs, tables, and insights now expand to the full available terminal width instead of stopping at fixed content caps, while remaining safely bounded in very narrow terminals.
+
 ## [0.10.2] - 2026-11-03
 
 ### Changed
