@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Added
+- Optional independent `rememberView` and `rememberPeriod` settings restore the last selected dashboard view and/or time period. Runtime selections are persisted in a separate extension-owned state file rather than modifying `settings.json`.
+
 ### Fixed
 - Graphs, tables, and insights now expand to the full available terminal width instead of stopping at fixed content caps, while remaining safely bounded in very narrow terminals.
 
