@@ -952,7 +952,9 @@ class UsageComponent {
 // =============================================================================
 
 export default function (pi: ExtensionAPI) {
-	pi.registerCommand("usage", {
+	const commandName = loadUsagePreferences(getAgentDir()).commandName;
+
+	pi.registerCommand(commandName, {
 		description: "Show usage statistics dashboard",
 		handler: async (_args: string, ctx: ExtensionCommandContext) => {
 			if (!ctx.hasUI) {

@@ -18,14 +18,17 @@ test("parseUsagePreferences enables view and period memory independently", () =>
 	assert.deepEqual(parseUsagePreferences('{"usage-extension":{"rememberView":true}}'), {
 		rememberView: true,
 		rememberPeriod: false,
+		commandName: "usage",
 	});
 	assert.deepEqual(parseUsagePreferences('{"usage-extension":{"rememberPeriod":true}}'), {
 		rememberView: false,
 		rememberPeriod: true,
+		commandName: "usage",
 	});
 	assert.deepEqual(parseUsagePreferences('{"usage-extension":{"rememberView":true,"rememberPeriod":true}}'), {
 		rememberView: true,
 		rememberPeriod: true,
+		commandName: "usage",
 	});
 });
 
@@ -33,21 +36,49 @@ test("parseUsagePreferences uses strict booleans and safe defaults", () => {
 	assert.deepEqual(parseUsagePreferences('{"usage-extension":{"rememberView":"true","rememberPeriod":1}}'), {
 		rememberView: false,
 		rememberPeriod: false,
+		commandName: "usage",
 	});
-	assert.deepEqual(parseUsagePreferences("not json"), { rememberView: false, rememberPeriod: false });
+	assert.deepEqual(parseUsagePreferences("not json"), {
+		rememberView: false,
+		rememberPeriod: false,
+		commandName: "usage",
+	});
+});
+
+test("parseUsagePreferences accepts a safe custom command name", () => {
+	assert.deepEqual(parseUsagePreferences('{"usage-extension":{"commandName":"us-stats_2"}}'), {
+		rememberView: false,
+		rememberPeriod: false,
+		commandName: "us-stats_2",
+	});
+});
+
+test("parseUsagePreferences rejects slash-prefixed and malformed command names", () => {
+	for (const commandName of ["/us", "Usage", "2usage", "usage stats", "usage:2", "", true]) {
+		assert.equal(
+			parseUsagePreferences(JSON.stringify({ "usage-extension": { commandName } })).commandName,
+			"usage",
+		);
+	}
 });
 
 test("resolveUsageSelection restores each enabled dimension independently", () => {
 	const remembered = { view: "insights", period: "lastWeek" };
-	assert.deepEqual(resolveUsageSelection({ rememberView: true, rememberPeriod: false }, remembered), {
-		view: "insights",
-		period: "allTime",
-	});
-	assert.deepEqual(resolveUsageSelection({ rememberView: false, rememberPeriod: true }, remembered), {
-		view: "graph",
-		period: "lastWeek",
-	});
-	assert.deepEqual(resolveUsageSelection({ rememberView: true, rememberPeriod: true }, {}), {
+	assert.deepEqual(
+		resolveUsageSelection({ rememberView: true, rememberPeriod: false, commandName: "usage" }, remembered),
+		{
+			view: "insights",
+			period: "allTime",
+		},
+	);
+	assert.deepEqual(
+		resolveUsageSelection({ rememberView: false, rememberPeriod: true, commandName: "usage" }, remembered),
+		{
+			view: "graph",
+			period: "lastWeek",
+		},
+	);
+	assert.deepEqual(resolveUsageSelection({ rememberView: true, rememberPeriod: true, commandName: "usage" }, {}), {
 		view: "graph",
 		period: "allTime",
 	});
@@ -71,7 +102,7 @@ test("selection state persists only enabled dimensions and loads defensively", (
 			"utf8",
 		);
 		const preferences = loadUsagePreferences(dir);
-		assert.deepEqual(preferences, { rememberView: true, rememberPeriod: false });
+		assert.deepEqual(preferences, { rememberView: true, rememberPeriod: false, commandName: "usage" });
 
 		saveUsageSelectionState(dir, { view: "insights", period: "last30Days" }, preferences);
 		assert.deepEqual(loadUsageSelectionState(dir), { view: "insights" });
@@ -91,7 +122,7 @@ test("disabled selection memory clears stale state and does not create a new fil
 		saveUsageSelectionState(
 			dir,
 			{ view: "table", period: "today" },
-			{ rememberView: false, rememberPeriod: false },
+			{ rememberView: false, rememberPeriod: false, commandName: "usage" },
 		);
 		assert.throws(() => readFileSync(getUsageStatePath(dir), "utf8"), { code: "ENOENT" });
 	} finally {

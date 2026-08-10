@@ -8,6 +8,7 @@ export type ViewMode = "table" | "insights" | "graph";
 export interface UsagePreferences {
 	rememberView: boolean;
 	rememberPeriod: boolean;
+	commandName: string;
 }
 
 export interface UsageSelection {
@@ -23,20 +24,33 @@ export interface UsageSelectionState {
 const DEFAULT_PREFERENCES: UsagePreferences = {
 	rememberView: false,
 	rememberPeriod: false,
+	commandName: "usage",
 };
 
 const VIEW_MODES = new Set<ViewMode>(["graph", "table", "insights"]);
 const PERIODS = new Set<TabName>(["today", "thisWeek", "lastWeek", "last30Days", "allTime"]);
+const COMMAND_NAME_PATTERN = /^[a-z][a-z0-9_-]*$/;
+
+function parseCommandName(value: unknown): string {
+	return typeof value === "string" && COMMAND_NAME_PATTERN.test(value)
+		? value
+		: DEFAULT_PREFERENCES.commandName;
+}
 
 export function parseUsagePreferences(settingsJson: string): UsagePreferences {
 	try {
 		const parsed = JSON.parse(settingsJson) as {
-			"usage-extension"?: { rememberView?: unknown; rememberPeriod?: unknown };
+			"usage-extension"?: {
+				rememberView?: unknown;
+				rememberPeriod?: unknown;
+				commandName?: unknown;
+			};
 		};
 		const settings = parsed["usage-extension"];
 		return {
 			rememberView: settings?.rememberView === true,
 			rememberPeriod: settings?.rememberPeriod === true,
+			commandName: parseCommandName(settings?.commandName),
 		};
 	} catch {
 		return { ...DEFAULT_PREFERENCES };
