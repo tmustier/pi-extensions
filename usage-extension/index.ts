@@ -37,8 +37,13 @@ import {
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-
-type ViewMode = "table" | "insights" | "graph";
+import {
+	loadUsagePreferences,
+	loadUsageSelectionState,
+	resolveUsageSelection,
+	saveUsageSelectionState,
+} from "./preferences";
+import type { UsageSelection, ViewMode } from "./preferences";
 
 const VIEW_CYCLE: ViewMode[] = ["graph", "table", "insights"];
 
@@ -287,6 +292,7 @@ class UsageComponent {
 	private theme: Theme;
 	private requestRender: () => void;
 	private done: () => void;
+	private selectionChanged: (state: UsageSelection) => void;
 
 	// Graph explorer state.
 	private graphMetric: GraphMetric = "cost";
@@ -299,12 +305,26 @@ class UsageComponent {
 	private graphHidden = new Set<string>();
 	private graphLegendIndex = 0;
 
-	constructor(theme: Theme, data: UsageData, requestRender: () => void, done: () => void) {
+	constructor(
+		theme: Theme,
+		data: UsageData,
+		requestRender: () => void,
+		done: () => void,
+		initial: UsageSelection,
+		selectionChanged: (state: UsageSelection) => void,
+	) {
 		this.theme = theme;
 		this.requestRender = requestRender;
 		this.done = done;
 		this.data = data;
+		this.viewMode = initial.view;
+		this.activeTab = initial.period;
+		this.selectionChanged = selectionChanged;
 		this.updateProviderOrder();
+	}
+
+	private notifySelectionChanged(): void {
+		this.selectionChanged({ view: this.viewMode, period: this.activeTab });
 	}
 
 	private updateProviderOrder(): void {
@@ -409,6 +429,7 @@ class UsageComponent {
 			const idx = VIEW_CYCLE.indexOf(this.viewMode);
 			this.viewMode = VIEW_CYCLE[(idx + 1) % VIEW_CYCLE.length]!;
 			this.exportNote = null;
+			this.notifySelectionChanged();
 			this.requestRender();
 			return;
 		}
@@ -428,12 +449,14 @@ class UsageComponent {
 			this.activeTab = TAB_ORDER[(idx + 1) % TAB_ORDER.length]!;
 			this.updateProviderOrder();
 			this.exportNote = null;
+			this.notifySelectionChanged();
 			this.requestRender();
 		} else if (matchesKey(data, "shift+tab") || matchesKey(data, "left")) {
 			const idx = TAB_ORDER.indexOf(this.activeTab);
 			this.activeTab = TAB_ORDER[(idx - 1 + TAB_ORDER.length) % TAB_ORDER.length]!;
 			this.updateProviderOrder();
 			this.exportNote = null;
+			this.notifySelectionChanged();
 			this.requestRender();
 		} else if (this.viewMode === "graph") {
 			// Graph-specific keys were handled above; swallow table-only keys.
@@ -977,6 +1000,21 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
+			const agentDir = getAgentDir();
+			const preferences = loadUsagePreferences(agentDir);
+			const remembered = loadUsageSelectionState(agentDir);
+			const initial = resolveUsageSelection(preferences, remembered);
+			const persistSelection = (state: UsageSelection): void => {
+				try {
+					saveUsageSelectionState(agentDir, state, preferences);
+				} catch {
+					// Remembering the selection is best-effort and must not break the dashboard.
+				}
+			};
+			// Canonicalize stale state immediately, including removing selections whose
+			// corresponding remember flag is disabled.
+			persistSelection(initial);
+
 			await ctx.ui.custom<void>((tui, theme, _kb, done) => {
 				const container = new Container();
 
@@ -985,7 +1023,7 @@ export default function (pi: ExtensionAPI) {
 				container.addChild(new DynamicBorder((s: string) => theme.fg("border", s)));
 				container.addChild(new Spacer(1));
 
-				const usage = new UsageComponent(theme, data, () => tui.requestRender(), () => done());
+				const usage = new UsageComponent(theme, data, () => tui.requestRender(), () => done(), initial, persistSelection);
 
 				return {
 					render: (w: number) => {
