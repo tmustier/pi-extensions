@@ -72,7 +72,7 @@ interface TableLayout {
 	compact: boolean;
 }
 
-const MAX_NAME_COL_WIDTH = 26;
+const FULL_TABLE_NAME_MIN_WIDTH = 26;
 
 const SESSIONS_COLUMN: DataColumn = {
 	label: "Sessions",
@@ -133,7 +133,7 @@ const FULL_DATA_COLUMNS: DataColumn[] = [
 ];
 
 const TABLE_LAYOUTS: TableLayoutCandidate[] = [
-	{ columns: FULL_DATA_COLUMNS, minNameWidth: MAX_NAME_COL_WIDTH },
+	{ columns: FULL_DATA_COLUMNS, minNameWidth: FULL_TABLE_NAME_MIN_WIDTH },
 	{ columns: [SESSIONS_COLUMN, MSGS_COLUMN, COST_COLUMN, TOKENS_COLUMN], minNameWidth: 14, compact: true },
 	{ columns: [SESSIONS_COLUMN, COST_COLUMN, TOKENS_COLUMN], minNameWidth: 12, compact: true },
 	{ columns: [COST_COLUMN, TOKENS_COLUMN], minNameWidth: 10, compact: true },
@@ -239,11 +239,11 @@ function pickFittingText(width: number, variants: string[]): string {
 }
 
 function getTableLayout(width: number): TableLayout {
-	const safeWidth = Math.max(width, 0);
+	const safeWidth = Math.max(Math.floor(width), 0);
 
 	for (const candidate of TABLE_LAYOUTS) {
 		const columnsWidth = sumColumnWidths(candidate.columns);
-		const nameWidth = Math.min(MAX_NAME_COL_WIDTH, Math.max(safeWidth - columnsWidth, 0));
+		const nameWidth = Math.max(safeWidth - columnsWidth, 0);
 		if (nameWidth >= candidate.minNameWidth) {
 			return {
 				columns: candidate.columns,
@@ -256,12 +256,20 @@ function getTableLayout(width: number): TableLayout {
 
 	const fallback = TABLE_LAYOUTS[TABLE_LAYOUTS.length - 1]!;
 	const fallbackColumnsWidth = sumColumnWidths(fallback.columns);
-	const fallbackNameWidth = Math.min(MAX_NAME_COL_WIDTH, Math.max(safeWidth - fallbackColumnsWidth, 0));
+	const fallbackNameWidth = Math.max(safeWidth - fallbackColumnsWidth, 0);
 	return {
 		columns: fallback.columns,
 		nameWidth: fallbackNameWidth,
 		tableWidth: fallbackNameWidth + fallbackColumnsWidth,
 		compact: fallback.compact ?? false,
+	};
+}
+
+function getInsightsLayout(width: number): { contentWidth: number; adviceWidth: number } {
+	const contentWidth = Math.max(Math.floor(width), 0);
+	return {
+		contentWidth,
+		adviceWidth: Math.max(contentWidth - 9, 1),
 	};
 }
 
@@ -640,10 +648,12 @@ class UsageComponent {
 
 		const chartHeight = 12;
 		const chart = renderChart(model, {
-			width: Math.max(Math.min(width, 110), 30),
+			width: Math.max(0, Math.floor(width)),
 			height: chartHeight,
 			formatValue,
 			formatTime,
+			measureWidth: visibleWidth,
+			truncate: (text, maxWidth) => truncateToWidth(text, maxWidth, ""),
 			colorize: (seriesIndex, text) => {
 				if (seriesIndex < 0) return th.fg("dim", text);
 				return seriesColor(seriesIndex) + text + COLOR_RESET;
@@ -681,12 +691,11 @@ class UsageComponent {
 		const hasCost = stats.totals.cost > 0;
 		const lines: string[] = [];
 
-		// Cap the content column so advice stays readable on very wide terminals.
-		const contentWidth = Math.max(Math.min(width, 100), 40);
+		const { contentWidth, adviceWidth } = getInsightsLayout(width);
 
 		lines.push(th.bold("What's contributing to your cost?"));
 		const subtitle = "Approximate, based on local sessions on this machine (these are independent and don't sum to 100%).";
-		for (const wrapped of wrapTextWithAnsi(subtitle, contentWidth)) {
+		for (const wrapped of wrapTextWithAnsi(subtitle, Math.max(contentWidth, 1))) {
 			lines.push(th.fg("dim", wrapped));
 		}
 		lines.push("");
@@ -707,12 +716,11 @@ class UsageComponent {
 			return lines;
 		}
 
-		// Columns: marker(2) + stat(6) + gap(1); advice aligns under the headline.
+		// Columns: marker(2) + stat(6) + gap(1); wrapped text aligns under the headline.
 		const indent = "         ";
-		const adviceWidth = Math.max(contentWidth - indent.length, 30);
 
 		const sectionHeader = (label: string, color: "warning" | "accent"): string => {
-			const rule = "─".repeat(Math.max(contentWidth - label.length - 1, 4));
+			const rule = "─".repeat(Math.max(contentWidth - visibleWidth(label) - 1, 0));
 			return `${th.fg(color, th.bold(label))} ${th.fg("border", rule)}`;
 		};
 
@@ -724,7 +732,9 @@ class UsageComponent {
 			// De-emphasise the trailing period-share parenthetical on alarm headlines.
 			const match = insight.headline.match(/^(.*?)\s*(\(\d[\d.,]*% of this period\))$/);
 			const headline = match ? `${match[1]} ${th.fg("dim", match[2]!)}` : insight.headline;
-			lines.push(`${marker}${stat} ${headline}`);
+			const headlineLines = wrapTextWithAnsi(headline, adviceWidth);
+			lines.push(`${marker}${stat} ${headlineLines[0] ?? ""}`);
+			for (const wrapped of headlineLines.slice(1)) lines.push(`${indent}${wrapped}`);
 			if (insight.advice) {
 				for (const wrapped of wrapTextWithAnsi(insight.advice, adviceWidth)) {
 					lines.push(`${indent}${th.fg("dim", wrapped)}`);

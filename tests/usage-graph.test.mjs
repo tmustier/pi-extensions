@@ -274,6 +274,44 @@ test("renderChart emits height+1 lines within width and draws braille dots", () 
 	assert.ok(lines[CHART_OPTS.height].includes("2026-07-15"));
 });
 
+test("renderChart uses the full caller-provided width on wide terminals", () => {
+	const hourly = hourlyFrom([
+		[TODAY + 1 * HOUR, "a", "m", "", cell({ cost: 1 })],
+		[TODAY + 9 * HOUR, "a", "m", "", cell({ cost: 5 })],
+	]);
+	const model = buildGraphModel(hourly, {
+		period: "today",
+		metric: "cost",
+		groupBy: "total",
+		cumulative: true,
+		bounds: BOUNDS,
+	});
+
+	const width = 200;
+	const lines = renderChart(model, { ...CHART_OPTS, width });
+	const widest = Math.max(...lines.map((line) => line.length));
+	assert.equal(widest, width, "chart should expand beyond the old 110-column cap");
+});
+
+test("renderChart stays within its requested width on very narrow terminals", () => {
+	const hourly = hourlyFrom([[TODAY + HOUR, "a", "m", "", cell({ cost: 5 })]]);
+	const model = buildGraphModel(hourly, {
+		period: "today",
+		metric: "cost",
+		groupBy: "total",
+		cumulative: true,
+		bounds: BOUNDS,
+	});
+
+	for (const width of [0, 1, 2, 5, 9, 10, 20, 30]) {
+		const lines = renderChart(model, { ...CHART_OPTS, width });
+		assert.equal(lines.length, CHART_OPTS.height + 1);
+		for (const line of lines) {
+			assert.ok(line.length <= width, `width=${width}: line too long (${line.length})`);
+		}
+	}
+});
+
 test("renderChart routes series text through the colorize callback with the series index", () => {
 	const hourly = hourlyFrom([[TODAY + HOUR, "a", "m", "", cell({ cost: 5 })]]);
 	const model = buildGraphModel(hourly, {
