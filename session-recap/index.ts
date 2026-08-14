@@ -24,112 +24,6 @@ type RecapContext = {
 type RecapReason = "idle" | "manual" | "resume" | "focus";
 
 const RECAP_KEY = "session-recap";
-const TUI_CAPTURE_KEY = `${RECAP_KEY}:capture`;
-
-const EMPTY_COMPONENT: Component = {
-	render: () => [],
-	invalidate: () => {},
-};
-
-type ComponentContainer = Component & {
-	children: Component[];
-	addChild(component: Component): void;
-	removeChild(component: Component): void;
-};
-
-function isComponentContainer(component: unknown): component is ComponentContainer {
-	if (!component || typeof component !== "object") return false;
-	const candidate = component as Partial<ComponentContainer>;
-	return (
-		Array.isArray(candidate.children) &&
-		typeof candidate.addChild === "function" &&
-		typeof candidate.removeChild === "function"
-	);
-}
-
-class FullscreenOnlyComponent implements Component {
-	private readonly tui: Pick<TUI, "mode">;
-	private readonly content: Component;
-
-	constructor(tui: Pick<TUI, "mode">, content: Component) {
-		this.tui = tui;
-		this.content = content;
-	}
-
-	render(width: number): string[] {
-		return this.tui.mode === "fullscreen" ? this.content.render(width) : [];
-	}
-
-	invalidate(): void {
-		this.content.invalidate();
-	}
-}
-
-class TranscriptRecapBridge implements Component {
-	private disposed = false;
-	private readonly tui: Pick<TUI, "requestRender">;
-	private readonly document: ComponentContainer;
-	private readonly recap: Component;
-
-	constructor(
-		tui: Pick<TUI, "requestRender">,
-		document: ComponentContainer,
-		recap: Component,
-	) {
-		this.tui = tui;
-		this.document = document;
-		this.recap = recap;
-	}
-
-	render(): string[] {
-		return [];
-	}
-
-	invalidate(): void {
-		this.recap.invalidate();
-	}
-
-	dispose(): void {
-		if (this.disposed) return;
-		this.disposed = true;
-		this.document.removeChild(this.recap);
-		this.tui.requestRender();
-	}
-}
-
-/**
- * Mount temporary recap content after Pi's chat container in fullscreen mode.
- *
- * Pi does not expose a transcript-insertion API, but its TUI component tree is
- * public. Validate the current document shape and fail closed so a future Pi
- * layout change falls back to the normal above-editor widget.
- */
-export function mountFullscreenRecap(tui: TUI, content: Component): TranscriptRecapBridge | undefined {
-	if (tui.mode !== "fullscreen") return undefined;
-
-	const document = tui.children[0];
-	if (!isComponentContainer(document) || document.children.length < 3) return undefined;
-	if (!document.children.slice(0, 3).every(isComponentContainer)) return undefined;
-
-	const recap = new FullscreenOnlyComponent(tui, content);
-	document.addChild(recap);
-	tui.requestRender();
-	return new TranscriptRecapBridge(tui, document, recap);
-}
-
-function captureTui(ctx: ExtensionContext): TUI | undefined {
-	let tui: TUI | undefined;
-	ctx.ui.setWidget(
-		TUI_CAPTURE_KEY,
-		(candidate) => {
-			tui = candidate;
-			return EMPTY_COMPONENT;
-		},
-		{ placement: "belowEditor" },
-	);
-	ctx.ui.setWidget(TUI_CAPTURE_KEY, undefined);
-	return tui;
-}
 
 const DEFAULT_AWAY_SECONDS = 90;
 const DEFAULT_IDLE_SECONDS = 120;
@@ -349,30 +243,48 @@ async function generateRecap(
 function clearRecap(ctx: ExtensionContext) {
 	if (!ctx.hasUI) return;
 	ctx.ui.setWidget(RECAP_KEY, undefined);
-	ctx.ui.setWidget(TUI_CAPTURE_KEY, undefined);
 	ctx.ui.setStatus(RECAP_KEY, undefined);
 }
 
-function showRecap(ctx: ExtensionContext, recap: string) {
+export function showRecap(ctx: ExtensionContext, recap: string) {
 	const theme = ctx.ui.theme;
 	const header = theme.fg("accent", theme.bold("✦ recap"));
-	const content = new Container();
-	content.addChild(new Text(header, 1, 0));
-	content.addChild(new Text(theme.fg("dim", recap), 1, 0));
+	const body = theme.fg("dim", recap);
+	let tui!: TUI;
+	ctx.ui.setWidget(
+		RECAP_KEY,
+		(candidate) => {
+			tui = candidate;
+			return new Container();
+		},
+		{ placement: "belowEditor" },
+	);
 
-	const tui = captureTui(ctx);
-	const bridge = tui ? mountFullscreenRecap(tui, content) : undefined;
-	if (bridge) {
-		try {
-			ctx.ui.setWidget(RECAP_KEY, () => bridge, { placement: "belowEditor" });
-		} catch (error) {
-			bridge.dispose();
-			throw error;
-		}
+	// Pi mounts the scrollable document as its first TUI child.
+	const document = tui.children[0];
+	if (tui.mode !== "fullscreen" || !(document instanceof Container)) {
+		ctx.ui.setWidget(RECAP_KEY, [header, body], { placement: "aboveEditor" });
 		return;
 	}
 
-	ctx.ui.setWidget(RECAP_KEY, [header, theme.fg("dim", recap)], { placement: "aboveEditor" });
+	const content = new Container();
+	content.addChild(new Text(header, 1, 0));
+	content.addChild(new Text(body, 1, 0));
+	const transcriptRecap: Component = {
+		render: (width) => (tui.mode === "fullscreen" ? content.render(width) : []),
+		invalidate: () => content.invalidate(),
+	};
+	document.addChild(transcriptRecap);
+
+	ctx.ui.setWidget(
+		RECAP_KEY,
+		() => ({
+			render: () => [],
+			invalidate: () => {},
+			dispose: () => document.removeChild(transcriptRecap),
+		}),
+		{ placement: "belowEditor" },
+	);
 }
 
 export default function (pi: ExtensionAPI) {
@@ -625,14 +537,13 @@ export default function (pi: ExtensionAPI) {
 		}
 	});
 
-	pi.on("session_shutdown", (_event, ctx) => {
+	pi.on("session_shutdown", () => {
 		agentActive = false;
 		awayRecapPending = false;
 		clearIdleTimer();
 		clearAwayTimer();
 		clearPostTurnTimer();
 		cancelActive();
-		clearRecap(ctx);
 		detachFocusReporting();
 	});
 

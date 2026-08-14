@@ -1,83 +1,45 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mountFullscreenRecap } from "../index.ts";
+import { Container } from "@earendil-works/pi-tui";
+import { showRecap } from "../index.ts";
 
-function container(children = []) {
-	return {
-		children: [...children],
-		addChild(component) {
-			this.children.push(component);
-		},
-		removeChild(component) {
-			const index = this.children.indexOf(component);
-			if (index >= 0) this.children.splice(index, 1);
-		},
-		render(width) {
-			return this.children.flatMap((child) => child.render(width));
-		},
-		invalidate() {
-			for (const child of this.children) child.invalidate();
+function createUi(mode) {
+	const document = new Container();
+	for (let i = 0; i < 3; i++) document.addChild(new Container());
+	const tui = { mode, children: [document] };
+	const theme = { fg: (_name, text) => text, bold: (text) => text };
+	const widgets = new Map();
+	const ui = {
+		theme,
+		setWidget(key, content, options) {
+			widgets.get(key)?.component?.dispose?.();
+			widgets.delete(key);
+			if (content === undefined) return;
+			const component = typeof content === "function" ? content(tui, theme) : undefined;
+			widgets.set(key, { content, component, options });
 		},
 	};
+	return { ctx: { ui }, document, widgets };
 }
 
-const emptyContainer = () => container();
-const textComponent = (text) => ({
-	render: () => [text],
-	invalidate() {},
-});
+test("fullscreen recap is temporary transcript content", () => {
+	const { ctx, document, widgets } = createUi("fullscreen");
+	showRecap(ctx, "Temporary recap text.");
 
-test("mounts a temporary recap after the fullscreen transcript and removes it on dispose", () => {
-	const document = container([emptyContainer(), emptyContainer(), emptyContainer()]);
-	let renders = 0;
-	const tui = {
-		mode: "fullscreen",
-		children: [document],
-		requestRender() {
-			renders++;
-		},
-	};
-
-	const bridge = mountFullscreenRecap(tui, textComponent("recap text"));
-	assert.ok(bridge);
 	assert.equal(document.children.length, 4);
-	assert.deepEqual(document.children[3].render(80), ["recap text"]);
-	assert.deepEqual(bridge.render(80), [], "the bridge must consume no fixed dock rows");
-	assert.equal(renders, 1);
+	assert.match(document.children[3].render(80).join("\n"), /Temporary recap text/);
+	assert.equal(widgets.get("session-recap").options.placement, "belowEditor");
+	assert.deepEqual(widgets.get("session-recap").component.render(80), []);
 
-	tui.mode = "regular";
-	assert.deepEqual(document.children[3].render(80), [], "the recap must not leak into regular scrollback");
-
-	bridge.dispose();
-	bridge.dispose();
+	ctx.ui.setWidget("session-recap", undefined);
 	assert.equal(document.children.length, 3);
-	assert.equal(renders, 2, "disposal should be idempotent and request one repaint");
 });
 
-test("fails closed when Pi's transcript layout is not recognised", () => {
-	const document = container([emptyContainer(), emptyContainer()]);
-	const tui = {
-		mode: "fullscreen",
-		children: [document],
-		requestRender() {
-			throw new Error("should not render");
-		},
-	};
+test("regular mode keeps the above-editor recap", () => {
+	const { ctx, document, widgets } = createUi("regular");
+	showRecap(ctx, "Temporary recap text.");
 
-	assert.equal(mountFullscreenRecap(tui, textComponent("recap text")), undefined);
-	assert.equal(document.children.length, 2);
-});
-
-test("does not mount transcript content in regular mode", () => {
-	const document = container([emptyContainer(), emptyContainer(), emptyContainer()]);
-	const tui = {
-		mode: "regular",
-		children: [document],
-		requestRender() {
-			throw new Error("should not render");
-		},
-	};
-
-	assert.equal(mountFullscreenRecap(tui, textComponent("recap text")), undefined);
 	assert.equal(document.children.length, 3);
+	assert.equal(widgets.get("session-recap").options.placement, "aboveEditor");
+	assert.deepEqual(widgets.get("session-recap").content, ["✦ recap", "Temporary recap text."]);
 });

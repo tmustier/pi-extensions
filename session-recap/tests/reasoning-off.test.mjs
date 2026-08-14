@@ -72,7 +72,9 @@ function makeCtx(model) {
 		},
 		ui: {
 			setStatus() {},
-			setWidget() {},
+			setWidget(_key, content) {
+				if (typeof content === "function") content({ mode: "regular", children: [] }, this.theme);
+			},
 			theme: { fg: (_n, t) => t, bold: (t) => t },
 		},
 	};
