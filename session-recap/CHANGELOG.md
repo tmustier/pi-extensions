@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- Show recaps as temporary content at the end of the scrollable transcript in fullscreen mode, rather than as a fixed widget above the editor. Regular mode keeps the existing widget placement.
+
 ## [0.4.1] - 2026-08-06
 
 ### Changed

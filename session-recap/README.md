@@ -1,6 +1,6 @@
 # session-recap
 
-"While you were away" recap for Pi, modelled on Claude Code's away-summary. When you've genuinely been away from a Pi session, a short recap is drafted while you're gone and parked above the editor so it's waiting when you return.
+"While you were away" recap for Pi, modelled on Claude Code's away-summary. When you've genuinely been away from a Pi session, a short recap is drafted while you're gone and parked at the end of the scrollable transcript so it's waiting when you return. In Pi's regular TUI it stays above the editor.
 
 ![session-recap widget in a live Pi session](./assets/recap.png)
 
@@ -16,7 +16,7 @@ The recap orients rather than reports: it states the high-level task first (what
 
 Also fires automatically on `/resume` and `/fork` so you know where the prior session left off.
 
-The widget clears when you type or new agent work begins.
+The recap disappears when you submit a message or new agent work begins. It is temporary UI: it is not saved in session history or sent to the model.
 
 Quick alt-tabs cost nothing: no model call is made until you've actually been away for the full threshold. If you return while a recap is still drafting, it's allowed to finish — it lands moments after you're back, which is exactly when it helps.
 
