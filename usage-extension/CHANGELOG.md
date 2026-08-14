@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- Optional independent `rememberView` and `rememberPeriod` settings restore the last selected dashboard view and/or time period. Runtime selections are persisted in a separate extension-owned state file rather than modifying `settings.json`.
+
 ## [0.9.4] - 2026-07-22
 
 ### Changed
