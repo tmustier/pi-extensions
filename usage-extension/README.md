@@ -55,6 +55,18 @@ In Pi, run:
 /usage
 ```
 
+To avoid a slash-command name collision, override the command name in the global `~/.pi/agent/settings.json`:
+
+```json
+{
+	"usage-extension": {
+		"commandName": "us"
+	}
+}
+```
+
+After changing `commandName`, run `/reload`. The value must be a bare lowercase command name without the leading `/`; letters, digits, `_`, and `-` are supported. Invalid values fall back to `usage`.
+
 ## Features
 
 ### Views
@@ -66,6 +78,24 @@ In Pi, run:
 - **Insights** — data-driven characteristics of your cost for the active time period (details below). Insights are **independent lenses**, not a breakdown, so they overlap and don't sum to 100%.
 
 Every view can export its current slice with `e` — see [Export](#export).
+
+### Remembering the selected tabs
+
+By default, `/usage` opens on **Graphs** and **All Time**. You can independently remember the last selected view, the last selected time period, or both:
+
+```json
+{
+	"usage-extension": {
+		"rememberView": true,
+		"rememberPeriod": true
+	}
+}
+```
+
+- `rememberView` restores the last **Graphs / Table / Insights** selection.
+- `rememberPeriod` restores the last **Today / This Week / Last Week / Last 30 Days / All Time** selection.
+
+Both settings are optional and default to `false`. The selections are stored separately in `<agentDir>/usage-extension-state.json`; the extension never writes runtime state back into `settings.json`.
 
 ![Table view of /usage](screenshot.png)
 

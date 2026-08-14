@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- Optional `commandName` setting overrides the registered `/usage` slash command, avoiding collisions with commands from other extensions. Changing it requires `/reload`; invalid values fall back to `usage`.
+- Optional independent `rememberView` and `rememberPeriod` settings restore the last selected dashboard view and/or time period. Runtime selections are persisted in a separate extension-owned state file rather than modifying `settings.json`.
+
 ## [0.9.4] - 2026-07-22
 
 ### Changed
