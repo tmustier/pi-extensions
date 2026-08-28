@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.5.1] - 2026-08-28
+
+### Fixed
+- Never render a partial response as a recap. `complete`/`completeSimple` resolve instead of throwing when a stream fails, is aborted, or hits the token cap, and the message they return holds only the text that arrived before the cut. That fragment was rendered verbatim, so a stream that died on its first delta produced a recap of one dangling word such as "I" or "The". A recap is now drawn only for a cleanly stopped response, and a genuine stream failure is logged with the provider's error message instead of passing silently.
 ## [0.5.0] - 2026-08-14
 
 ### Changed
