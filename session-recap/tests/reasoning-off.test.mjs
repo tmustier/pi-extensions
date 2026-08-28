@@ -15,6 +15,7 @@ function stubStream(kind, api) {
 			result: async () => ({
 				role: "assistant",
 				content: [{ type: "text", text: "Recap text." }],
+				stopReason: "stop",
 			}),
 		};
 	};

@@ -230,10 +230,10 @@ async function generateRecap(
 		throw err;
 	}
 
-	// pi-ai resolves instead of throwing when a stream fails, is aborted, or hits
-	// the token cap: the message it hands back holds only the text that arrived
-	// before the cut. Rendering that verbatim is what produced recaps of a single
-	// dangling word, so accept a whole response only.
+	// pi-ai resolves instead of throwing when a stream fails, is aborted, or stops
+	// at the token cap: the message it hands back then holds only the text that
+	// arrived before the cut. Half a sentence orients nobody, so draw a recap from
+	// a whole response only.
 	if (response.stopReason === "error") {
 		throw new Error(response.errorMessage || "the recap request failed mid-stream");
 	}

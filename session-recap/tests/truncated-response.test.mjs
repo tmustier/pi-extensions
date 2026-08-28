@@ -1,8 +1,8 @@
-// pi-ai resolves rather than throws when a stream fails, is aborted, or runs
-// into the token cap: `complete`/`completeSimple` hand back the partial
-// assistant message built so far, carrying whatever text arrived before the
-// cut. A recap must never render that fragment — it is what surfaced recaps of
-// a single dangling word such as "I" or "The".
+// pi-ai resolves rather than throws when a stream fails, is aborted, or stops
+// at the token cap: `complete`/`completeSimple` hand back the partial assistant
+// message built so far, holding whatever text arrived before the cut. Rendering
+// that fragment yields a recap of a single dangling word, so each stop reason
+// below pins down what reaches the widget.
 import assert from "node:assert/strict";
 import { registerApiProvider } from "@earendil-works/pi-ai/compat";
 import sessionRecap from "../index.ts";
@@ -109,7 +109,7 @@ function message(stopReason, text, extra = {}) {
 // A stream that died after the first delta: the message holds one dangling word.
 const failed = await run(message("error", "The", { errorMessage: "socket hang up" }));
 assert.deepEqual(failed.widgets, [], "a failed stream must not render its partial text as a recap");
-assert.equal(failed.errors.length, 1, "a failed stream should be reported once");
+assert.equal(failed.errors.length, 1, "a failed stream must be reported once");
 assert.match(
 	String(failed.errors[0][1]),
 	/socket hang up/,
