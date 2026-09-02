@@ -230,6 +230,15 @@ async function generateRecap(
 		throw err;
 	}
 
+	// pi-ai resolves instead of throwing when a stream fails, is aborted, or stops
+	// at the token cap: the message it hands back then holds only the text that
+	// arrived before the cut. Half a sentence orients nobody, so draw a recap from
+	// a whole response only.
+	if (response.stopReason === "error") {
+		throw new Error(response.errorMessage || "the recap request failed mid-stream");
+	}
+	if (response.stopReason !== "stop") return undefined;
+
 	const text = response.content
 		.filter((c): c is { type: "text"; text: string } => c.type === "text")
 		.map((c) => c.text)
@@ -396,7 +405,13 @@ export default function (pi: ExtensionAPI) {
 
 			showRecap(ctx, recap);
 		} catch (err) {
-			if (!controller.signal.aborted) console.error("[session-recap] failed:", err);
+			// Report through the UI, never console.*: pi installs no console interception, so
+			// an extension writing there puts raw text on the terminal mid-frame and mangles the
+			// status bar it lands on. `generateAndShow` already returned early unless `ctx.hasUI`.
+			if (!controller.signal.aborted) {
+				const message = err instanceof Error ? err.message : String(err);
+				ctx.ui.notify(`session-recap: ${message}`, "error");
+			}
 		} finally {
 			if (activeController === controller) {
 				activeController = undefined;
