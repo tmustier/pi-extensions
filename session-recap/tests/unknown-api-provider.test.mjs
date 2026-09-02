@@ -34,6 +34,7 @@ const branch = [
 ];
 
 const widgets = [];
+const notices = [];
 const ctx = {
 	hasUI: true,
 	model: {
@@ -60,6 +61,9 @@ const ctx = {
 	},
 	ui: {
 		setStatus() {},
+		notify(...args) {
+			notices.push(args);
+		},
 		setWidget(...args) {
 			widgets.push(args);
 		},
@@ -83,6 +87,11 @@ try {
 	console.error = originalConsoleError;
 }
 
-assert.deepEqual(errors, [], "an unknown custom API provider should be skipped without logging an error");
+assert.deepEqual(errors, [], "an extension must not write to the console, which corrupts the TUI frame");
+assert.deepEqual(
+	notices,
+	[],
+	"an unknown custom API provider should be skipped without reporting an error",
+);
 assert.deepEqual(widgets, [], "an unsupported provider should not render an empty recap widget");
 console.log("unknown API provider test passed");

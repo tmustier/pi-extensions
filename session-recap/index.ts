@@ -405,7 +405,13 @@ export default function (pi: ExtensionAPI) {
 
 			showRecap(ctx, recap);
 		} catch (err) {
-			if (!controller.signal.aborted) console.error("[session-recap] failed:", err);
+			// Report through the UI, never console.*: pi installs no console interception, so
+			// an extension writing there puts raw text on the terminal mid-frame and mangles the
+			// status bar it lands on. `generateAndShow` already returned early unless `ctx.hasUI`.
+			if (!controller.signal.aborted) {
+				const message = err instanceof Error ? err.message : String(err);
+				ctx.ui.notify(`session-recap: ${message}`, "error");
+			}
 		} finally {
 			if (activeController === controller) {
 				activeController = undefined;

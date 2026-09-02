@@ -47,6 +47,7 @@ const branch = [
 ];
 
 const widgets = [];
+const notices = [];
 
 const ctx = {
 	hasUI: true,
@@ -73,6 +74,9 @@ const ctx = {
 	},
 	ui: {
 		setStatus() {},
+		notify(message, type) {
+			notices.push([message, type]);
+		},
 		setWidget(_key, content) {
 			if (typeof content === "function") {
 				content({ mode: "regular", children: [] }, this.theme);
@@ -91,15 +95,20 @@ const recap = pi.commands.get("recap").handler;
 async function run(response) {
 	nextResponse = response;
 	widgets.length = 0;
-	const errors = [];
+	notices.length = 0;
+	const consoleWrites = [];
 	const originalConsoleError = console.error;
-	console.error = (...args) => errors.push(args);
+	console.error = (...args) => consoleWrites.push(args);
 	try {
 		await recap("", ctx);
 	} finally {
 		console.error = originalConsoleError;
 	}
-	return { widgets: [...widgets], errors };
+	// Holds for every stop reason, so it is asserted here rather than per case: pi installs
+	// no console interception, so text written there reaches the terminal mid-frame and
+	// mangles the status bar. Failures belong in a notification.
+	assert.deepEqual(consoleWrites, [], "a recap must report through the UI, never the console");
+	return { widgets: [...widgets], notices: [...notices] };
 }
 
 function message(stopReason, text, extra = {}) {
@@ -109,22 +118,23 @@ function message(stopReason, text, extra = {}) {
 // A stream that died after the first delta: the message holds one dangling word.
 const failed = await run(message("error", "The", { errorMessage: "socket hang up" }));
 assert.deepEqual(failed.widgets, [], "a failed stream must not render its partial text as a recap");
-assert.equal(failed.errors.length, 1, "a failed stream must be reported once");
+assert.equal(failed.notices.length, 1, "a failed stream must be reported once");
 assert.match(
-	String(failed.errors[0][1]),
+	failed.notices[0][0],
 	/socket hang up/,
-	"the provider's error message should reach the log",
+	"the provider's error message should reach the notification",
 );
+assert.equal(failed.notices[0][1], "error", "a stream failure is an error-level notification");
 
 // An aborted stream is an ordinary cancellation, not a fault: drop it silently.
 const aborted = await run(message("aborted", "I"));
 assert.deepEqual(aborted.widgets, [], "an aborted stream must not render its partial text");
-assert.deepEqual(aborted.errors, [], "an aborted stream is expected and must not be logged");
+assert.deepEqual(aborted.notices, [], "an aborted stream is expected and must not be reported");
 
 // Hitting the 256-token cap leaves a sentence cut mid-word.
 const capped = await run(message("length", "The next step is to rewrite the bridge adapter so that"));
 assert.deepEqual(capped.widgets, [], "a response cut off at the token cap must not be rendered");
-assert.deepEqual(capped.errors, [], "overrunning the cap is not an error worth logging");
+assert.deepEqual(capped.notices, [], "overrunning the cap is not an error worth reporting");
 
 // The control: a whole response still reaches the widget.
 const complete = await run(message("stop", "Fixing the bridge integration. Next: rerun the suite."));
@@ -133,6 +143,6 @@ assert.deepEqual(
 	[["✦ recap", "Fixing the bridge integration. Next: rerun the suite."]],
 	"a cleanly stopped response should still render",
 );
-assert.deepEqual(complete.errors, [], "a successful recap must not log");
+assert.deepEqual(complete.notices, [], "a successful recap must not notify");
 
 console.log("truncated response test passed");
