@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **Monthly period.** New `‹Mon YYYY›` tab covering a calendar month in graphs, table, insights, and exports. Use `[` / `]` to select the previous or next month with recorded usage.
+
 ## [0.9.4] - 2026-07-22
 
 ### Changed

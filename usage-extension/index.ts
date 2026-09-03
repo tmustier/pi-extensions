@@ -2,7 +2,7 @@
  * /usage - Usage statistics dashboard
  *
  * Shows an inline view with usage stats grouped by provider.
- * - Tab cycles: Today → This Week → Last Week → All Time
+ * - Tab cycles: Today → This Week → Last Week → Last 30 Days → Monthly → All Time
  * - Arrow keys navigate providers
  * - Enter expands/collapses to show models
  *
@@ -15,7 +15,7 @@ import { CancellableLoader, Container, Spacer, matchesKey, visibleWidth, truncat
 
 import { collectUsageData, getAgentDir, TAB_ORDER } from "./data";
 import type { CollectProgress } from "./data";
-import type { BaseStats, ProviderStats, TabName, TotalStats, UsageData } from "./data";
+import type { BaseStats, ProviderStats, TabName, TimeFilteredStats, TotalStats, UsageData } from "./data";
 import {
 	buildGraphModel,
 	renderChart,
@@ -274,11 +274,13 @@ const TAB_LABELS: Record<TabName, string> = {
 	thisWeek: "This Week",
 	lastWeek: "Last Week",
 	last30Days: "Last 30 Days",
+	monthly: "Monthly",
 	allTime: "All Time",
 };
 
 class UsageComponent {
 	private activeTab: TabName = "allTime";
+	private selectedMonthMs: number;
 	private viewMode: ViewMode = "graph";
 	private data: UsageData;
 	private selectedIndex = 0;
@@ -304,11 +306,25 @@ class UsageComponent {
 		this.requestRender = requestRender;
 		this.done = done;
 		this.data = data;
+		this.selectedMonthMs = data.bounds.monthStartMs;
 		this.updateProviderOrder();
 	}
 
+	private activeStats(): TimeFilteredStats {
+		return this.activeTab === "monthly" ? this.data.months.get(this.selectedMonthMs)! : this.data[this.activeTab];
+	}
+
+	private shiftMonth(delta: number): void {
+		const months = [...this.data.months.keys()].sort((a, b) => a - b);
+		const next = months[months.indexOf(this.selectedMonthMs) + delta];
+		if (next === undefined) return;
+		this.selectedMonthMs = next;
+		this.updateProviderOrder();
+		this.exportNote = null;
+	}
+
 	private updateProviderOrder(): void {
-		const stats = this.data[this.activeTab];
+		const stats = this.activeStats();
 		this.providerOrder = Array.from(stats.providers.entries())
 			.sort((a, b) => b[1].cost - a[1].cost)
 			.map(([name]) => name);
@@ -326,7 +342,7 @@ class UsageComponent {
 	 * the totals row and exports reflect exactly what is on screen.
 	 */
 	private visibleTable(): { providers: Map<string, ProviderStats>; totals: TotalStats } {
-		const stats = this.data[this.activeTab];
+		const stats = this.activeStats();
 		const q = this.tableFilter.trim().toLowerCase();
 		// Always iterate providerOrder so the map is cost-sorted — selection
 		// indexes and rendered rows must agree on ordering.
@@ -415,6 +431,12 @@ class UsageComponent {
 
 		if (matchesKey(data, "e")) {
 			this.exportCurrentView();
+			this.requestRender();
+			return;
+		}
+
+		if (this.activeTab === "monthly" && (data === "[" || data === "]")) {
+			this.shiftMonth(data === "[" ? -1 : 1);
 			this.requestRender();
 			return;
 		}
@@ -517,18 +539,22 @@ class UsageComponent {
 		const now = new Date();
 		let name: string;
 		let content: string;
-		const stats = this.data[this.activeTab];
+		const stats = this.activeStats();
+		const month = new Date(this.selectedMonthMs);
+		const period = this.activeTab === "monthly"
+			? `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, "0")}`
+			: this.activeTab;
 		if (this.viewMode === "graph") {
 			const slice = `${this.graphCumulative ? "cumulative" : "per-bucket"}-${this.graphMetric}-by-${this.graphGroupBy}`;
-			name = exportFileName("graph", this.activeTab, slice, "csv", now);
+			name = exportFileName("graph", period, slice, "csv", now);
 			content = buildGraphCsv(this.buildGraphModelForView());
 		} else if (this.viewMode === "insights") {
-			name = exportFileName("insights", this.activeTab, null, "json", now);
-			content = buildInsightsJson(this.activeTab, stats.totals, stats.insights.insights);
+			name = exportFileName("insights", period, null, "json", now);
+			content = buildInsightsJson(period, stats.totals, stats.insights.insights);
 		} else {
 			const visible = this.visibleTable();
 			const sliced = this.tableFilter.trim() !== "" || this.tableHidden.size > 0;
-			name = exportFileName("table", this.activeTab, sliced ? "filtered" : null, "csv", now);
+			name = exportFileName("table", period, sliced ? "filtered" : null, "csv", now);
 			content = buildTableCsv(visible.providers, visible.totals);
 		}
 		try {
@@ -551,13 +577,17 @@ class UsageComponent {
 	}
 
 	private buildGraphModelForView(): GraphModel {
+		const monthEnd = new Date(this.selectedMonthMs);
+		monthEnd.setMonth(monthEnd.getMonth() + 1);
 		return buildGraphModel(this.data.hourly, {
 			period: this.activeTab,
 			metric: this.graphMetric,
 			groupBy: this.graphGroupBy,
 			cumulative: this.graphCumulative,
 			hidden: this.graphHidden,
-			bounds: this.data.bounds,
+			bounds: this.activeTab === "monthly"
+				? { ...this.data.bounds, monthStartMs: this.selectedMonthMs, nowMs: Math.min(monthEnd.getTime(), this.data.bounds.nowMs) }
+				: this.data.bounds,
 		});
 	}
 
@@ -671,7 +701,7 @@ class UsageComponent {
 
 	private renderInsights(width: number): string[] {
 		const th = this.theme;
-		const stats = this.data[this.activeTab];
+		const stats = this.activeStats();
 		const { insights } = stats.insights;
 		const hasUsage =
 			stats.totals.messages > 0 ||
@@ -753,12 +783,16 @@ class UsageComponent {
 
 	private renderTabs(width: number, layout: TableLayout): string[] {
 		const th = this.theme;
+		const tabLabel = (tab: TabName): string =>
+			tab === "monthly"
+				? `‹${new Date(this.selectedMonthMs).toLocaleDateString(undefined, { month: "short", year: "numeric" })}›`
+				: TAB_LABELS[tab];
 		const fullTabs = TAB_ORDER.map((tab) => {
-			const label = TAB_LABELS[tab];
+			const label = tabLabel(tab);
 			return tab === this.activeTab ? th.fg("accent", `[${label}]`) : th.fg("dim", ` ${label} `);
 		}).join("  ");
 
-		const activeTabOnly = th.fg("accent", `[${TAB_LABELS[this.activeTab]}]`);
+		const activeTabOnly = th.fg("accent", `[${tabLabel(this.activeTab)}]`);
 		const tabLine = pickFittingText(width, [
 			fullTabs,
 			`${activeTabOnly}  ${th.fg("dim", "[Tab/←→]")}`,
@@ -916,6 +950,7 @@ class UsageComponent {
 						"[↑↓] select  [q] close",
 						"[q] close",
 				  ];
+		if (this.activeTab === "monthly") variants.unshift(`[ / ] month  ${variants[0]}`);
 		const line = pickFittingText(width, variants);
 		return [...noteLines, this.theme.fg("dim", line)];
 	}

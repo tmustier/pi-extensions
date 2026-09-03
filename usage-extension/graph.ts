@@ -120,6 +120,8 @@ function domainFor(period: TabName, bounds: PeriodBounds, hourly: Map<number, Ma
 			return { startMs: bounds.lastWeekStartMs, endMs: bounds.weekStartMs };
 		case "last30Days":
 			return { startMs: bounds.last30DaysStartMs, endMs: bounds.nowMs };
+		case "monthly":
+			return { startMs: bounds.monthStartMs, endMs: bounds.nowMs };
 		case "allTime": {
 			let first = Number.POSITIVE_INFINITY;
 			for (const hour of hourly.keys()) if (hour < first) first = hour;
