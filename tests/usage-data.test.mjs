@@ -1090,6 +1090,8 @@ test("projectLabelFromCwd collapses cwds to stable project labels", () => {
 	assert.equal(projectLabelFromCwd("/Users/olduser/projects/customers/xpo"), "~/projects/customers");
 	assert.equal(projectLabelFromCwd("/home/olduser/work"), "~/work");
 	assert.equal(projectLabelFromCwd("/Users/olduser"), "~");
+	// Windows separators normalize to forward slashes; the drive segment is dropped.
+	assert.equal(projectLabelFromCwd("C:\\Users\\rider\\projects\\foo\\sub\\dir"), "Users/rider");
 });
 
 test("loadUsageCache returns empty for a missing cache file", async (t) => {
