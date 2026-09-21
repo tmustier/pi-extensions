@@ -26,9 +26,9 @@
     "@earendil-works/pi-tui": "*"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "^0.87.0",
-    "@earendil-works/pi-coding-agent": "^0.87.0",
-    "@earendil-works/pi-tui": "^0.87.0"
+    "@earendil-works/pi-ai": "0.87.0",
+    "@earendil-works/pi-coding-agent": "0.87.0",
+    "@earendil-works/pi-tui": "0.87.0"
   },
   "scripts": {
     "test": "node --test tests/*.test.mjs"

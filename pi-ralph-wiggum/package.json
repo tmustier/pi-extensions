@@ -30,7 +30,7 @@
     "@earendil-works/pi-coding-agent": "*"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "^0.87.0"
+    "@earendil-works/pi-coding-agent": "0.87.0"
   },
   "scripts": {
     "test": "node tests/session-boundary.test.mjs"

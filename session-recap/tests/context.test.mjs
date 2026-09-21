@@ -168,3 +168,24 @@ test("canonical projection omits edited messages from initial-task and activity 
 	assert.equal(context.broaderContext, undefined);
 	assert.equal(hasMeaningfulActivity(projection), false);
 });
+
+test("canonical projection applies assistant replacements to activity logic", () => {
+	const projection = project([
+		{ type: "message", message: { role: "user", content: "Current task" } },
+		{
+			type: "message",
+			id: "assistant",
+			message: {
+				role: "assistant",
+				content: [{ type: "toolCall", id: "call-old", name: "read", arguments: { path: "old.ts" } }],
+			},
+		},
+		{
+			type: "context_edit",
+			targetId: "assistant",
+			replacement: { content: "Brief corrected response." },
+		},
+	]);
+
+	assert.equal(hasMeaningfulActivity(projection), false);
+});

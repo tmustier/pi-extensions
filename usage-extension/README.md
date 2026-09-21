@@ -97,7 +97,7 @@ The **Insights** view has two sections, facts first:
 |---|---|
 | Resuming after a break | ≥ 2% of the period's cost (and ≥ $1) went to messages that re-sent a large conversation from scratch after a > 5 min idle gap — provider caches expire after a few minutes idle |
 | Switching models mid-conversation | ≥ 2% of cost (and ≥ $1) went to large-context misses right after the provider/model changed mid-session — the previous model's cache doesn't transfer |
-| Mid-session re-sends (prefix change) | ≥ 2% of cost (and ≥ $1) went to large-context misses with **no** idle gap, compaction, or model switch to explain them — something rewrote the request prefix |
+| Mid-session re-sends (prefix change) | ≥ 2% of cost (and ≥ $1) went to large-context misses with **no** idle gap, compaction, context edit, or model switch to explain them — something unexpectedly rewrote the request prefix |
 | Session concentration | the top 5 sessions account for ≥ 35% of the period's cost |
 | Upfront tax | ≥ 8% of cost was the first message of a session (session starts pay for their whole prompt uncached) |
 | Cache leverage floor | fewer than 5 cached tokens served per fresh token paid (shown only above $5 / 1M fresh tokens, to avoid noise) |

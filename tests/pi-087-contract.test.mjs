@@ -4,6 +4,24 @@ import test from "node:test";
 import sessionRecap from "../session-recap/index.ts";
 import tabStatus from "../tab-status/tab-status.ts";
 
+const PACKAGE_DIRS = [
+	".",
+	"agent-guidance",
+	"arcade",
+	"code-actions",
+	"files-widget",
+	"pi-ralph-wiggum",
+	"raw-paste",
+	"session-recap",
+	"tab-status",
+	"usage-extension",
+	"weather",
+];
+
+function packageJson(directory) {
+	return JSON.parse(readFileSync(new URL(`../${directory}/package.json`, import.meta.url), "utf8"));
+}
+
 function capturePi() {
 	const events = new Map();
 	return {
@@ -17,6 +35,23 @@ function capturePi() {
 		getFlag() {},
 	};
 }
+
+test("development contracts pin Pi 0.87 and Ralph ships the current typebox runtime", () => {
+	for (const directory of PACKAGE_DIRS) {
+		const pkg = packageJson(directory);
+		for (const [name, version] of Object.entries(pkg.devDependencies ?? {})) {
+			if (name.startsWith("@earendil-works/pi-")) {
+				assert.equal(version, "0.87.0", `${directory}/${name}`);
+			}
+		}
+	}
+
+	assert.equal(packageJson(".").dependencies.typebox, "^1.3.27");
+	assert.equal(packageJson("pi-ralph-wiggum").dependencies.typebox, "^1.3.27");
+	const ralphSource = readFileSync(new URL("../pi-ralph-wiggum/index.ts", import.meta.url), "utf8");
+	assert.match(ralphSource, /from "typebox"/);
+	assert.doesNotMatch(ralphSource, /@sinclair\/typebox/);
+});
 
 test("0.87 lifecycle handlers use session_start and final agent_settled boundaries", async () => {
 	const filesSource = readFileSync(new URL("../files-widget/index.ts", import.meta.url), "utf8");
