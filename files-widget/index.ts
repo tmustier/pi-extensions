@@ -73,7 +73,7 @@ export default function editorExtension(pi: ExtensionAPI): void {
           const message = formatCommentMessage(payload, comment);
           if (ctx.isIdle()) {
             pi.sendUserMessage(message);
-            ctx.ui.notify(`Comment sent to agent for ${payload.relPath} (${payload.lineRange})`, "success");
+            ctx.ui.notify(`Comment sent to agent for ${payload.relPath} (${payload.lineRange})`, "info");
           } else {
             pi.sendUserMessage(message, { deliverAs: "followUp" });
             ctx.ui.notify(`Comment queued for agent for ${payload.relPath} (${payload.lineRange})`, "info");
@@ -125,7 +125,4 @@ export default function editorExtension(pi: ExtensionAPI): void {
     agentModifiedFiles.clear();
   });
 
-  pi.on("session_switch", async () => {
-    agentModifiedFiles.clear();
-  });
 }

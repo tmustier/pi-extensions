@@ -116,6 +116,11 @@ function compactionLine({ id = "compact1", ts, ...usageValues }) {
 	});
 }
 
+function contextEditLine({ id = "edit1", targetId = "m1", replacement = null, spaced = false } = {}) {
+	const entry = { type: "context_edit", id, parentId: targetId, targetId, replacement };
+	return spaced ? JSON.stringify(entry, null, 1).replaceAll("\n", "") : JSON.stringify(entry);
+}
+
 function branchSummaryLine({ id = "branch1", ts, ...usageValues }) {
 	return JSON.stringify({
 		type: "branch_summary",
@@ -173,6 +178,7 @@ test("parseSessionBuffer extracts session id and assistant messages from compact
 		reasoning: 0,
 		timestamp: TS_TODAY,
 		afterCompaction: false,
+		afterContextEdit: false,
 	});
 	assert.equal(parsed.cwd, "/tmp");
 });
@@ -224,6 +230,24 @@ test("parseSessionBuffer flags the first assistant message after a compaction en
 	assert.deepEqual(
 		parsed.messages.map((m) => m.afterCompaction),
 		[false, true, false, true]
+	);
+});
+
+test("parseSessionBuffer flags the first assistant message after compact and spaced context edits", async () => {
+	const content = [
+		sessionLine("s1", TS_TODAY),
+		assistantLine({ ts: TS_TODAY, cost: 1 }),
+		contextEditLine(),
+		assistantLine({ ts: TS_TODAY + 1000, cost: 2 }),
+		assistantLine({ ts: TS_TODAY + 2000, cost: 3 }),
+		contextEditLine({ id: "edit2", spaced: true }),
+		assistantLine({ ts: TS_TODAY + 3000, cost: 4 }),
+	].join("\n");
+
+	const parsed = await parseSessionBuffer(Buffer.from(content, "utf8"));
+	assert.deepEqual(
+		parsed.messages.map((m) => m.afterContextEdit),
+		[false, true, false, true],
 	);
 });
 
@@ -743,7 +767,7 @@ test("collectUsageData survives a corrupt cache file", async (t) => {
 
 	// Cache was rebuilt.
 	const cacheJson = JSON.parse(readFileSync(cachePath, "utf8"));
-	assert.equal(cacheJson.version, 5);
+	assert.equal(cacheJson.version, 6);
 });
 
 test("collectUsageData works with the cache disabled", async (t) => {
@@ -774,8 +798,8 @@ test("saveUsageCache/loadUsageCache round-trips file states", async (t) => {
 					sessionId: "s1",
 					cwd: "/home/u/projects/x",
 					messages: [
-						{ provider: "anthropic", model: "claude-fable-5", thinkingLevel: "xhigh", source: "assistant", sourceId: "", cost: 1.5, input: 10, output: 20, cacheRead: 30, cacheWrite: 40, reasoning: 7, timestamp: TS_TODAY, afterCompaction: true },
-						{ provider: "Tools", model: "summaries", thinkingLevel: "Tools/summaries", source: "auxiliary", sourceId: "summary-a", cost: 0.25, input: 1, output: 2, cacheRead: 3, cacheWrite: 4, reasoning: 0, timestamp: TS_OLD, afterCompaction: false },
+						{ provider: "anthropic", model: "claude-fable-5", thinkingLevel: "xhigh", source: "assistant", sourceId: "", cost: 1.5, input: 10, output: 20, cacheRead: 30, cacheWrite: 40, reasoning: 7, timestamp: TS_TODAY, afterCompaction: true, afterContextEdit: true },
+						{ provider: "Tools", model: "summaries", thinkingLevel: "Tools/summaries", source: "auxiliary", sourceId: "summary-a", cost: 0.25, input: 1, output: 2, cacheRead: 3, cacheWrite: 4, reasoning: 0, timestamp: TS_OLD, afterCompaction: false, afterContextEdit: false },
 					],
 					toolUsages: [
 						{
@@ -853,20 +877,25 @@ test("loadUsageCache rejects wrong versions and malformed entries", async (t) =>
 	writeFileSync(cachePath, JSON.stringify({ version: 4, names: [], files: {} }));
 	assert.equal((await loadUsageCache(cachePath)).size, 0);
 
+	// v5 caches predate intentional context-edit boundaries.
+	writeFileSync(cachePath, JSON.stringify({ version: 5, names: [], files: {} }));
+	assert.equal((await loadUsageCache(cachePath)).size, 0);
+
 	writeFileSync(
 		cachePath,
 		JSON.stringify({
-			version: 5,
+			version: 6,
 			names: ["p", "m", "high", "entry-a"],
 			files: {
-				"/ok.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [[0, 1, 1, 1, 1, 0, 0, TS_TODAY, 2, 5, 1, 1, 3]], toolUsages: [] },
+				"/ok.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [[0, 1, 1, 1, 1, 0, 0, TS_TODAY, 2, 5, 1, 1, 3, 1]], toolUsages: [] },
 				"/bad-tuple.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [[0, 1, 1]], toolUsages: [] },
-				"/bad-name-idx.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [[7, 1, 1, 1, 1, 0, 0, TS_TODAY, 2, 0, 0, 0, 3]], toolUsages: [] },
-				"/bad-level-idx.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [[0, 1, 1, 1, 1, 0, 0, TS_TODAY, 9, 0, 0, 0, 3]], toolUsages: [] },
-				"/bad-source.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [[0, 1, 1, 1, 1, 0, 0, TS_TODAY, 2, 0, 0, 7, 3]], toolUsages: [] },
-				"/bad-source-id.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [[0, 1, 1, 1, 1, 0, 0, TS_TODAY, 2, 0, 0, 0, 9]], toolUsages: [] },
+				"/bad-name-idx.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [[7, 1, 1, 1, 1, 0, 0, TS_TODAY, 2, 0, 0, 0, 3, 0]], toolUsages: [] },
+				"/bad-level-idx.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [[0, 1, 1, 1, 1, 0, 0, TS_TODAY, 9, 0, 0, 0, 3, 0]], toolUsages: [] },
+				"/bad-source.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [[0, 1, 1, 1, 1, 0, 0, TS_TODAY, 2, 0, 0, 7, 3, 0]], toolUsages: [] },
+				"/bad-source-id.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [[0, 1, 1, 1, 1, 0, 0, TS_TODAY, 2, 0, 0, 0, 9, 0]], toolUsages: [] },
+				"/bad-edit-flag.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [[0, 1, 1, 1, 1, 0, 0, TS_TODAY, 2, 0, 0, 0, 3, 2]], toolUsages: [] },
 				"/bad-tool.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [], toolUsages: [[3, TS_TODAY, [1, 2], 3, []]] },
-				"/no-cwd.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", messages: [[0, 1, 1, 1, 1, 0, 0, TS_TODAY, 2, 0, 0, 0, 3]], toolUsages: [] },
+				"/no-cwd.jsonl": { size: 1, mtimeMs: 2, sessionId: "s", messages: [[0, 1, 1, 1, 1, 0, 0, TS_TODAY, 2, 0, 0, 0, 3, 0]], toolUsages: [] },
 				"/bad-shape.jsonl": { size: "x", mtimeMs: 2, sessionId: "s", cwd: "/w", messages: [], toolUsages: [] },
 			},
 		})
@@ -876,6 +905,7 @@ test("loadUsageCache rejects wrong versions and malformed entries", async (t) =>
 	assert.equal(loaded.get("/ok.jsonl").parsed.messages[0].thinkingLevel, "high");
 	assert.equal(loaded.get("/ok.jsonl").parsed.messages[0].reasoning, 5);
 	assert.equal(loaded.get("/ok.jsonl").parsed.messages[0].afterCompaction, true);
+	assert.equal(loaded.get("/ok.jsonl").parsed.messages[0].afterContextEdit, true);
 	assert.equal(loaded.get("/ok.jsonl").parsed.messages[0].source, "auxiliary");
 	assert.equal(loaded.get("/ok.jsonl").parsed.messages[0].sourceId, "entry-a");
 	assert.equal(loaded.get("/ok.jsonl").parsed.cwd, "/w");
@@ -925,6 +955,25 @@ test("insights classify resume vs model-switch vs prefix misses and exclude comp
 	assert.ok(sw, "model-switch alarm fires");
 	assert.equal(sw.stat, "$60.00");
 	assert.match(sw.headline, /72% of assistant-message cost/);
+});
+
+test("insights exclude intentional context-edit cache misses and resume classification afterward", async (t) => {
+	const { sessionsDir, cachePath } = fixture(t);
+	writeFileSync(
+		join(sessionsDir, "context-edit.jsonl"),
+		[
+			sessionLine("s1", TS_TODAY),
+			assistantLine({ ts: TS_TODAY, cost: 1, input: 1000, cacheRead: 100000 }),
+			contextEditLine({ replacement: { content: "Use the corrected context." } }),
+			assistantLine({ ts: TS_TODAY + 10_000, cost: 10, input: 100000, cacheRead: 0 }),
+			assistantLine({ ts: TS_TODAY + 20_000, cost: 5, input: 100000, cacheRead: 0 }),
+		].join("\n") + "\n",
+	);
+
+	const data = await collectUsageData({ sessionsDir, cachePath, now: NOW });
+	const prefix = findInsight(data, "today", /re-sending conversations mid-session/);
+	assert.ok(prefix, "the later unexplained miss still fires");
+	assert.equal(prefix.stat, "$5.00", "the context-edit-adjacent $10 miss is intentional");
 });
 
 test("pi test providers are excluded from all stats", async (t) => {

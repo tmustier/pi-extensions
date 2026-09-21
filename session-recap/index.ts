@@ -7,10 +7,9 @@ import type { Message } from "@earendil-works/pi-ai";
 import { complete, completeSimple } from "@earendil-works/pi-ai/compat";
 import {
 	convertToLlm,
-	sessionEntryToContextMessages,
 	type ExtensionAPI,
 	type ExtensionContext,
-	type SessionEntry,
+	type ProjectedSessionEntry,
 } from "@earendil-works/pi-coding-agent";
 import { Container, Text, type Component, type TUI } from "@earendil-works/pi-tui";
 
@@ -61,13 +60,10 @@ function extractText(content: Message["content"]): string {
 		.join("\n");
 }
 
-export function buildRecapContext(
-	contextEntries: SessionEntry[],
-	branchEntries: SessionEntry[],
-): RecapContext {
+export function buildRecapContext(entries: ProjectedSessionEntry[]): RecapContext {
 	let summary: string | undefined;
-	for (let i = contextEntries.length - 1; i >= 0; i--) {
-		const entry = contextEntries[i];
+	for (let i = entries.length - 1; i >= 0; i--) {
+		const entry = entries[i]!.sourceEntry;
 		const candidate =
 			entry.type === "compaction" || entry.type === "branch_summary" ? entry.summary.trim() : undefined;
 		if (candidate) {
@@ -77,16 +73,18 @@ export function buildRecapContext(
 	}
 
 	let initialTask: string | undefined;
-	for (const entry of branchEntries) {
-		if (entry.type !== "message" || entry.message.role !== "user") continue;
-		initialTask = extractText(entry.message.content).trim() || undefined;
-		break;
+	for (const entry of entries) {
+		if (entry.sourceEntry.type !== "message" || entry.sourceEntry.message.role !== "user") continue;
+		const user = convertToLlm(entry.messages).find((message) => message.role === "user");
+		if (!user) continue;
+		initialTask = extractText(user.content).trim() || undefined;
+		if (initialTask) break;
 	}
 
 	const messages = convertToLlm(
-		contextEntries
-			.filter((entry) => entry.type !== "compaction" && entry.type !== "branch_summary")
-			.flatMap(sessionEntryToContextMessages),
+		entries
+			.filter(({ sourceEntry }) => sourceEntry.type !== "compaction" && sourceEntry.type !== "branch_summary")
+			.flatMap((entry) => entry.messages),
 	).map((message) => {
 		if (message.role !== "toolResult") return message;
 		return {
@@ -133,22 +131,22 @@ export function buildRecapContext(
 	};
 }
 
-function hasMeaningfulActivity(entries: SessionEntry[]): boolean {
+export function hasMeaningfulActivity(entries: ProjectedSessionEntry[]): boolean {
+	const messages = convertToLlm(entries.flatMap((entry) => entry.messages));
 	let lastUserIdx = -1;
-	for (let i = entries.length - 1; i >= 0; i--) {
-		const e = entries[i];
-		if (e.type === "message" && e.message.role === "user") {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		if (messages[i]!.role === "user") {
 			lastUserIdx = i;
 			break;
 		}
 	}
-	const tail = lastUserIdx >= 0 ? entries.slice(lastUserIdx + 1) : entries;
+	const tail = lastUserIdx >= 0 ? messages.slice(lastUserIdx + 1) : messages;
 	let assistantWords = 0;
 	let toolCalls = 0;
-	for (const e of tail) {
-		if (e.type !== "message" || e.message.role !== "assistant") continue;
-		assistantWords += extractText(e.message.content).split(/\s+/).filter(Boolean).length;
-		toolCalls += e.message.content.filter((block) => block.type === "toolCall").length;
+	for (const message of tail) {
+		if (message.role !== "assistant") continue;
+		assistantWords += extractText(message.content).split(/\s+/).filter(Boolean).length;
+		toolCalls += message.content.filter((block) => block.type === "toolCall").length;
 	}
 	return toolCalls > 0 || assistantWords >= MIN_ASSISTANT_WORDS;
 }
@@ -364,10 +362,10 @@ export default function (pi: ExtensionAPI) {
 
 	const generateAndShow = async (ctx: ExtensionContext, reason: RecapReason) => {
 		if (!ctx.hasUI) return;
-		const entries = ctx.sessionManager.getBranch();
-		if (reason !== "manual" && !hasMeaningfulActivity(entries)) return;
+		const projection = ctx.sessionManager.buildSessionProjection();
+		if (reason !== "manual" && !hasMeaningfulActivity(projection.entries)) return;
 
-		const recapContext = buildRecapContext(ctx.sessionManager.buildContextEntries(), entries);
+		const recapContext = buildRecapContext(projection.entries);
 		if (recapContext.messages.length === 0 && !recapContext.broaderContext) return;
 
 		const startContext = JSON.stringify(recapContext);
@@ -384,10 +382,7 @@ export default function (pi: ExtensionAPI) {
 			const override = String(pi.getFlag("recap-model") ?? "").trim() || undefined;
 			const recap = await generateRecap(recapContext, ctx, override, controller.signal);
 			if (!recap || controller.signal.aborted) return;
-			const currentContext = buildRecapContext(
-				ctx.sessionManager.buildContextEntries(),
-				ctx.sessionManager.getBranch(),
-			);
+			const currentContext = buildRecapContext(ctx.sessionManager.buildSessionProjection().entries);
 			if (JSON.stringify(currentContext) !== startContext) return;
 
 			lastDraftedContext = startContext;
@@ -529,7 +524,7 @@ export default function (pi: ExtensionAPI) {
 		clearRecap(ctx);
 	});
 
-	pi.on("agent_end", (_event, ctx) => {
+	pi.on("agent_settled", (_event, ctx) => {
 		agentActive = false;
 		if (awayRecapPending) {
 			awayRecapPending = false;

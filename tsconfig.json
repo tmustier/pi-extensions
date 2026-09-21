@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "target": "ES2022",
+    "types": ["node"]
+  },
+  "files": [
+    "pi-ralph-wiggum/index.ts",
+    "session-recap/index.ts",
+    "tab-status/tab-status.ts",
+    "usage-extension/data.ts",
+    "usage-extension/export.ts",
+    "usage-extension/graph.ts",
+    "usage-extension/index.ts"
+  ]
+}

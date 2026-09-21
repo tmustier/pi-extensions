@@ -200,6 +200,8 @@ export interface SessionMessage extends UsageAmount {
 	 * so such messages are excluded from prefix-change cache-miss accounting.
 	 */
 	afterCompaction: boolean;
+	/** The request followed an intentional append-only context edit. */
+	afterContextEdit: boolean;
 }
 
 export interface ChildToolUsage {
@@ -300,6 +302,8 @@ const PATTERN_THINKING_COMPACT = Buffer.from('"type":"thinking_level_change"');
 const PATTERN_THINKING_SPACED = Buffer.from('"type": "thinking_level_change"');
 const PATTERN_COMPACTION_COMPACT = Buffer.from('"type":"compaction"');
 const PATTERN_COMPACTION_SPACED = Buffer.from('"type": "compaction"');
+const PATTERN_CONTEXT_EDIT_COMPACT = Buffer.from('"type":"context_edit"');
+const PATTERN_CONTEXT_EDIT_SPACED = Buffer.from('"type": "context_edit"');
 const PATTERN_BRANCH_SUMMARY_COMPACT = Buffer.from('"type":"branch_summary"');
 const PATTERN_BRANCH_SUMMARY_SPACED = Buffer.from('"type": "branch_summary"');
 // pi-subagents versions predating Pi 0.81 persisted child usage in details but
@@ -358,6 +362,7 @@ function auxiliaryMessage(usage: UsageAmount, timestamp: number, sourceId: strin
 		...usage,
 		timestamp,
 		afterCompaction: false,
+		afterContextEdit: false,
 	};
 }
 
@@ -642,10 +647,12 @@ function lineMightBeRelevant(line: Buffer): boolean {
 		head.includes(PATTERN_SESSION_COMPACT) ||
 		head.includes(PATTERN_THINKING_COMPACT) ||
 		head.includes(PATTERN_COMPACTION_COMPACT) ||
+		head.includes(PATTERN_CONTEXT_EDIT_COMPACT) ||
 		head.includes(PATTERN_BRANCH_SUMMARY_COMPACT) ||
 		head.includes(PATTERN_SESSION_SPACED) ||
 		head.includes(PATTERN_THINKING_SPACED) ||
 		head.includes(PATTERN_COMPACTION_SPACED) ||
+		head.includes(PATTERN_CONTEXT_EDIT_SPACED) ||
 		head.includes(PATTERN_BRANCH_SUMMARY_SPACED)
 	);
 }
@@ -666,6 +673,7 @@ export async function parseSessionBuffer(buffer: Buffer, signal?: AbortSignal): 
 	// to the level active when it was produced.
 	let thinkingLevel = "";
 	let compactionPending = false;
+	let contextEditPending = false;
 
 	let start = 0;
 	let lineNumber = 0;
@@ -701,6 +709,8 @@ export async function parseSessionBuffer(buffer: Buffer, signal?: AbortSignal): 
 					const usage = parseUsageAmount(entry.usage);
 					if (usage) messages.push(auxiliaryMessage(usage, parsedTimestamp(undefined, entry.timestamp), typeof entry.id === "string" ? entry.id : ""));
 					compactionPending = true;
+				} else if (entry.type === "context_edit") {
+					contextEditPending = true;
 				} else if (entry.type === "branch_summary") {
 					const usage = parseUsageAmount(entry.usage);
 					if (usage) messages.push(auxiliaryMessage(usage, parsedTimestamp(undefined, entry.timestamp), typeof entry.id === "string" ? entry.id : ""));
@@ -722,8 +732,10 @@ export async function parseSessionBuffer(buffer: Buffer, signal?: AbortSignal): 
 							reasoning: msg.usage.reasoning || 0,
 							timestamp: msg.timestamp || (Number.isNaN(fallbackTs) ? 0 : fallbackTs),
 							afterCompaction: compactionPending,
+							afterContextEdit: contextEditPending,
 						});
 						compactionPending = false;
+						contextEditPending = false;
 					}
 				} else if (entry.type === "message" && entry.message?.role === "toolResult") {
 					const msg = entry.message;
@@ -745,7 +757,7 @@ export async function parseSessionBuffer(buffer: Buffer, signal?: AbortSignal): 
 // On-disk cache
 // =============================================================================
 
-const CACHE_VERSION = 5;
+const CACHE_VERSION = 6;
 
 type CachedMessageTuple = [
 	providerIdx: number,
@@ -761,6 +773,7 @@ type CachedMessageTuple = [
 	afterCompaction: 0 | 1,
 	auxiliary: 0 | 1,
 	sourceIdIdx: number,
+	afterContextEdit: 0 | 1,
 ];
 
 type CachedUsageTuple = [
@@ -829,7 +842,7 @@ export async function loadUsageCache(cachePath: string): Promise<Map<string, Cac
 		const messages: SessionMessage[] = [];
 		let valid = true;
 		for (const tuple of entry.messages) {
-			if (!Array.isArray(tuple) || tuple.length !== 13) {
+			if (!Array.isArray(tuple) || tuple.length !== 14) {
 				valid = false;
 				break;
 			}
@@ -842,7 +855,8 @@ export async function loadUsageCache(cachePath: string): Promise<Map<string, Cac
 				typeof model !== "string" ||
 				typeof thinkingLevel !== "string" ||
 				typeof sourceId !== "string" ||
-				(tuple[11] !== 0 && tuple[11] !== 1)
+				(tuple[11] !== 0 && tuple[11] !== 1) ||
+				(tuple[13] !== 0 && tuple[13] !== 1)
 			) {
 				valid = false;
 				break;
@@ -861,6 +875,7 @@ export async function loadUsageCache(cachePath: string): Promise<Map<string, Cac
 				timestamp: Number(tuple[7]) || 0,
 				reasoning: Number(tuple[9]) || 0,
 				afterCompaction: tuple[10] === 1,
+				afterContextEdit: tuple[13] === 1,
 			});
 		}
 		if (!valid) continue;
@@ -962,6 +977,7 @@ export async function saveUsageCache(cachePath: string, states: Map<string, Cach
 				m.afterCompaction ? 1 : 0,
 				m.source === "auxiliary" ? 1 : 0,
 				intern(m.source === "auxiliary" ? m.sourceId : ""),
+				m.afterContextEdit ? 1 : 0,
 			]),
 			toolUsages: state.parsed.toolUsages.map((tool): CachedToolUsageTuple => [
 				intern(tool.sourceId),
@@ -1221,6 +1237,7 @@ function addMessagesToUsageData(
 			if (mm.isSessionStart) raw.upfrontCost += msg.cost;
 			if (
 				!msg.afterCompaction &&
+				!msg.afterContextEdit &&
 				mm.prevCtx >= MISS_MIN_PREV_CONTEXT &&
 				msg.cacheRead < Math.min(MISS_MAX_CACHE_READ, 0.3 * mm.prevCtx)
 			) {

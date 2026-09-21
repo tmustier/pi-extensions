@@ -55,8 +55,9 @@ const ctx = {
 		getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "unused" }),
 	},
 	sessionManager: {
-		getBranch: () => branch,
-		buildContextEntries: () => branch,
+		buildSessionProjection: () => ({
+			entries: branch.map((sourceEntry) => ({ sourceEntry, messages: [sourceEntry.message] })),
+		}),
 	},
 	ui: {
 		setStatus() {},
