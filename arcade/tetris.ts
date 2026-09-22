@@ -479,7 +479,7 @@ class TetrisComponent {
 		this.tui.requestRender();
 	}
 
-	render(width: number, _height?: number): string[] {
+	render(width: number): string[] {
 		if (this.cachedVersion === this.version && this.cachedWidth === width) {
 			return this.cachedLines;
 		}

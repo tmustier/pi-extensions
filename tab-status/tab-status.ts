@@ -1,30 +1,11 @@
 /**
  * Update the terminal tab title with Pi run status (:new/:running/:✅/:🚧/:🛑).
  */
-import type {
-	ExtensionAPI,
-	ExtensionContext,
-	SessionStartEvent,
-	BeforeAgentStartEvent,
-	AgentStartEvent,
-	AgentEndEvent,
-	AgentSettledEvent,
-	TurnStartEvent,
-	ToolCallEvent,
-	ToolResultEvent,
-	SessionShutdownEvent,
-} from "@earendil-works/pi-coding-agent";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { AssistantMessage, StopReason } from "@earendil-works/pi-ai";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { StopReason } from "@earendil-works/pi-ai";
 import { basename } from "node:path";
 
 type StatusState = "new" | "running" | "doneCommitted" | "doneNoCommit" | "timeout";
-
-type StatusTracker = {
-	state: StatusState;
-	running: boolean;
-	sawCommit: boolean;
-};
 
 const STATUS_TEXT: Record<StatusState, string> = {
 	new: ":new",
@@ -38,119 +19,85 @@ const INACTIVE_TIMEOUT_MS = 180_000;
 const GIT_COMMIT_RE = /\bgit\b[^\n]*\bcommit\b/;
 
 export default function (pi: ExtensionAPI) {
-	const status: StatusTracker = {
-		state: "new",
-		running: false,
-		sawCommit: false,
-	};
+	let state: StatusState = "new";
+	let running = false;
+	let sawCommit = false;
 	let timeoutId: ReturnType<typeof setTimeout> | undefined;
 	let lastStopReason: StopReason | undefined;
-	const nativeClearTimeout = globalThis.clearTimeout;
 
 	const cwdBase = (ctx: ExtensionContext): string => basename(ctx.cwd || "pi");
 
 	const setTitle = (ctx: ExtensionContext, next: StatusState): void => {
-		status.state = next;
+		state = next;
 		if (!ctx.hasUI) return;
 		ctx.ui.setTitle(`pi - ${cwdBase(ctx)}${STATUS_TEXT[next]}`);
 	};
 
 	const clearTabTimeout = (): void => {
 		if (timeoutId === undefined) return;
-		nativeClearTimeout(timeoutId);
+		clearTimeout(timeoutId);
 		timeoutId = undefined;
 	};
 
 	const resetTimeout = (ctx: ExtensionContext): void => {
 		clearTabTimeout();
 		timeoutId = setTimeout(() => {
-			if (status.running && status.state === "running") {
-				setTitle(ctx, "timeout");
-			}
+			if (running && state === "running") setTitle(ctx, "timeout");
 		}, INACTIVE_TIMEOUT_MS);
 	};
 
 	const markActivity = (ctx: ExtensionContext): void => {
-		if (status.state === "timeout") {
-			setTitle(ctx, "running");
-		}
-		if (!status.running) return;
-		resetTimeout(ctx);
+		if (state === "timeout") setTitle(ctx, "running");
+		if (running) resetTimeout(ctx);
 	};
 
-	const resetState = (ctx: ExtensionContext, next: StatusState): void => {
-		status.running = false;
-		status.sawCommit = false;
+	pi.on("session_start", (event, ctx) => {
+		running = false;
+		sawCommit = false;
 		lastStopReason = undefined;
 		clearTabTimeout();
-		setTitle(ctx, next);
-	};
+		setTitle(ctx, event.reason === "resume" ? "doneCommitted" : "new");
+	});
 
-	const beginRun = (ctx: ExtensionContext): void => {
-		if (!status.running) status.sawCommit = false;
-		status.running = true;
+	pi.on("before_agent_start", (_event, ctx) => markActivity(ctx));
+
+	pi.on("agent_start", (_event, ctx) => {
+		if (!running) sawCommit = false;
+		running = true;
 		lastStopReason = undefined;
 		setTitle(ctx, "running");
 		resetTimeout(ctx);
-	};
+	});
 
-	const getStopReason = (messages: AgentMessage[]): StopReason | undefined => {
-		for (let i = messages.length - 1; i >= 0; i -= 1) {
-			const message = messages[i];
-			if (message.role === "assistant") {
-				return (message as AssistantMessage).stopReason;
-			}
+	pi.on("turn_start", (_event, ctx) => markActivity(ctx));
+
+	pi.on("tool_call", (event, ctx) => {
+		const command = event.toolName === "bash" ? event.input.command : undefined;
+		if (typeof command === "string" && GIT_COMMIT_RE.test(command)) sawCommit = true;
+		markActivity(ctx);
+	});
+
+	pi.on("tool_result", (_event, ctx) => markActivity(ctx));
+
+	pi.on("agent_end", (event) => {
+		lastStopReason = undefined;
+		for (let i = event.messages.length - 1; i >= 0; i -= 1) {
+			const message = event.messages[i];
+			if (message.role !== "assistant") continue;
+			lastStopReason = message.stopReason;
+			break;
 		}
-		return undefined;
-	};
-
-	pi.on("session_start", async (event: SessionStartEvent, ctx: ExtensionContext) => {
-		resetState(ctx, event.reason === "resume" ? "doneCommitted" : "new");
 	});
 
-	pi.on("before_agent_start", async (_event: BeforeAgentStartEvent, ctx: ExtensionContext) => {
-		markActivity(ctx);
-	});
-
-	pi.on("agent_start", async (_event: AgentStartEvent, ctx: ExtensionContext) => {
-		beginRun(ctx);
-	});
-
-	pi.on("turn_start", async (_event: TurnStartEvent, ctx: ExtensionContext) => {
-		markActivity(ctx);
-	});
-
-	pi.on("tool_call", async (event: ToolCallEvent, ctx: ExtensionContext) => {
-		if (event.toolName === "bash") {
-			const command = typeof event.input.command === "string" ? event.input.command : "";
-			if (command && GIT_COMMIT_RE.test(command)) {
-				status.sawCommit = true;
-			}
-		}
-		markActivity(ctx);
-	});
-
-	pi.on("tool_result", async (_event: ToolResultEvent, ctx: ExtensionContext) => {
-		markActivity(ctx);
-	});
-
-	pi.on("agent_end", async (event: AgentEndEvent) => {
-		lastStopReason = getStopReason(event.messages);
-	});
-
-	pi.on("agent_settled", async (_event: AgentSettledEvent, ctx: ExtensionContext) => {
-		status.running = false;
+	pi.on("agent_settled", (_event, ctx) => {
+		running = false;
 		clearTabTimeout();
-		if (lastStopReason === "error") {
-			setTitle(ctx, "timeout");
-			return;
-		}
-		setTitle(ctx, status.sawCommit ? "doneCommitted" : "doneNoCommit");
+		if (lastStopReason === "error") setTitle(ctx, "timeout");
+		else setTitle(ctx, sawCommit ? "doneCommitted" : "doneNoCommit");
 	});
 
-	pi.on("session_shutdown", async (_event: SessionShutdownEvent, ctx: ExtensionContext) => {
+	pi.on("session_shutdown", (_event, ctx) => {
 		clearTabTimeout();
-		if (!ctx.hasUI) return;
-		ctx.ui.setTitle(`pi - ${cwdBase(ctx)}`);
+		if (ctx.hasUI) ctx.ui.setTitle(`pi - ${cwdBase(ctx)}`);
 	});
 }

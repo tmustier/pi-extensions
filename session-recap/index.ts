@@ -62,21 +62,6 @@ function extractText(content: Message["content"]): string {
 		.join("\n");
 }
 
-function findLatestSummary(entries: ProjectedSessionEntry[]): string | undefined {
-	let latest: { summary: string; timestamp: string } | undefined;
-	for (const entry of entries) {
-		const source = entry.sourceEntry;
-		if (source.type !== "compaction" && source.type !== "branch_summary") continue;
-		const role = source.type === "compaction" ? "compactionSummary" : "branchSummary";
-		if (!entry.messages.some((message) => message.role === role)) continue;
-		const summary = source.summary.trim();
-		if (summary && (!latest || source.timestamp >= latest.timestamp)) {
-			latest = { summary, timestamp: source.timestamp };
-		}
-	}
-	return latest?.summary;
-}
-
 function findInitialTask(entries: SessionEntry[]): string | undefined {
 	const edits = new Map<string, ContextEditEntry["replacement"]>();
 	for (const entry of entries) {
@@ -95,9 +80,13 @@ function findInitialTask(entries: SessionEntry[]): string | undefined {
 
 export function buildRecapContext(
 	entries: ProjectedSessionEntry[],
-	branchEntries: SessionEntry[] = entries.map((entry) => entry.sourceEntry),
+	branchEntries: SessionEntry[],
 ): RecapContext {
-	const summary = findLatestSummary(entries);
+	let summary: string | undefined;
+	for (const { sourceEntry, messages } of entries) {
+		if (sourceEntry.type !== "compaction" && sourceEntry.type !== "branch_summary") continue;
+		if (messages.length > 0) summary = sourceEntry.summary.trim() || summary;
+	}
 	const initialTask = findInitialTask(branchEntries);
 
 	const messages = convertToLlm(
@@ -161,13 +150,12 @@ export function hasMeaningfulActivity(entries: ProjectedSessionEntry[]): boolean
 	}
 	const tail = lastUserIdx >= 0 ? messages.slice(lastUserIdx + 1) : messages;
 	let assistantWords = 0;
-	let toolCalls = 0;
 	for (const message of tail) {
 		if (message.role !== "assistant") continue;
+		if (message.content.some((block) => block.type === "toolCall")) return true;
 		assistantWords += extractText(message.content).split(/\s+/).filter(Boolean).length;
-		toolCalls += message.content.filter((block) => block.type === "toolCall").length;
 	}
-	return toolCalls > 0 || assistantWords >= MIN_ASSISTANT_WORDS;
+	return assistantWords >= MIN_ASSISTANT_WORDS;
 }
 
 export function selectRecapModel(

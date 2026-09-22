@@ -261,7 +261,7 @@ class PicmanComponent {
 		return true;
 	}
 
-	render(width: number, _height?: number): string[] {
+	render(width: number): string[] {
 		const pad = (line: string) => truncateToWidth(line, width) + " ".repeat(Math.max(0, width - visibleWidth(truncateToWidth(line, width))));
 		const minWidth = MAZE_TEMPLATE[0].length * 2 + 4;
 

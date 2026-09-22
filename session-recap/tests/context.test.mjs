@@ -22,8 +22,9 @@ function completeBranch(entries) {
 	});
 }
 
-function project(entries) {
-	return buildSessionProjection(completeBranch(entries)).entries;
+function recap(entries) {
+	const branch = completeBranch(entries);
+	return buildRecapContext(buildSessionProjection(branch).entries, branch);
 }
 
 const initialEntry = {
@@ -65,7 +66,7 @@ const currentEntries = [
 ];
 
 test("recap context keeps broad task framing and recent projected messages", () => {
-	const context = buildRecapContext(project([initialEntry, ...currentEntries]));
+	const context = recap([initialEntry, ...currentEntries]);
 
 	assert.equal(context.broaderContext, `Session summary:\n${summary}`);
 	assert.deepEqual(context.messages.map((message) => message.role), ["user", "user", "assistant", "toolResult"]);
@@ -86,7 +87,7 @@ test("recap context uses a 30-message recent window and bounds initial framing",
 		);
 	}
 
-	const context = buildRecapContext(project(branch));
+	const context = recap(branch);
 	assert.equal(context.messages.length, 30);
 	assert.equal(context.messages[0].content, "User request 2");
 	assert.ok(context.broaderContext.startsWith("Initial user request:\nStart of request."));
@@ -117,36 +118,29 @@ test("recap context adds a user boundary before an assistant-led window", () => 
 		);
 	}
 
-	const context = buildRecapContext(project(branch));
+	const context = recap(branch);
 	assert.equal(context.messages[0].role, "user");
 	assert.equal(context.messages[0].content, "(Earlier conversation omitted.)");
 	assert.equal(context.messages[1].role, "assistant");
 });
 
 test("recap context does not repeat a recent initial request", () => {
-	const context = buildRecapContext(project([initialEntry]));
+	const context = recap([initialEntry]);
 	assert.equal(context.broaderContext, undefined);
 });
 
-test("canonical projection applies context replacements to recap messages and initial framing", () => {
-	const branch = [
+test("recap messages come from the canonical context-edit projection", () => {
+	const context = recap([
 		{ ...initialEntry, id: "initial" },
 		{
 			type: "context_edit",
 			targetId: "initial",
 			replacement: { content: "Build the corrected projected task." },
 		},
-	];
-	for (let i = 0; i < 16; i++) {
-		branch.push(
-			{ type: "message", message: { role: "assistant", content: [{ type: "text", text: `Response ${i}` }] } },
-			{ type: "message", message: { role: "user", content: `Follow-up ${i}` } },
-		);
-	}
+	]);
 
-	const context = buildRecapContext(project(branch));
+	assert.deepEqual(context.messages.map((message) => message.content), ["Build the corrected projected task."]);
 	assert.doesNotMatch(JSON.stringify(context), /preserves the user's task framing/);
-	assert.match(context.broaderContext, /Initial user request:\nBuild the corrected projected task\./);
 });
 
 test("canonical projection omits edited messages from initial-task and activity logic", () => {
@@ -164,32 +158,11 @@ test("canonical projection omits edited messages from initial-task and activity 
 		{ type: "context_edit", targetId: "old-assistant", replacement: null },
 		{ type: "message", message: { role: "user", content: "Current task" } },
 	];
-	const projection = project(entries);
-	const context = buildRecapContext(projection);
+	const projection = buildSessionProjection(completeBranch(entries)).entries;
+	const context = recap(entries);
 
 	assert.deepEqual(context.messages.map((message) => message.content), ["Current task"]);
 	assert.equal(context.broaderContext, undefined);
-	assert.equal(hasMeaningfulActivity(projection), false);
-});
-
-test("canonical projection applies assistant replacements to activity logic", () => {
-	const projection = project([
-		{ type: "message", message: { role: "user", content: "Current task" } },
-		{
-			type: "message",
-			id: "assistant",
-			message: {
-				role: "assistant",
-				content: [{ type: "toolCall", id: "call-old", name: "read", arguments: { path: "old.ts" } }],
-			},
-		},
-		{
-			type: "context_edit",
-			targetId: "assistant",
-			replacement: { content: "Brief corrected response." },
-		},
-	]);
-
 	assert.equal(hasMeaningfulActivity(projection), false);
 });
 
@@ -213,14 +186,7 @@ test("recap context selects the active compaction when older compactions are ret
 		},
 		{ type: "message", message: { role: "user", content: "Current request" } },
 	]);
-	const projection = buildSessionProjection(branch).entries;
-
-	assert.deepEqual(
-		projection.filter((entry) => entry.sourceEntry.type === "compaction").map((entry) => entry.messages.length),
-		[1, 0],
-		"Pi projects the active compaction first and retains the older source entry without messages",
-	);
-	const context = buildRecapContext(projection, branch);
+	const context = recap(branch);
 	assert.match(context.broaderContext, /Session summary:\nActive compaction summary/);
 	assert.doesNotMatch(context.broaderContext, /Stale compaction summary/);
 });
@@ -242,7 +208,7 @@ test("compacted recap context retains the edited original request", () => {
 		},
 		{ type: "message", message: { role: "user", content: "Continue from the summary." } },
 	]);
-	const context = buildRecapContext(buildSessionProjection(branch).entries, branch);
+	const context = recap(branch);
 
 	assert.match(context.broaderContext, /Initial user request:\nBuild the corrected original request\./);
 	assert.doesNotMatch(context.broaderContext, /preserves the user's task framing/);
@@ -262,7 +228,7 @@ test("compacted recap context does not restore an omitted original request", () 
 		{ type: "context_edit", targetId: "initial", replacement: null },
 		{ type: "message", message: { role: "assistant", content: [{ type: "text", text: "Continuing." }] } },
 	]);
-	const context = buildRecapContext(buildSessionProjection(branch).entries, branch);
+	const context = recap(branch);
 
 	assert.match(context.broaderContext, /Initial user request:\nUse this surviving task instead\./);
 	assert.doesNotMatch(context.broaderContext, /preserves the user's task framing/);

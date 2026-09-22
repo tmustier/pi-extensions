@@ -194,14 +194,8 @@ export interface SessionMessage extends UsageAmount {
 	/** Session entry id used to dedupe copied auxiliary entries; empty for assistant messages. */
 	sourceId: string;
 	timestamp: number;
-	/**
-	 * True when a compaction entry occurred between the previous assistant
-	 * message and this one. Compaction legitimately changes the request prefix,
-	 * so such messages are excluded from prefix-change cache-miss accounting.
-	 */
-	afterCompaction: boolean;
-	/** The request followed an intentional append-only context edit. */
-	afterContextEdit: boolean;
+	/** The request followed a compaction or context edit that intentionally changed its prefix. */
+	afterContextChange: boolean;
 }
 
 export interface ChildToolUsage {
@@ -361,8 +355,7 @@ function auxiliaryMessage(usage: UsageAmount, timestamp: number, sourceId: strin
 		sourceId,
 		...usage,
 		timestamp,
-		afterCompaction: false,
-		afterContextEdit: false,
+		afterContextChange: false,
 	};
 }
 
@@ -672,8 +665,7 @@ export async function parseSessionBuffer(buffer: Buffer, signal?: AbortSignal): 
 	// message of a session. Replaying them in append order attributes each message
 	// to the level active when it was produced.
 	let thinkingLevel = "";
-	let compactionPending = false;
-	let contextEditPending = false;
+	let contextChangePending = false;
 
 	let start = 0;
 	let lineNumber = 0;
@@ -708,9 +700,9 @@ export async function parseSessionBuffer(buffer: Buffer, signal?: AbortSignal): 
 				} else if (entry.type === "compaction") {
 					const usage = parseUsageAmount(entry.usage);
 					if (usage) messages.push(auxiliaryMessage(usage, parsedTimestamp(undefined, entry.timestamp), typeof entry.id === "string" ? entry.id : ""));
-					compactionPending = true;
+					contextChangePending = true;
 				} else if (entry.type === "context_edit") {
-					contextEditPending = true;
+					contextChangePending = true;
 				} else if (entry.type === "branch_summary") {
 					const usage = parseUsageAmount(entry.usage);
 					if (usage) messages.push(auxiliaryMessage(usage, parsedTimestamp(undefined, entry.timestamp), typeof entry.id === "string" ? entry.id : ""));
@@ -731,11 +723,9 @@ export async function parseSessionBuffer(buffer: Buffer, signal?: AbortSignal): 
 							cacheWrite: msg.usage.cacheWrite || 0,
 							reasoning: msg.usage.reasoning || 0,
 							timestamp: msg.timestamp || (Number.isNaN(fallbackTs) ? 0 : fallbackTs),
-							afterCompaction: compactionPending,
-							afterContextEdit: contextEditPending,
+							afterContextChange: contextChangePending,
 						});
-						compactionPending = false;
-						contextEditPending = false;
+						contextChangePending = false;
 					}
 				} else if (entry.type === "message" && entry.message?.role === "toolResult") {
 					const msg = entry.message;
@@ -770,10 +760,9 @@ type CachedMessageTuple = [
 	timestamp: number,
 	thinkingLevelIdx: number,
 	reasoning: number,
-	afterCompaction: 0 | 1,
+	afterContextChange: 0 | 1,
 	auxiliary: 0 | 1,
 	sourceIdIdx: number,
-	afterContextEdit: 0 | 1,
 ];
 
 type CachedUsageTuple = [
@@ -842,7 +831,7 @@ export async function loadUsageCache(cachePath: string): Promise<Map<string, Cac
 		const messages: SessionMessage[] = [];
 		let valid = true;
 		for (const tuple of entry.messages) {
-			if (!Array.isArray(tuple) || tuple.length !== 14) {
+			if (!Array.isArray(tuple) || tuple.length !== 13) {
 				valid = false;
 				break;
 			}
@@ -855,8 +844,7 @@ export async function loadUsageCache(cachePath: string): Promise<Map<string, Cac
 				typeof model !== "string" ||
 				typeof thinkingLevel !== "string" ||
 				typeof sourceId !== "string" ||
-				(tuple[11] !== 0 && tuple[11] !== 1) ||
-				(tuple[13] !== 0 && tuple[13] !== 1)
+				(tuple[11] !== 0 && tuple[11] !== 1)
 			) {
 				valid = false;
 				break;
@@ -874,8 +862,7 @@ export async function loadUsageCache(cachePath: string): Promise<Map<string, Cac
 				cacheWrite: Number(tuple[6]) || 0,
 				timestamp: Number(tuple[7]) || 0,
 				reasoning: Number(tuple[9]) || 0,
-				afterCompaction: tuple[10] === 1,
-				afterContextEdit: tuple[13] === 1,
+				afterContextChange: tuple[10] === 1,
 			});
 		}
 		if (!valid) continue;
@@ -974,10 +961,9 @@ export async function saveUsageCache(cachePath: string, states: Map<string, Cach
 				m.timestamp,
 				intern(m.thinkingLevel),
 				m.reasoning,
-				m.afterCompaction ? 1 : 0,
+				m.afterContextChange ? 1 : 0,
 				m.source === "auxiliary" ? 1 : 0,
 				intern(m.source === "auxiliary" ? m.sourceId : ""),
-				m.afterContextEdit ? 1 : 0,
 			]),
 			toolUsages: state.parsed.toolUsages.map((tool): CachedToolUsageTuple => [
 				intern(tool.sourceId),
@@ -1236,8 +1222,7 @@ function addMessagesToUsageData(
 			}
 			if (mm.isSessionStart) raw.upfrontCost += msg.cost;
 			if (
-				!msg.afterCompaction &&
-				!msg.afterContextEdit &&
+				!msg.afterContextChange &&
 				mm.prevCtx >= MISS_MIN_PREV_CONTEXT &&
 				msg.cacheRead < Math.min(MISS_MAX_CACHE_READ, 0.3 * mm.prevCtx)
 			) {

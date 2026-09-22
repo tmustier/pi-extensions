@@ -5,9 +5,8 @@ import { pickAction, pickSnippet } from "./src/ui";
 import type { PickResult } from "./src/ui";
 import { copyToClipboard, insertIntoEditor, runSnippet } from "./src/actions";
 
-type SessionMessageEntry = Extract<SessionEntry, { type: "message" }>;
-type AssistantEntry = SessionMessageEntry & {
-	message: Extract<SessionMessageEntry["message"], { role: "assistant" }>;
+type AssistantEntry = Extract<SessionEntry, { type: "message" }> & {
+	message: { role: "assistant" };
 };
 
 type ParsedArgs = {

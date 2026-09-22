@@ -4,11 +4,8 @@ import { registerApiProvider } from "@earendil-works/pi-ai/compat";
 import sessionRecap from "../index.ts";
 
 test("recap validation rejects a draft when projected context changes", async () => {
-	let releaseResponse;
-	let markStarted;
-	const started = new Promise((resolve) => {
-		markStarted = resolve;
-	});
+	const started = Promise.withResolvers();
+	const response = Promise.withResolvers();
 	registerApiProvider({
 		api: "recap-projection-validation",
 		stream: () => {
@@ -16,37 +13,29 @@ test("recap validation rejects a draft when projected context changes", async ()
 		},
 		streamSimple: () => ({
 			result: async () => {
-				markStarted();
-				await new Promise((resolve) => {
-					releaseResponse = resolve;
-				});
+				started.resolve();
+				await response.promise;
 				return { role: "assistant", content: [{ type: "text", text: "Stale recap." }] };
 			},
 		}),
 	});
 
-	const commands = new Map();
-	const flags = new Map();
-	const pi = {
+	let recap;
+	sessionRecap({
 		on() {},
 		registerCommand(name, command) {
-			commands.set(name, command);
+			if (name === "recap") recap = command.handler;
 		},
-		registerFlag(name, options) {
-			flags.set(name, options.default);
-		},
-		getFlag(name) {
-			return flags.get(name);
-		},
-	};
-	sessionRecap(pi);
+		registerFlag() {},
+		getFlag() {},
+	});
 
 	const sourceEntry = {
 		type: "message",
 		message: { role: "user", content: "Original task", timestamp: 1 },
 	};
 	let projectedContent = "Original task";
-	const widgets = [];
+	let widgetUpdates = 0;
 	const ctx = {
 		hasUI: true,
 		model: {
@@ -68,29 +57,24 @@ test("recap validation rejects a draft when projected context changes", async ()
 		},
 		sessionManager: {
 			buildSessionProjection: () => ({
-				entries: [
-					{
-						sourceEntry,
-						messages: [{ ...sourceEntry.message, content: projectedContent }],
-					},
-				],
+				entries: [{ sourceEntry, messages: [{ ...sourceEntry.message, content: projectedContent }] }],
 			}),
 			getBranch: () => [sourceEntry],
 		},
 		ui: {
 			setStatus() {},
-			setWidget(...args) {
-				widgets.push(args);
+			setWidget() {
+				widgetUpdates += 1;
 			},
 			theme: { fg: (_name, text) => text, bold: (text) => text },
 		},
 	};
 
-	const pending = commands.get("recap").handler("", ctx);
-	await started;
+	const pending = recap("", ctx);
+	await started.promise;
 	projectedContent = "Replacement task";
-	releaseResponse();
+	response.resolve();
 	await pending;
 
-	assert.deepEqual(widgets, [], "a recap generated from the pre-edit projection must not render");
+	assert.equal(widgetUpdates, 0);
 });

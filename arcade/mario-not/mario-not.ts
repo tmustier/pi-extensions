@@ -197,7 +197,7 @@ class MarioNotComponent {
 		return true;
 	}
 
-	render(width: number, height?: number): string[] {
+	render(width: number): string[] {
 		const pad = (line: string) => {
 			const truncated = truncateToWidth(line, width);
 			const padding = Math.max(0, width - visibleWidth(truncated));
@@ -206,7 +206,7 @@ class MarioNotComponent {
 
 		const minWidth = VIEWPORT_W * 2;
 		const minHeight = VIEWPORT_H + HUD_LINES + 2;
-		if (width < minWidth || (height !== undefined && height < minHeight)) {
+		if (width < minWidth) {
 			return [
 				"",
 				pad("MARIO-NOT"),
