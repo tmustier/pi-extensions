@@ -58,6 +58,7 @@ const ctx = {
 		buildSessionProjection: () => ({
 			entries: branch.map((sourceEntry) => ({ sourceEntry, messages: [sourceEntry.message] })),
 		}),
+		getBranch: () => branch,
 	},
 	ui: {
 		setStatus() {},

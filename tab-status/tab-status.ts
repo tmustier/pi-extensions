@@ -87,8 +87,8 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	const beginRun = (ctx: ExtensionContext): void => {
+		if (!status.running) status.sawCommit = false;
 		status.running = true;
-		status.sawCommit = false;
 		lastStopReason = undefined;
 		setTitle(ctx, "running");
 		resetTimeout(ctx);

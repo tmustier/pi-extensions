@@ -42,7 +42,7 @@ The recap reuses the active provider's authentication and chooses a cheaper mode
 
 The recap sends no system prompt, no tools and no Agent Skills, and never writes to the prompt cache. Reasoning is always off: most APIs disable thinking when no reasoning level is requested, and Codex models are sent an explicit `reasoningEffort: "none"` because they would otherwise fall back to the server-side default.
 
-It uses a 30-message window in native roles, plus the initial request and latest compaction or branch summary. Large initial requests and tool results retain their beginning and end.
+It uses a 30-message window from Pi's current projected context, plus the earliest non-omitted user request on the active branch and the latest active compaction or branch summary. Context edits to that request are honoured, including replacement and omission. Large initial requests and tool results retain their beginning and end.
 
 Custom providers work when they use a built-in pi-ai API type. Pi-only custom handlers are skipped because the standalone compatibility layer cannot route them; use `--recap-model "<provider>/<id>"` to select a supported model.
 

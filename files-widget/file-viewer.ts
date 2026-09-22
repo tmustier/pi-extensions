@@ -171,7 +171,10 @@ export function loadFileContent(
   try {
     try {
       if (statSync(filePath).isDirectory()) {
-        return ["Directory selected - expand it in the file tree instead of opening it."];
+        return {
+          lines: ["Directory selected - expand it in the file tree instead of opening it."],
+          renderedMarkdown: false,
+        };
       }
     } catch {
       // Ignore stat errors and fall through to normal handling

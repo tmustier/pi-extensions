@@ -501,7 +501,7 @@ export function createViewer(
         jumpToNextMatch(1);
         return { type: "none" };
       }
-      if (matchesKey(data, "N") && state.mode !== "select" && state.searchMatches.length > 0) {
+      if (matchesKey(data, "shift+n") && state.mode !== "select" && state.searchMatches.length > 0) {
         jumpToNextMatch(-1);
         return { type: "none" };
       }
@@ -553,7 +553,7 @@ export function createViewer(
         state.scroll = 0;
         return { type: "none" };
       }
-      if (matchesKey(data, "m") && state.mode !== "select" && state.mode !== "comment") {
+      if (matchesKey(data, "m") && state.mode !== "select") {
         toggleMarkdownMode();
         return { type: "none" };
       }

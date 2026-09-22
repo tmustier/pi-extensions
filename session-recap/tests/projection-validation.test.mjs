@@ -75,6 +75,7 @@ test("recap validation rejects a draft when projected context changes", async ()
 					},
 				],
 			}),
+			getBranch: () => [sourceEntry],
 		},
 		ui: {
 			setStatus() {},

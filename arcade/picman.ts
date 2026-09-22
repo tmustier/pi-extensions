@@ -261,7 +261,7 @@ class PicmanComponent {
 		return true;
 	}
 
-	render(width: number, _height: number): string[] {
+	render(width: number, _height?: number): string[] {
 		const pad = (line: string) => truncateToWidth(line, width) + " ".repeat(Math.max(0, width - visibleWidth(truncateToWidth(line, width))));
 		const minWidth = MAZE_TEMPLATE[0].length * 2 + 4;
 
@@ -310,6 +310,8 @@ class PicmanComponent {
 		return lines;
 	}
 
+	invalidate(): void {}
+
 	dispose(): void { if (this.interval) clearInterval(this.interval); }
 }
 
@@ -320,7 +322,14 @@ export default function (api: ExtensionAPI) {
 			if (!ctx.hasUI) { ctx.ui.notify("Picman requires interactive mode", "error"); return; }
 
 			const entries = ctx.sessionManager.getEntries();
-			const saved = entries.reverse().find(e => e.type === "custom" && e.customType === SAVE_TYPE)?.data as GameState | undefined;
+			let saved: GameState | undefined;
+			for (let i = entries.length - 1; i >= 0; i -= 1) {
+				const entry = entries[i];
+				if (entry.type === "custom" && entry.customType === SAVE_TYPE) {
+					saved = entry.data as GameState | undefined;
+					break;
+				}
+			}
 
 			await ctx.ui.custom((tui, _theme, _kb, done) => new PicmanComponent(tui, () => done(undefined), s => api.appendEntry(SAVE_TYPE, s), saved));
 		},

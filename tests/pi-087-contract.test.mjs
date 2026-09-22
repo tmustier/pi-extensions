@@ -36,7 +36,8 @@ function capturePi() {
 	};
 }
 
-test("development contracts pin Pi 0.87 and Ralph ships the current typebox runtime", () => {
+test("development contracts pin and typecheck every shipped Pi 0.87 extension", () => {
+	const shippedExtensions = new Set();
 	for (const directory of PACKAGE_DIRS) {
 		const pkg = packageJson(directory);
 		for (const [name, version] of Object.entries(pkg.devDependencies ?? {})) {
@@ -44,8 +45,15 @@ test("development contracts pin Pi 0.87 and Ralph ships the current typebox runt
 				assert.equal(version, "0.87.0", `${directory}/${name}`);
 			}
 		}
+		for (const extension of pkg.pi?.extensions ?? []) {
+			if (!extension.endsWith(".ts")) continue;
+			const relativePath = extension.replace(/^\.\//, "");
+			shippedExtensions.add(directory === "." ? relativePath : `${directory}/${relativePath}`);
+		}
 	}
 
+	const tsconfig = JSON.parse(readFileSync(new URL("../tsconfig.json", import.meta.url), "utf8"));
+	assert.deepEqual(new Set(tsconfig.files), shippedExtensions);
 	assert.equal(packageJson(".").dependencies.typebox, "^1.3.27");
 	assert.equal(packageJson("pi-ralph-wiggum").dependencies.typebox, "^1.3.27");
 	const ralphSource = readFileSync(new URL("../pi-ralph-wiggum/index.ts", import.meta.url), "utf8");
@@ -78,17 +86,31 @@ test("0.87 lifecycle handlers use session_start and final agent_settled boundari
 	assert.match(titles.at(-1), /:✅$/);
 
 	await tabPi.events.get("agent_start")({}, ctx);
-	await tabPi.events.get("tool_call")({ toolName: "bash", input: { command: "git commit -m done" } }, ctx);
-	await tabPi.events.get("agent_end")({ messages: [{ role: "assistant", stopReason: "stop" }] }, ctx);
+	await tabPi.events.get("tool_call")({ toolName: "bash", input: { command: "git commit -m retry" } }, ctx);
+	await tabPi.events.get("agent_end")({ messages: [{ role: "assistant", stopReason: "error" }] }, ctx);
 	assert.match(titles.at(-1), /:running\.\.\.$/, "agent_end is not the final done boundary");
+	await tabPi.events.get("agent_start")({}, ctx);
+	await tabPi.events.get("agent_end")({ messages: [{ role: "assistant", stopReason: "stop" }] }, ctx);
 	await tabPi.events.get("agent_settled")({}, ctx);
-	assert.match(titles.at(-1), /:✅$/, "per-run commit capture survives until settlement");
+	assert.match(titles.at(-1), /:✅$/, "commit capture survives an automatic retry before settlement");
+
+	await tabPi.events.get("agent_start")({}, ctx);
+	await tabPi.events.get("tool_call")({ toolName: "bash", input: { command: "git commit -m continuation" } }, ctx);
+	await tabPi.events.get("agent_end")({ messages: [{ role: "assistant", stopReason: "stop" }] }, ctx);
+	await tabPi.events.get("agent_start")({}, ctx);
+	await tabPi.events.get("agent_end")({ messages: [{ role: "assistant", stopReason: "stop" }] }, ctx);
+	await tabPi.events.get("agent_settled")({}, ctx);
+	assert.match(titles.at(-1), /:✅$/, "commit capture survives a queued continuation before settlement");
+
+	await tabPi.events.get("agent_start")({}, ctx);
+	await tabPi.events.get("agent_end")({ messages: [{ role: "assistant", stopReason: "stop" }] }, ctx);
+	await tabPi.events.get("agent_settled")({}, ctx);
+	assert.match(titles.at(-1), /:🚧$/, "a new user run resets commit capture after settlement");
 
 	await tabPi.events.get("agent_start")({}, ctx);
 	await tabPi.events.get("agent_end")({ messages: [{ role: "assistant", stopReason: "error" }] }, ctx);
-	assert.match(titles.at(-1), /:running\.\.\.$/);
 	await tabPi.events.get("agent_settled")({}, ctx);
-	assert.match(titles.at(-1), /:🛑$/, "per-run stop reason survives until settlement");
+	assert.match(titles.at(-1), /:🛑$/, "the final stop reason survives until settlement");
 
 	await tabPi.events.get("session_shutdown")({}, ctx);
 });

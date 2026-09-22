@@ -197,7 +197,7 @@ class MarioNotComponent {
 		return true;
 	}
 
-	render(width: number, height: number): string[] {
+	render(width: number, height?: number): string[] {
 		const pad = (line: string) => {
 			const truncated = truncateToWidth(line, width);
 			const padding = Math.max(0, width - visibleWidth(truncated));
@@ -206,7 +206,7 @@ class MarioNotComponent {
 
 		const minWidth = VIEWPORT_W * 2;
 		const minHeight = VIEWPORT_H + HUD_LINES + 2;
-		if (width < minWidth || height < minHeight) {
+		if (width < minWidth || (height !== undefined && height < minHeight)) {
 			return [
 				"",
 				pad("MARIO-NOT"),
@@ -272,6 +272,8 @@ class MarioNotComponent {
 		return lines;
 	}
 
+	invalidate(): void {}
+
 	dispose(): void {
 		if (this.interval) clearInterval(this.interval);
 	}
@@ -287,7 +289,14 @@ export default function (api: ExtensionAPI) {
 			}
 
 			const entries = ctx.sessionManager.getEntries();
-			const saved = entries.reverse().find((e) => e.type === "custom" && e.customType === SAVE_TYPE)?.data as any | undefined;
+			let saved: any | undefined;
+			for (let i = entries.length - 1; i >= 0; i -= 1) {
+				const entry = entries[i];
+				if (entry.type === "custom" && entry.customType === SAVE_TYPE) {
+					saved = entry.data;
+					break;
+				}
+			}
 
 			await ctx.ui.custom((tui, _theme, _kb, done) =>
 				new MarioNotComponent(tui, () => done(undefined), (state) => api.appendEntry(SAVE_TYPE, state), saved)

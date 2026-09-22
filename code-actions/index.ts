@@ -1,9 +1,14 @@
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { extractSnippets, extractText } from "./src/snippets";
 import type { Snippet } from "./src/snippets";
 import { pickAction, pickSnippet } from "./src/ui";
 import type { PickResult } from "./src/ui";
 import { copyToClipboard, insertIntoEditor, runSnippet } from "./src/actions";
+
+type SessionMessageEntry = Extract<SessionEntry, { type: "message" }>;
+type AssistantEntry = SessionMessageEntry & {
+	message: Extract<SessionMessageEntry["message"], { role: "assistant" }>;
+};
 
 type ParsedArgs = {
 	scope: "last" | "all";
@@ -55,7 +60,7 @@ function collectSnippets(
 ): Snippet[] {
 	const branchEntries = ctx.sessionManager.getBranch();
 	const assistantEntries = branchEntries.filter(
-		(entry) => entry.type === "message" && entry.message?.role === "assistant",
+		(entry): entry is AssistantEntry => entry.type === "message" && entry.message.role === "assistant",
 	);
 
 	if (assistantEntries.length === 0) return [];

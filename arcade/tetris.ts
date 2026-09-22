@@ -479,7 +479,7 @@ class TetrisComponent {
 		this.tui.requestRender();
 	}
 
-	render(width: number, _height: number): string[] {
+	render(width: number, _height?: number): string[] {
 		if (this.cachedVersion === this.version && this.cachedWidth === width) {
 			return this.cachedLines;
 		}
@@ -629,6 +629,8 @@ class TetrisComponent {
 		const padding = Math.max(0, width - visibleWidth(truncated));
 		return truncated + " ".repeat(padding);
 	}
+
+	invalidate(): void {}
 
 	dispose(): void {
 		this.stopLoop();

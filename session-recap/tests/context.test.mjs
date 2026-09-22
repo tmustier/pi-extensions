@@ -7,9 +7,9 @@ const initialTask = `Build a session recap that preserves the user's task framin
 const summary = `The recap extension now works, but its output lacks the original task context. ${"detail ".repeat(120)}`.trim();
 const toolResult = `The implementation still flattens and truncates the conversation. ${"output ".repeat(1000)}`;
 
-function project(entries) {
+function completeBranch(entries) {
 	let parentId = null;
-	const complete = entries.map((entry, index) => {
+	return entries.map((entry, index) => {
 		const id = entry.id ?? `entry-${index}`;
 		const result = {
 			...entry,
@@ -20,7 +20,10 @@ function project(entries) {
 		parentId = id;
 		return result;
 	});
-	return buildSessionProjection(complete).entries;
+}
+
+function project(entries) {
+	return buildSessionProjection(completeBranch(entries)).entries;
 }
 
 const initialEntry = {
@@ -188,4 +191,79 @@ test("canonical projection applies assistant replacements to activity logic", ()
 	]);
 
 	assert.equal(hasMeaningfulActivity(projection), false);
+});
+
+test("recap context selects the active compaction when older compactions are retained after it", () => {
+	const branch = completeBranch([
+		{ ...initialEntry, id: "initial" },
+		{
+			type: "compaction",
+			id: "old-compaction",
+			summary: "Stale compaction summary",
+			firstKeptEntryId: "initial",
+			tokensBefore: 100,
+		},
+		{ type: "message", message: { role: "user", content: "Retained request" } },
+		{
+			type: "compaction",
+			id: "active-compaction",
+			summary: "Active compaction summary",
+			firstKeptEntryId: "old-compaction",
+			tokensBefore: 200,
+		},
+		{ type: "message", message: { role: "user", content: "Current request" } },
+	]);
+	const projection = buildSessionProjection(branch).entries;
+
+	assert.deepEqual(
+		projection.filter((entry) => entry.sourceEntry.type === "compaction").map((entry) => entry.messages.length),
+		[1, 0],
+		"Pi projects the active compaction first and retains the older source entry without messages",
+	);
+	const context = buildRecapContext(projection, branch);
+	assert.match(context.broaderContext, /Session summary:\nActive compaction summary/);
+	assert.doesNotMatch(context.broaderContext, /Stale compaction summary/);
+});
+
+test("compacted recap context retains the edited original request", () => {
+	const branch = completeBranch([
+		{ ...initialEntry, id: "initial" },
+		{
+			type: "compaction",
+			id: "compaction",
+			summary: "Work continues after compaction.",
+			firstKeptEntryId: "compaction",
+			tokensBefore: 100,
+		},
+		{
+			type: "context_edit",
+			targetId: "initial",
+			replacement: { content: "Build the corrected original request." },
+		},
+		{ type: "message", message: { role: "user", content: "Continue from the summary." } },
+	]);
+	const context = buildRecapContext(buildSessionProjection(branch).entries, branch);
+
+	assert.match(context.broaderContext, /Initial user request:\nBuild the corrected original request\./);
+	assert.doesNotMatch(context.broaderContext, /preserves the user's task framing/);
+});
+
+test("compacted recap context does not restore an omitted original request", () => {
+	const branch = completeBranch([
+		{ ...initialEntry, id: "initial" },
+		{ type: "message", message: { role: "user", content: "Use this surviving task instead." } },
+		{
+			type: "compaction",
+			id: "compaction",
+			summary: "Work continues after compaction.",
+			firstKeptEntryId: "compaction",
+			tokensBefore: 100,
+		},
+		{ type: "context_edit", targetId: "initial", replacement: null },
+		{ type: "message", message: { role: "assistant", content: [{ type: "text", text: "Continuing." }] } },
+	]);
+	const context = buildRecapContext(buildSessionProjection(branch).entries, branch);
+
+	assert.match(context.broaderContext, /Initial user request:\nUse this surviving task instead\./);
+	assert.doesNotMatch(context.broaderContext, /preserves the user's task framing/);
 });

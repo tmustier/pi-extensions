@@ -1250,10 +1250,10 @@ async function openWeatherWidget(args: string | undefined, ctx: ExtensionCommand
 
 	ctx.ui.setStatus(WEATHER_STATUS_KEY, "ESC/Q close • R restart");
 
-	let component: WeatherWidgetComponent | null = null;
+	const mounted: { component?: WeatherWidgetComponent } = {};
 	try {
 		await ctx.ui.custom((tui, _theme, _keybindings, done) => {
-			component = new WeatherWidgetComponent({
+			mounted.component = new WeatherWidgetComponent({
 				tui,
 				onClose: () => done(undefined),
 				scriptPath,
@@ -1263,10 +1263,10 @@ async function openWeatherWidget(args: string | undefined, ctx: ExtensionCommand
 				columns: WEATHER_COLUMNS,
 				rows: WEATHER_ROWS,
 			});
-			return component;
+			return mounted.component;
 		});
 	} finally {
-		component?.dispose();
+		mounted.component?.dispose();
 		ctx.ui.setStatus(WEATHER_STATUS_KEY, undefined);
 	}
 }

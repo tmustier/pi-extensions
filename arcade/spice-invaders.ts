@@ -420,7 +420,7 @@ class SpaceInvadersComponent {
 		if (this.state.boss.active || this.state.bossIntroPhase) return;
 		const centered = Math.floor((GAME_WIDTH - BOSS_WIDTH) / 2);
 		const maxHp = BOSS_HP * Math.max(1, this.state.level);
-		const scatterInvaders = this.state.invaders.map((invader) => ({
+		const scatterInvaders: ScatterInvader[] = this.state.invaders.map((invader) => ({
 			x: invader.x,
 			y: invader.y,
 			vx: Math.random() < 0.5 ? -1 : 1,

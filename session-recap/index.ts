@@ -7,9 +7,11 @@ import type { Message } from "@earendil-works/pi-ai";
 import { complete, completeSimple } from "@earendil-works/pi-ai/compat";
 import {
 	convertToLlm,
+	type ContextEditEntry,
 	type ExtensionAPI,
 	type ExtensionContext,
 	type ProjectedSessionEntry,
+	type SessionEntry,
 } from "@earendil-works/pi-coding-agent";
 import { Container, Text, type Component, type TUI } from "@earendil-works/pi-tui";
 
@@ -60,26 +62,43 @@ function extractText(content: Message["content"]): string {
 		.join("\n");
 }
 
-export function buildRecapContext(entries: ProjectedSessionEntry[]): RecapContext {
-	let summary: string | undefined;
-	for (let i = entries.length - 1; i >= 0; i--) {
-		const entry = entries[i]!.sourceEntry;
-		const candidate =
-			entry.type === "compaction" || entry.type === "branch_summary" ? entry.summary.trim() : undefined;
-		if (candidate) {
-			summary = candidate;
-			break;
+function findLatestSummary(entries: ProjectedSessionEntry[]): string | undefined {
+	let latest: { summary: string; timestamp: string } | undefined;
+	for (const entry of entries) {
+		const source = entry.sourceEntry;
+		if (source.type !== "compaction" && source.type !== "branch_summary") continue;
+		const role = source.type === "compaction" ? "compactionSummary" : "branchSummary";
+		if (!entry.messages.some((message) => message.role === role)) continue;
+		const summary = source.summary.trim();
+		if (summary && (!latest || source.timestamp >= latest.timestamp)) {
+			latest = { summary, timestamp: source.timestamp };
 		}
 	}
+	return latest?.summary;
+}
 
-	let initialTask: string | undefined;
+function findInitialTask(entries: SessionEntry[]): string | undefined {
+	const edits = new Map<string, ContextEditEntry["replacement"]>();
 	for (const entry of entries) {
-		if (entry.sourceEntry.type !== "message" || entry.sourceEntry.message.role !== "user") continue;
-		const user = convertToLlm(entry.messages).find((message) => message.role === "user");
-		if (!user) continue;
-		initialTask = extractText(user.content).trim() || undefined;
-		if (initialTask) break;
+		if (entry.type === "context_edit") edits.set(entry.targetId, entry.replacement);
 	}
+
+	for (const entry of entries) {
+		if (entry.type !== "message" || entry.message.role !== "user") continue;
+		const replacement = edits.get(entry.id);
+		if (replacement === null) continue;
+		const initialTask = extractText(replacement?.content ?? entry.message.content).trim();
+		if (initialTask) return initialTask;
+	}
+	return undefined;
+}
+
+export function buildRecapContext(
+	entries: ProjectedSessionEntry[],
+	branchEntries: SessionEntry[] = entries.map((entry) => entry.sourceEntry),
+): RecapContext {
+	const summary = findLatestSummary(entries);
+	const initialTask = findInitialTask(branchEntries);
 
 	const messages = convertToLlm(
 		entries
@@ -365,7 +384,7 @@ export default function (pi: ExtensionAPI) {
 		const projection = ctx.sessionManager.buildSessionProjection();
 		if (reason !== "manual" && !hasMeaningfulActivity(projection.entries)) return;
 
-		const recapContext = buildRecapContext(projection.entries);
+		const recapContext = buildRecapContext(projection.entries, ctx.sessionManager.getBranch());
 		if (recapContext.messages.length === 0 && !recapContext.broaderContext) return;
 
 		const startContext = JSON.stringify(recapContext);
@@ -382,7 +401,10 @@ export default function (pi: ExtensionAPI) {
 			const override = String(pi.getFlag("recap-model") ?? "").trim() || undefined;
 			const recap = await generateRecap(recapContext, ctx, override, controller.signal);
 			if (!recap || controller.signal.aborted) return;
-			const currentContext = buildRecapContext(ctx.sessionManager.buildSessionProjection().entries);
+			const currentContext = buildRecapContext(
+				ctx.sessionManager.buildSessionProjection().entries,
+				ctx.sessionManager.getBranch(),
+			);
 			if (JSON.stringify(currentContext) !== startContext) return;
 
 			lastDraftedContext = startContext;
