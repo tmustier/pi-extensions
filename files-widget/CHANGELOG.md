@@ -2,10 +2,11 @@
 
 All notable changes to this extension will be documented in this file.
 
-## Unreleased
+## [0.2.1] - 2026-09-22
 
 ### Changed
 - Reduce Pi startup work by checking required commands directly on `PATH` instead of spawning `which`/`where`, and load the file-browser implementation only when `/readfiles` is invoked.
+- Update session lifecycle, key handling, notifications, and file viewer results for Pi 0.87.
 
 ## [0.2.0] - 2026-07-04
 

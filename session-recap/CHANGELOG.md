@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.5.1] - 2026-09-22
+
+### Changed
+- Build recaps from Pi 0.87's projected session context so context edits, omissions, and replacements are reflected in both recent activity and initial task framing.
+- Wait for final agent settlement before generating an away recap, including after retries, compaction, and queued continuations.
+
 ## [0.5.0] - 2026-08-14
 
 ### Changed

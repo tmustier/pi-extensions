@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.3] - 2026-09-22
+
+### Changed
+- Let Pi 0.87 own custom component disposal when the weather widget closes.
+
 ## [0.1.2] - 2026-05-07
 
 ### Changed

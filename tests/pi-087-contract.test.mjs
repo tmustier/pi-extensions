@@ -53,8 +53,12 @@ test("development contracts pin and typecheck every shipped Pi 0.87 extension", 
 
 	const tsconfig = JSON.parse(readFileSync(new URL("../tsconfig.json", import.meta.url), "utf8"));
 	assert.deepEqual(new Set(tsconfig.files), shippedExtensions);
-	assert.equal(packageJson(".").dependencies.typebox, "^1.3.27");
-	assert.equal(packageJson("pi-ralph-wiggum").dependencies.typebox, "^1.3.27");
+	for (const directory of [".", "pi-ralph-wiggum"]) {
+		const pkg = packageJson(directory);
+		assert.equal(pkg.peerDependencies.typebox, "*", `${directory}/typebox peer`);
+		assert.equal(pkg.devDependencies.typebox, "1.3.27", `${directory}/typebox development contract`);
+		assert.equal(pkg.dependencies?.typebox, undefined, `${directory}/typebox runtime dependency`);
+	}
 });
 
 test("0.87 lifecycle handlers wait for final agent settlement", () => {

@@ -1,6 +1,6 @@
 {
   "name": "@tmustier/pi-weather",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Weather widget for Pi (/weather)",
   "license": "MIT",
   "author": "Thomas Mustier",

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.67] - 2026-09-22
+
+### Changed
+- Update the root package and bundled extensions for Pi 0.87.0, including current session projection, lifecycle, component, keybinding, and notification contracts.
+- Declare Pi's bundled `typebox` as a peer and pin 1.3.27 for local development instead of installing a separate runtime copy.
+- Include compatibility releases for arcade 0.1.7, code actions 0.1.6, files widget 0.2.1, Ralph Wiggum 0.2.4, session recap 0.5.1, tab status 0.1.5, usage 0.9.5, and weather 0.1.3.
+
 ## [0.1.66] - 2026-08-14
 
 ### Changed

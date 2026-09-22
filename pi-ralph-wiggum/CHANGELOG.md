@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.2.4] - 2026-09-22
+
+### Changed
+- Use Pi 0.87's bundled `typebox` as a peer for Ralph tool schemas instead of installing a separate runtime copy.
+
 ## [0.2.3] - 2026-07-21
 
 ### Fixed

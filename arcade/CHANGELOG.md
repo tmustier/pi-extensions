@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.7] - 2026-09-22
+
+### Changed
+- Update game components for Pi 0.87's render and invalidation contracts.
+- Restore saved games without mutating Pi's session entry order.
+
 ## [0.1.6] - 2026-05-07
 
 ### Changed

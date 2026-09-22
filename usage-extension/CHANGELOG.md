@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.5] - 2026-09-22
+
+### Changed
+- Treat Pi 0.87 `context_edit` entries as intentional request-prefix changes so they do not count as cache misses.
+
+### Internal
+- Cache format bumped to **v6**. The first `/usage` open after upgrading performs a one-off rebuild.
+
 ## [0.9.4] - 2026-07-22
 
 ### Changed

@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.6] - 2026-09-22
+
+### Changed
+- Update assistant message collection for Pi 0.87's session entry types.
+
 ## [0.1.5] - 2026-05-07
 
 ### Changed

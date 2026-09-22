@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.5] - 2026-09-22
+
+### Changed
+- Update tab state from Pi 0.87's final agent settlement, preserving commit detection across automatic retries and queued continuations.
+- Use `session_start` reasons for new and resumed session titles.
+
 ## [0.1.4] - 2026-05-07
 
 ### Changed
