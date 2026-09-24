@@ -1038,23 +1038,32 @@ function emptyPeriodRawData(): PeriodRawData {
  */
 export function projectLabelFromCwd(cwd: string): string {
 	if (!cwd) return "(unknown)";
+	// Normalize Windows separators so backslash paths (C:\Users\me\...) match the
+	// forward-slash forms compared below. Path text after the home prefix keeps
+	// its normalized forward slashes, which is what the label displays.
+	const normalized = cwd.replaceAll("\\", "/");
 	// Collapse any home-directory prefix to "~", not just the current user's —
 	// session stores merged from other machines can carry a different username.
-	const home = homedir();
+	const home = homedir().replaceAll("\\", "/");
 	let homePrefix: string | null = null;
-	if (cwd === home || cwd.startsWith(home + "/")) {
+	if (normalized === home || normalized.startsWith(home + "/")) {
 		homePrefix = home;
 	} else {
-		const m = /^(\/Users\/[^/]+|\/home\/[^/]+)(?=\/|$)/.exec(cwd);
+		const m = /^(\/Users\/[^/]+|\/home\/[^/]+)(?=\/|$)/.exec(normalized);
 		if (m) homePrefix = m[1]!;
 	}
-	if (homePrefix !== null && cwd.length <= homePrefix.length) return "~";
-	let rel = homePrefix !== null ? cwd.slice(homePrefix.length + 1) : cwd;
+	if (homePrefix !== null && normalized.length <= homePrefix.length) return "~";
+	let rel = homePrefix !== null ? normalized.slice(homePrefix.length + 1) : normalized;
 	const wt = rel.indexOf("/.worktrees/");
 	if (wt !== -1) rel = rel.slice(0, wt);
 	const parts = rel.split("/").filter(Boolean);
-	const label = parts.slice(0, 2).join("/");
-	return homePrefix !== null ? `~/${label}` : `/${label}`;
+	if (homePrefix !== null) return `~/${parts.slice(0, 2).join("/")}`;
+	// Windows drive paths (C:/Users/rider/projects/foo): drop the drive segment so
+	// the label keeps meaningful segments (Users/rider) and stays slash-separated.
+	const segments = /^[A-Za-z]:$/.test(parts[0] ?? "") ? parts.slice(1) : parts;
+	const label = segments.slice(0, 2).join("/");
+	if (/^[A-Za-z]:\//.test(normalized)) return label;
+	return `/${label}`;
 }
 
 function emptyUsageData(bounds: PeriodBounds): UsageData {

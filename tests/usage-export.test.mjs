@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { join } from "node:path";
+
 import {
 	buildTableCsv,
 	buildGraphCsv,
@@ -118,7 +120,8 @@ test("parseExportDirSetting reads the usage-extension key and tolerates junk", (
 
 test("resolveExportDir prefers config, expands ~, defaults to /tmp", () => {
 	assert.equal(resolveExportDir("/data/exports", "/Users/t", true, "/var/tmp-x"), "/data/exports");
-	assert.equal(resolveExportDir("~/Downloads", "/Users/t", true, "/var/tmp-x"), "/Users/t/Downloads");
+	// Expected via join(): path separators differ per platform.
+	assert.equal(resolveExportDir("~/Downloads", "/Users/t", true, "/var/tmp-x"), join("/Users/t", "Downloads"));
 	assert.equal(resolveExportDir("~", "/Users/t", true, "/var/tmp-x"), "/Users/t");
 	assert.equal(resolveExportDir(null, "/Users/t", true, "/var/tmp-x"), "/tmp");
 	assert.equal(resolveExportDir(null, "/Users/t", false, "/var/tmp-x"), "/var/tmp-x");
