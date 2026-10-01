@@ -27,10 +27,24 @@ export default function (pi: ExtensionAPI) {
 
 	const cwdBase = (ctx: ExtensionContext): string => basename(ctx.cwd || "pi");
 
+	// Session replacement invalidates the ctx that was live during the run, but
+	// Pi may still deliver a trailing agent_settled (and our own inactivity timer
+	// may still fire) with that stale ctx. Reading its getters throws, so treat
+	// such events as no-ops instead of surfacing an extension error.
+	const staleContexts = new WeakSet<ExtensionContext>();
+	const isStale = (error: unknown): boolean =>
+		error instanceof Error && error.message.includes("ctx is stale after session replacement");
+
 	const setTitle = (ctx: ExtensionContext, next: StatusState): void => {
 		state = next;
-		if (!ctx.hasUI) return;
-		ctx.ui.setTitle(`pi - ${cwdBase(ctx)}${STATUS_TEXT[next]}`);
+		if (staleContexts.has(ctx)) return;
+		try {
+			if (!ctx.hasUI) return;
+			ctx.ui.setTitle(`pi - ${cwdBase(ctx)}${STATUS_TEXT[next]}`);
+		} catch (error) {
+			if (!isStale(error)) throw error;
+			staleContexts.add(ctx);
+		}
 	};
 
 	const clearTabTimeout = (): void => {
@@ -52,6 +66,7 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	pi.on("session_start", (event, ctx) => {
+		staleContexts.delete(ctx);
 		running = false;
 		sawCommit = false;
 		lastStopReason = undefined;
@@ -98,6 +113,10 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_shutdown", (_event, ctx) => {
 		clearTabTimeout();
-		if (ctx.hasUI) ctx.ui.setTitle(`pi - ${cwdBase(ctx)}`);
+		try {
+			if (ctx.hasUI) ctx.ui.setTitle(`pi - ${cwdBase(ctx)}`);
+		} catch (error) {
+			if (!isStale(error)) throw error;
+		}
 	});
 }
