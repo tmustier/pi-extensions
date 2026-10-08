@@ -2,7 +2,7 @@
  * /usage - Usage statistics dashboard
  *
  * Shows an inline view with usage stats grouped by provider.
- * - Tab cycles: Today → This Week → Last Week → All Time
+ * - Tab cycles: Today → This Week → Last Week → This Month → All Time
  * - Arrow keys navigate providers
  * - Enter expands/collapses to show models
  *
@@ -273,6 +273,7 @@ const TAB_LABELS: Record<TabName, string> = {
 	today: "Today",
 	thisWeek: "This Week",
 	lastWeek: "Last Week",
+	thisMonth: "This Month",
 	last30Days: "Last 30 Days",
 	allTime: "All Time",
 };
