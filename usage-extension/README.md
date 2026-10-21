@@ -136,7 +136,7 @@ The **Graphs** view plots usage over time for the active period as a braille lin
 - **Grouping** (`g` to cycle): by provider, by model, by thinking level, or total only. The top 6 series are shown individually; the rest merge into an `other` series. A bold **Total** line is always drawn.
 - **Cumulative vs per-bucket** (`c` to toggle): running total across the period (default), or the raw per-bucket rate.
 - **Filtering**: move the legend cursor with `↑`/`↓` and toggle series visibility with `Enter`/`Space` (`a` shows all again). The y-axis rescales to the visible series — hide the big lines to zoom into the small ones.
-- **Buckets**: hourly for Today / This Week / Last Week, daily for Last 30 Days / All Time.
+- **Buckets**: hourly for Today / This Week / Last Week (and This Month during its first 8 days), daily for This Month after its first 8 days / Last 30 Days / All Time.
 - **Line clipping**: every series (provider, model, thinking level, `other`, Total) is drawn only between its first and last bucket with usage, so late-starting or retired series don't drag a flat zero/flat tail across the whole period.
 
 Thinking levels are replayed from `thinking_level_change` entries in each session file; messages before the first recorded change appear as `unknown`. Auxiliary usage has no reliable thinking-level attribution and appears as `Tools/summaries` in that grouping. Reasoning token counts come from `usage.reasoning` where providers report them; pi only records this field since **pi 0.80.3 (30 June 2026)**, so earlier sessions show zero reasoning tokens even though thinking models were in use.
@@ -148,6 +148,7 @@ Thinking levels are replayed from `thinking_level_change` entries in each sessio
 | **Today** | From midnight (00:00) today |
 | **This Week** | From Monday 00:00 of the current week |
 | **Last Week** | Previous week (Monday 00:00 → this Monday 00:00) |
+| **This Month** | From local midnight on the first day of the current month |
 | **Last 30 Days** | Rolling window: the last 30 calendar days including today (from midnight 29 days back) |
 | **All Time** | All recorded sessions |
 

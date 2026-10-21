@@ -6,13 +6,15 @@ import test from "node:test";
 
 import { homedir } from "node:os";
 
-import { collectUsageData, loadUsageCache, parseSessionBuffer, projectLabelFromCwd, saveUsageCache } from "../usage-extension/data.ts";
+import { collectUsageData, loadUsageCache, parseSessionBuffer, projectLabelFromCwd, saveUsageCache, TAB_ORDER } from "../usage-extension/data.ts";
 
 // 2026-07-15 is a Wednesday. Week = Mon 13th 00:00 → …, last week = Mon 6th → Sun 12th.
 const NOW = new Date(2026, 6, 15, 12, 0, 0);
 const TS_TODAY = new Date(2026, 6, 15, 9, 0, 0).getTime();
 const TS_THIS_WEEK = new Date(2026, 6, 14, 10, 0, 0).getTime(); // Tuesday this week
 const TS_LAST_WEEK = new Date(2026, 6, 10, 10, 0, 0).getTime(); // Friday last week
+const TS_MONTH_EDGE_IN = new Date(2026, 6, 1, 0, 0, 0).getTime(); // first instant in July
+const TS_MONTH_EDGE_OUT = new Date(2026, 5, 30, 23, 59, 59).getTime(); // one second before July
 const TS_OLD = new Date(2026, 5, 1, 10, 0, 0).getTime(); // 1 June — outside the 30-day window
 const TS_30D_EDGE_IN = new Date(2026, 5, 16, 0, 0, 0).getTime(); // midnight 29 days before 15 July — first instant inside
 const TS_30D_EDGE_OUT = new Date(2026, 5, 15, 23, 59, 59).getTime(); // one second earlier — outside
@@ -628,6 +630,29 @@ test("collectUsageData dedupes copied auxiliary entries by id without collapsing
 	assert.equal(data.today.totals.sessions, 2);
 	assert.equal(data.today.providers.get("Tools").models.get("summaries").cost, 4);
 	assert.equal(findInsight(data, "today", /usage reported by tools and conversation summaries/).stat, "100%");
+});
+
+test("This Month is ordered between Last Week and Last 30 Days", () => {
+	assert.deepEqual(TAB_ORDER, ["today", "thisWeek", "lastWeek", "thisMonth", "last30Days", "allTime"]);
+});
+
+test("collectUsageData buckets This Month from local midnight on the first", async (t) => {
+	const { sessionsDir, cachePath } = fixture(t);
+	writeFileSync(
+		join(sessionsDir, "month.jsonl"),
+		[
+			sessionLine("s-month", TS_MONTH_EDGE_OUT),
+			assistantLine({ ts: TS_MONTH_EDGE_OUT, cost: 1 }), // previous month
+			assistantLine({ ts: TS_MONTH_EDGE_IN, cost: 2 }), // first instant of current month
+			assistantLine({ ts: TS_TODAY, cost: 3 }),
+		].join("\n") + "\n"
+	);
+
+	const data = await collectUsageData({ sessionsDir, cachePath, now: NOW });
+	assert.equal(data.thisMonth.totals.messages, 2);
+	assert.equal(data.thisMonth.totals.cost, 5);
+	assert.equal(data.thisMonth.totals.sessions, 1);
+	assert.equal(data.allTime.totals.messages, 3);
 });
 
 test("collectUsageData buckets the rolling 30-day window from midnight 29 days back", async (t) => {

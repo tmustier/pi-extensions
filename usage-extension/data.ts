@@ -149,6 +149,7 @@ export interface PeriodBounds {
 	todayMs: number;
 	weekStartMs: number;
 	lastWeekStartMs: number;
+	thisMonthStartMs: number;
 	last30DaysStartMs: number;
 	nowMs: number;
 }
@@ -157,6 +158,7 @@ export interface UsageData {
 	today: TimeFilteredStats;
 	thisWeek: TimeFilteredStats;
 	lastWeek: TimeFilteredStats;
+	thisMonth: TimeFilteredStats;
 	last30Days: TimeFilteredStats;
 	allTime: TimeFilteredStats;
 	/** Deduped usage bucketed by hour start (ms) → series key → metrics. */
@@ -164,9 +166,9 @@ export interface UsageData {
 	bounds: PeriodBounds;
 }
 
-export type TabName = "today" | "thisWeek" | "lastWeek" | "last30Days" | "allTime";
+export type TabName = "today" | "thisWeek" | "lastWeek" | "thisMonth" | "last30Days" | "allTime";
 
-export const TAB_ORDER: TabName[] = ["today", "thisWeek", "lastWeek", "last30Days", "allTime"];
+export const TAB_ORDER: TabName[] = ["today", "thisWeek", "lastWeek", "thisMonth", "last30Days", "allTime"];
 
 export type UsageSource = "assistant" | "auxiliary";
 
@@ -1062,6 +1064,7 @@ function emptyUsageData(bounds: PeriodBounds): UsageData {
 		today: emptyTimeFilteredStats(),
 		thisWeek: emptyTimeFilteredStats(),
 		lastWeek: emptyTimeFilteredStats(),
+		thisMonth: emptyTimeFilteredStats(),
 		last30Days: emptyTimeFilteredStats(),
 		allTime: emptyTimeFilteredStats(),
 		hourly: new Map(),
@@ -1115,6 +1118,7 @@ function getPeriodsForTimestamp(
 	todayMs: number,
 	weekStartMs: number,
 	lastWeekStartMs: number,
+	thisMonthStartMs: number,
 	last30DaysStartMs: number
 ): TabName[] {
 	const periods: TabName[] = ["allTime"];
@@ -1124,6 +1128,7 @@ function getPeriodsForTimestamp(
 	} else if (timestamp >= lastWeekStartMs) {
 		periods.push("lastWeek");
 	}
+	if (timestamp >= thisMonthStartMs) periods.push("thisMonth");
 	if (timestamp >= last30DaysStartMs) periods.push("last30Days");
 	return periods;
 }
@@ -1140,11 +1145,12 @@ function addMessagesToUsageData(
 	todayMs: number,
 	weekStartMs: number,
 	lastWeekStartMs: number,
+	thisMonthStartMs: number,
 	last30DaysStartMs: number,
 	rawByPeriod: Record<TabName, PeriodRawData>,
 	costByDayIdx: Map<number, number>
 ): void {
-	const sessionContributed = { today: false, thisWeek: false, lastWeek: false, last30Days: false, allTime: false };
+	const sessionContributed = { today: false, thisWeek: false, lastWeek: false, thisMonth: false, last30Days: false, allTime: false };
 
 	for (let mi = 0; mi < messages.length; mi++) {
 		const msg = messages[mi]!;
@@ -1161,7 +1167,14 @@ function addMessagesToUsageData(
 
 		addToHourlyBuckets(data.hourly, msg);
 
-		const periods = getPeriodsForTimestamp(msg.timestamp, todayMs, weekStartMs, lastWeekStartMs, last30DaysStartMs);
+		const periods = getPeriodsForTimestamp(
+			msg.timestamp,
+			todayMs,
+			weekStartMs,
+			lastWeekStartMs,
+			thisMonthStartMs,
+			last30DaysStartMs
+		);
 		const tokens = {
 			// Count fresh tokens processed this turn.
 			// Include cacheWrite because those prompt tokens were newly written and billed.
@@ -1240,6 +1253,7 @@ function addMessagesToUsageData(
 	if (sessionContributed.today) data.today.totals.sessions++;
 	if (sessionContributed.thisWeek) data.thisWeek.totals.sessions++;
 	if (sessionContributed.lastWeek) data.lastWeek.totals.sessions++;
+	if (sessionContributed.thisMonth) data.thisMonth.totals.sessions++;
 	if (sessionContributed.last30Days) data.last30Days.totals.sessions++;
 	if (sessionContributed.allTime) data.allTime.totals.sessions++;
 }
@@ -1397,6 +1411,12 @@ export async function collectUsageData(options: CollectUsageOptions = {}): Promi
 	startOfLastWeek.setDate(startOfLastWeek.getDate() - 7);
 	const lastWeekStartMs = startOfLastWeek.getTime();
 
+	// Calendar month to date, from local midnight on the first.
+	const startOfThisMonth = new Date(now);
+	startOfThisMonth.setDate(1);
+	startOfThisMonth.setHours(0, 0, 0, 0);
+	const thisMonthStartMs = startOfThisMonth.getTime();
+
 	// Rolling 30-day window: the last 30 calendar days including today,
 	// i.e. from midnight 29 days before today. setDate handles DST correctly.
 	const startOfLast30Days = new Date(startOfToday);
@@ -1526,11 +1546,19 @@ export async function collectUsageData(options: CollectUsageOptions = {}): Promi
 	}
 
 	// 6. Aggregate in sorted path order with cross-file dedupe.
-	const data = emptyUsageData({ todayMs, weekStartMs, lastWeekStartMs, last30DaysStartMs, nowMs: now.getTime() });
+	const data = emptyUsageData({
+		todayMs,
+		weekStartMs,
+		lastWeekStartMs,
+		thisMonthStartMs,
+		last30DaysStartMs,
+		nowMs: now.getTime(),
+	});
 	const rawByPeriod: Record<TabName, PeriodRawData> = {
 		today: emptyPeriodRawData(),
 		thisWeek: emptyPeriodRawData(),
 		lastWeek: emptyPeriodRawData(),
+		thisMonth: emptyPeriodRawData(),
 		last30Days: emptyPeriodRawData(),
 		allTime: emptyPeriodRawData(),
 	};
@@ -1597,6 +1625,7 @@ export async function collectUsageData(options: CollectUsageOptions = {}): Promi
 			todayMs,
 			weekStartMs,
 			lastWeekStartMs,
+			thisMonthStartMs,
 			last30DaysStartMs,
 			rawByPeriod,
 			costByDayIdx
