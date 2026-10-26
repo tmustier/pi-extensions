@@ -447,12 +447,11 @@ export default function (pi: ExtensionAPI) {
 			// Save only between runs, so a recap drawn with --recap-during-active never
 			// lands between a running turn's own entries.
 			if (!agentActive) {
-				// Pi's append is synchronous. Preserve recency so an away recap doesn't
-				// change which session `pi -c` reopens. In-memory sessions have no file.
+				// Preserve recency so an away recap doesn't change which session `pi -c` reopens.
 				const file = ctx.sessionManager.getSessionFile();
-				const times = file ? statSync(file) : undefined;
+				const previous = file ? { file, times: statSync(file) } : undefined;
 				pi.appendEntry<SavedRecap>(RECAP_KEY, recap);
-				if (file && times) utimesSync(file, times.atimeMs / 1000, times.mtimeMs / 1000);
+				if (previous) utimesSync(previous.file, previous.times.atimeMs / 1000, previous.times.mtimeMs / 1000);
 			}
 			showRecap(ctx, recap.text);
 		} catch (err) {

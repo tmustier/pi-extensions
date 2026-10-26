@@ -3,11 +3,12 @@
 // only an in-process switch such as /resume reports "resume". Reopening a
 // session with history must draw a recap either way.
 import assert from "node:assert/strict";
-import { appendFileSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, statSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { registerApiProvider } from "@earendil-works/pi-ai/compat";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import sessionRecap from "../index.ts";
 
 const API = "recap-startup-test";
@@ -170,27 +171,34 @@ test("reopening with an initial prompt draws no recap", async () => {
 	pi.emit("session_shutdown", { type: "session_shutdown" }, ctx);
 });
 
-test("saving a recap preserves the session file's timestamps and writes its data", async (t) => {
+test("saving a recap persists its data without changing which session -c reopens", async (t) => {
 	const dir = mkdtempSync(join(tmpdir(), "recap-timestamps-"));
 	t.after(() => rmSync(dir, { recursive: true, force: true }));
-	const file = join(dir, "session.jsonl");
-	writeFileSync(file, "");
-	// Distinct fractional timestamps catch both accidental touches and precision loss.
+	const older = SessionManager.create(dir, dir);
+	const newer = SessionManager.create(dir, dir);
+	for (const manager of [older, newer]) {
+		for (const entry of history) manager.appendMessage(entry.message);
+	}
+	const file = older.getSessionFile();
 	utimesSync(file, 1_700_000_000.123456, 1_700_000_100.654321);
+	utimesSync(newer.getSessionFile(), 1_700_000_200, 1_700_000_200);
 	const before = statSync(file);
 	const pi = makePi();
-	pi.appendEntry = (customType, data) => appendFileSync(file, JSON.stringify({ customType, data }) + "\n");
+	pi.appendEntry = (customType, data) => older.appendCustomEntry(customType, data);
 	sessionRecap(pi);
 	const { ctx, widgets } = makeCtx(history);
-	ctx.sessionManager.getSessionFile = () => file;
+	ctx.sessionManager = older;
 
 	await pi.commands.get("recap").handler("", ctx);
 
 	const after = statSync(file);
 	assert.ok(Math.abs(after.atimeMs - before.atimeMs) < 0.001, "atime must be preserved to filesystem precision");
 	assert.ok(Math.abs(after.mtimeMs - before.mtimeMs) < 0.001, "mtime must be preserved to filesystem precision");
-	assert.ok(after.size > before.size);
-	assert.equal(JSON.parse(readFileSync(file, "utf8")).data.text, widgets[0][1]);
+	const saved = SessionManager.open(file).getBranch().at(-1);
+	assert.equal(saved.type, "custom");
+	assert.equal(saved.customType, "session-recap");
+	assert.deepEqual(saved.data, { text: widgets[0][1], model: "recap-startup/recap-startup-model" });
+	assert.equal(SessionManager.continueRecent(dir, dir).getSessionFile(), newer.getSessionFile());
 });
 
 const savedRecap = (text) => ({
