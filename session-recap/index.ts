@@ -24,7 +24,24 @@ type RecapContext = {
 
 type RecapReason = "idle" | "manual" | "resume" | "focus";
 
+/** Data of the `session-recap` custom entry saved with every recap. */
+export type SavedRecap = {
+	text: string;
+	/** `provider/id` of the model that drafted the recap. */
+	model: string;
+};
+
 const RECAP_KEY = "session-recap";
+
+// Entries that change what a recap would say. Anything else (model or thinking
+// changes, labels, session info, extensions' non-message custom entries) leaves it current.
+const RECAP_CONTEXT_ENTRY_TYPES = new Set<SessionEntry["type"]>([
+	"message",
+	"custom_message",
+	"compaction",
+	"branch_summary",
+	"context_edit",
+]);
 
 const DEFAULT_AWAY_SECONDS = 90;
 const DEFAULT_IDLE_SECONDS = 120;
@@ -151,6 +168,16 @@ export function buildRecapContext(
 	};
 }
 
+/** The recap saved on this branch, if nothing that would change it came after it. */
+export function findCurrentSavedRecap(branch: SessionEntry[]): SavedRecap | undefined {
+	for (let i = branch.length - 1; i >= 0; i--) {
+		const entry = branch[i]!;
+		if (entry.type === "custom" && entry.customType === RECAP_KEY) return entry.data as SavedRecap;
+		if (RECAP_CONTEXT_ENTRY_TYPES.has(entry.type)) return undefined;
+	}
+	return undefined;
+}
+
 export function hasMeaningfulActivity(entries: ProjectedSessionEntry[]): boolean {
 	const messages = convertToLlm(entries.flatMap((entry) => entry.messages));
 	let lastUserIdx = -1;
@@ -197,7 +224,7 @@ async function generateRecap(
 	ctx: ExtensionContext,
 	overrideSpec: string | undefined,
 	signal: AbortSignal | undefined,
-): Promise<string | undefined> {
+): Promise<SavedRecap | undefined> {
 	const model = selectRecapModel(ctx.model, overrideSpec, ctx.modelRegistry);
 	if (!model) return undefined;
 
@@ -265,7 +292,7 @@ async function generateRecap(
 		.replace(/\s+/g, " ")
 		.trim();
 
-	return text || undefined;
+	return text ? { text, model: `${model.provider}/${model.id}` } : undefined;
 }
 
 function clearRecap(ctx: ExtensionContext) {
@@ -395,11 +422,20 @@ export default function (pi: ExtensionAPI) {
 		const projection = ctx.sessionManager.buildSessionProjection();
 		if (reason !== "manual" && !hasMeaningfulActivity(projection.entries)) return;
 
-		const recapContext = buildRecapContext(projection.entries, ctx.sessionManager.getBranch());
+		const branch = ctx.sessionManager.getBranch();
+		const recapContext = buildRecapContext(projection.entries, branch);
 		if (recapContext.messages.length === 0 && !recapContext.broaderContext) return;
 
 		const startContext = JSON.stringify(recapContext);
 		if (reason !== "manual" && lastDraftedContext === startContext) return;
+
+		// A reopened session whose saved recap is still current shows it without a model call.
+		const saved = reason === "resume" ? findCurrentSavedRecap(branch) : undefined;
+		if (saved) {
+			lastDraftedContext = startContext;
+			showRecap(ctx, saved.text);
+			return;
+		}
 
 		cancelActive();
 		const controller = new AbortController();
@@ -422,7 +458,10 @@ export default function (pi: ExtensionAPI) {
 			clearIdleTimer();
 			clearPostTurnTimer();
 
-			showRecap(ctx, recap);
+			// Save only between runs, so a recap drawn with --recap-during-active never
+			// lands between a running turn's own entries.
+			if (!agentActive) pi.appendEntry<SavedRecap>(RECAP_KEY, recap);
+			showRecap(ctx, recap.text);
 		} catch (err) {
 			// Report through the UI, never console.*: pi installs no console interception, so
 			// an extension writing there puts raw text on the terminal mid-frame and mangles the

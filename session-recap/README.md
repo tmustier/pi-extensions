@@ -16,7 +16,21 @@ The recap orients rather than reports: it states the high-level task first (what
 
 Also fires automatically when you reopen a session with history, so you know where it left off: `/resume`, `/fork`, `pi -c`, `pi -r`, `pi --session <file>`, or a terminal restoring its sessions. It is skipped when you reopen with a prompt (`pi -c "<prompt>"`), because the agent starts work straight away.
 
-The recap disappears when you submit a message or new agent work begins. It is temporary UI: it is not saved in session history or sent to the model.
+The recap disappears when you submit a message or new agent work begins. It is never sent to the model.
+
+## Saved recaps
+
+Each recap is saved in the session as a `session-recap` custom entry with the recap text and the `provider/id` of the model that drafted it:
+
+```json
+{ "type": "custom", "customType": "session-recap", "data": { "text": "…", "model": "openai-codex/gpt-5.6-luna" } }
+```
+
+When you reopen a session, a saved recap that is still current is shown at once, with no model call. It stays current until a message, compaction, branch summary or context edit lands after it; model changes, labels and other metadata do not count. Otherwise a new recap is drafted and saved. This makes restoring many terminal tabs free when nothing has changed, and gives other tools a recent summary of each session to read.
+
+Saved recaps do not appear in the transcript, are hidden in `/tree` by default, and do not change a session's position in the session picker. A recap drawn while the agent is running (`--recap-during-active`) is shown but not saved.
+
+Saving a recap updates the session file, and `pi -c` reopens the most recently written session in the folder. If you work in several sessions in one folder, `pi -c` can therefore reopen a session you left, because an away recap was saved there after you switched to another.
 
 Quick alt-tabs cost nothing: no model call is made until you've actually been away for the full threshold. If you return while a recap is still drafting, it's allowed to finish — it lands moments after you're back, which is exactly when it helps.
 

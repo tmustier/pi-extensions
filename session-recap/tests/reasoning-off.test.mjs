@@ -34,6 +34,7 @@ function makePi() {
 	const flags = new Map();
 	return {
 		commands,
+		appendEntry() {},
 		on() {},
 		registerCommand(name, command) {
 			commands.set(name, command);

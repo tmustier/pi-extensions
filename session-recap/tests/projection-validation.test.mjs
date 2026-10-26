@@ -22,6 +22,7 @@ test("recap validation rejects a draft when projected context changes", async ()
 
 	let recap;
 	sessionRecap({
+		appendEntry() {},
 		on() {},
 		registerCommand(name, command) {
 			if (name === "recap") recap = command.handler;
