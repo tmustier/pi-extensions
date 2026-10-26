@@ -3,6 +3,7 @@
  * See README.md for triggers, flags, and model selection.
  */
 
+import assert from "node:assert/strict";
 import type { Message } from "@earendil-works/pi-ai";
 import { complete, completeSimple } from "@earendil-works/pi-ai/compat";
 import {
@@ -24,24 +25,12 @@ type RecapContext = {
 
 type RecapReason = "idle" | "manual" | "resume" | "focus";
 
-/** Data of the `session-recap` custom entry saved with every recap. */
-export type SavedRecap = {
+type SavedRecap = {
 	text: string;
-	/** `provider/id` of the model that drafted the recap. */
 	model: string;
 };
 
 const RECAP_KEY = "session-recap";
-
-// Entries that change what a recap would say. Anything else (model or thinking
-// changes, labels, session info, extensions' non-message custom entries) leaves it current.
-const RECAP_CONTEXT_ENTRY_TYPES = new Set<SessionEntry["type"]>([
-	"message",
-	"custom_message",
-	"compaction",
-	"branch_summary",
-	"context_edit",
-]);
 
 const DEFAULT_AWAY_SECONDS = 90;
 const DEFAULT_IDLE_SECONDS = 120;
@@ -166,16 +155,6 @@ export function buildRecapContext(
 		messages: recentMessages,
 		broaderContext: broader.length > 0 ? broader.join("\n\n") : undefined,
 	};
-}
-
-/** The recap saved on this branch, if nothing that would change it came after it. */
-export function findCurrentSavedRecap(branch: SessionEntry[]): SavedRecap | undefined {
-	for (let i = branch.length - 1; i >= 0; i--) {
-		const entry = branch[i]!;
-		if (entry.type === "custom" && entry.customType === RECAP_KEY) return entry.data as SavedRecap;
-		if (RECAP_CONTEXT_ENTRY_TYPES.has(entry.type)) return undefined;
-	}
-	return undefined;
 }
 
 export function hasMeaningfulActivity(entries: ProjectedSessionEntry[]): boolean {
@@ -429,12 +408,18 @@ export default function (pi: ExtensionAPI) {
 		const startContext = JSON.stringify(recapContext);
 		if (reason !== "manual" && lastDraftedContext === startContext) return;
 
-		// A reopened session whose saved recap is still current shows it without a model call.
-		const saved = reason === "resume" ? findCurrentSavedRecap(branch) : undefined;
-		if (saved) {
-			lastDraftedContext = startContext;
-			showRecap(ctx, saved.text);
-			return;
+		if (reason === "resume") {
+			const latest = branch.findLast((entry) =>
+				(entry.type === "custom" && entry.customType === RECAP_KEY) ||
+				["message", "custom_message", "compaction", "branch_summary", "context_edit"].includes(entry.type),
+			);
+			if (latest?.type === "custom") {
+				const data = latest.data;
+				assert(data && typeof data === "object" && "text" in data && typeof data.text === "string");
+				lastDraftedContext = startContext;
+				showRecap(ctx, data.text);
+				return;
+			}
 		}
 
 		cancelActive();

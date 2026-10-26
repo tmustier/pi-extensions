@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { registerApiProvider } from "@earendil-works/pi-ai/compat";
-import sessionRecap, { findCurrentSavedRecap } from "../index.ts";
+import sessionRecap from "../index.ts";
 
 const API = "recap-startup-test";
 let requests = 0;
@@ -100,9 +100,10 @@ function makeCtx(branch) {
 }
 
 const history = [
-	{ type: "message", message: { role: "user", content: "Please fix the bridge integration." } },
+	{ type: "message", id: "request", message: { role: "user", content: "Please fix the bridge integration." } },
 	{
 		type: "message",
+		id: "reply",
 		message: {
 			role: "assistant",
 			content: [{ type: "toolCall", id: "call-1", name: "read", arguments: { path: "bridge.ts" } }],
@@ -123,6 +124,15 @@ test("reopening a session from the command line draws a recap", async () => {
 
 	assert.equal(requests, 1);
 	assert.deepEqual(widgets, [["✦ recap", "Fixing the bridge integration. Next: rerun the suite."]]);
+	assert.deepEqual(pi.saved, [
+		{
+			customType: "session-recap",
+			data: {
+				text: "Fixing the bridge integration. Next: rerun the suite.",
+				model: "recap-startup/recap-startup-model",
+			},
+		},
+	]);
 	pi.emit("session_shutdown", { type: "session_shutdown" }, ctx);
 });
 
@@ -162,25 +172,6 @@ const savedRecap = (text) => ({
 	data: { text, model: "recap-startup/recap-startup-model" },
 });
 
-test("each drafted recap is saved to the session", async () => {
-	requests = 0;
-	const pi = makePi();
-	sessionRecap(pi);
-	const { ctx } = makeCtx(history);
-
-	await pi.commands.get("recap").handler("", ctx);
-
-	assert.deepEqual(pi.saved, [
-		{
-			customType: "session-recap",
-			data: {
-				text: "Fixing the bridge integration. Next: rerun the suite.",
-				model: "recap-startup/recap-startup-model",
-			},
-		},
-	]);
-});
-
 test("a recap drawn while the agent runs is shown but not saved", async () => {
 	const pi = makePi();
 	sessionRecap(pi);
@@ -194,68 +185,55 @@ test("a recap drawn while the agent runs is shown but not saved", async () => {
 	pi.emit("session_shutdown", { type: "session_shutdown" }, ctx);
 });
 
-test("reopening shows the saved recap without a model call when it is current", async () => {
-	requests = 0;
-	const pi = makePi();
-	sessionRecap(pi);
-	// Metadata after the recap (a model change, a label) leaves it current.
-	const { ctx, widgets } = makeCtx([
-		...history,
-		savedRecap("Saved recap."),
-		{ type: "model_change", provider: "recap-startup", modelId: "recap-startup-model" },
-	]);
+for (const reason of ["startup", "resume", "fork"]) {
+	test(`${reason} shows the latest current recap without a model call`, async () => {
+		requests = 0;
+		const pi = makePi();
+		sessionRecap(pi);
+		const { ctx, widgets } = makeCtx([
+			...history,
+			savedRecap("Older recap."),
+			savedRecap("Saved recap."),
+			{ type: "model_change", provider: "recap-startup", modelId: "recap-startup-model" },
+			{ type: "thinking_level_change", thinkingLevel: "high" },
+			{ type: "label", targetId: "request", label: "Bookmark" },
+			{ type: "session_info", name: "Bridge" },
+			{ type: "custom", customType: "other-extension", data: {} },
+		]);
 
-	pi.emit("session_start", { type: "session_start", reason: "startup" }, ctx);
-	await settle();
+		pi.emit("session_start", { type: "session_start", reason }, ctx);
+		await settle();
 
-	assert.equal(requests, 0);
-	assert.deepEqual(widgets, [["✦ recap", "Saved recap."]]);
-	assert.deepEqual(pi.saved, [], "a reused recap must not be saved again");
-	pi.emit("session_shutdown", { type: "session_shutdown" }, ctx);
-});
+		assert.equal(requests, 0);
+		assert.deepEqual(widgets, [["✦ recap", "Saved recap."]]);
+		assert.deepEqual(pi.saved, [], "a reused recap must not be saved again");
+		pi.emit("session_shutdown", { type: "session_shutdown" }, ctx);
+	});
+}
 
-test("reopening drafts a new recap when the conversation moved on", async () => {
-	requests = 0;
-	const pi = makePi();
-	sessionRecap(pi);
-	const { ctx, widgets } = makeCtx([
-		...history,
-		savedRecap("Stale recap."),
-		{ type: "message", message: { role: "user", content: "Now update the docs." } },
-		{
-			type: "message",
-			message: {
-				role: "assistant",
-				content: [{ type: "toolCall", id: "call-2", name: "read", arguments: { path: "README.md" } }],
-			},
-		},
-	]);
+for (const after of [
+	history[1],
+	{ type: "custom_message", customType: "note", content: "Note." },
+	{ type: "compaction", summary: "Summary.", firstKeptEntryId: "request", tokensBefore: 100 },
+	{ type: "branch_summary", summary: "Summary.", fromId: "reply" },
+	{ type: "context_edit", targetId: "request", replacement: { content: "Updated task." } },
+]) {
+	test(`reopening drafts a new recap after ${after.type}`, async () => {
+		requests = 0;
+		const pi = makePi();
+		sessionRecap(pi);
+		const { ctx, widgets } = makeCtx([
+			...history,
+			savedRecap("Stale recap."),
+			after,
+		]);
 
-	pi.emit("session_start", { type: "session_start", reason: "startup" }, ctx);
-	await settle();
+		pi.emit("session_start", { type: "session_start", reason: "startup" }, ctx);
+		await settle();
 
-	assert.equal(requests, 1);
-	assert.deepEqual(widgets, [["✦ recap", "Fixing the bridge integration. Next: rerun the suite."]]);
-	assert.equal(pi.saved.length, 1);
-	pi.emit("session_shutdown", { type: "session_shutdown" }, ctx);
-});
-
-test("a saved recap is current only until the conversation changes", () => {
-	const recap = savedRecap("Saved recap.");
-	assert.deepEqual(findCurrentSavedRecap([...history, recap]), recap.data);
-	assert.deepEqual(
-		findCurrentSavedRecap([...history, savedRecap("Older."), recap, { type: "label", targetId: "x" }]),
-		recap.data,
-		"the latest saved recap wins and metadata does not stale it",
-	);
-	assert.equal(findCurrentSavedRecap(history), undefined);
-	for (const after of [
-		{ type: "message", message: { role: "user", content: "More." } },
-		{ type: "custom_message", customType: "note", content: "Note." },
-		{ type: "compaction", summary: "Summary." },
-		{ type: "branch_summary", summary: "Summary." },
-		{ type: "context_edit", targetId: "x", replacement: null },
-	]) {
-		assert.equal(findCurrentSavedRecap([...history, recap, after]), undefined, `${after.type} stales the recap`);
-	}
-});
+		assert.equal(requests, 1);
+		assert.deepEqual(widgets, [["✦ recap", "Fixing the bridge integration. Next: rerun the suite."]]);
+		assert.equal(pi.saved.length, 1);
+		pi.emit("session_shutdown", { type: "session_shutdown" }, ctx);
+	});
+}
