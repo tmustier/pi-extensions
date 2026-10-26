@@ -30,7 +30,7 @@ When you reopen a session, a saved recap that is still current is shown at once,
 
 Saved recaps do not appear in the transcript, are hidden in `/tree` by default, and do not change a session's position in the session picker. A recap drawn while the agent is running (`--recap-during-active`) is shown but not saved.
 
-Saving a recap updates the session file, and `pi -c` reopens the most recently written session in the folder. If you work in several sessions in one folder, `pi -c` can therefore reopen a session you left, because an away recap was saved there after you switched to another.
+Saving a recap preserves the session file's access and modification times, so it does not change which session `pi -c` reopens.
 
 Quick alt-tabs cost nothing: no model call is made until you've actually been away for the full threshold. If you return while a recap is still drafting, it's allowed to finish — it lands moments after you're back, which is exactly when it helps.
 

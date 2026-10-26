@@ -3,6 +3,9 @@
 // only an in-process switch such as /resume reports "resume". Reopening a
 // session with history must draw a recap either way.
 import assert from "node:assert/strict";
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { registerApiProvider } from "@earendil-works/pi-ai/compat";
 import sessionRecap from "../index.ts";
@@ -75,6 +78,7 @@ function makeCtx(branch) {
 			getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "unused" }),
 		},
 		sessionManager: {
+			getSessionFile: () => undefined,
 			buildSessionProjection: () => ({
 				entries: branch.map((sourceEntry) => ({
 					sourceEntry,
@@ -164,6 +168,29 @@ test("reopening with an initial prompt draws no recap", async () => {
 	assert.equal(requests, 0);
 	assert.deepEqual(widgets, []);
 	pi.emit("session_shutdown", { type: "session_shutdown" }, ctx);
+});
+
+test("saving a recap preserves the session file's timestamps and writes its data", async (t) => {
+	const dir = mkdtempSync(join(tmpdir(), "recap-timestamps-"));
+	t.after(() => rmSync(dir, { recursive: true, force: true }));
+	const file = join(dir, "session.jsonl");
+	writeFileSync(file, "");
+	// Distinct fractional timestamps catch both accidental touches and precision loss.
+	utimesSync(file, 1_700_000_000.123456, 1_700_000_100.654321);
+	const before = statSync(file);
+	const pi = makePi();
+	pi.appendEntry = (customType, data) => appendFileSync(file, JSON.stringify({ customType, data }) + "\n");
+	sessionRecap(pi);
+	const { ctx, widgets } = makeCtx(history);
+	ctx.sessionManager.getSessionFile = () => file;
+
+	await pi.commands.get("recap").handler("", ctx);
+
+	const after = statSync(file);
+	assert.ok(Math.abs(after.atimeMs - before.atimeMs) < 0.001, "atime must be preserved to filesystem precision");
+	assert.ok(Math.abs(after.mtimeMs - before.mtimeMs) < 0.001, "mtime must be preserved to filesystem precision");
+	assert.ok(after.size > before.size);
+	assert.equal(JSON.parse(readFileSync(file, "utf8")).data.text, widgets[0][1]);
 });
 
 const savedRecap = (text) => ({

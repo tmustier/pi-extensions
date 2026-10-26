@@ -57,6 +57,7 @@ test("recap validation rejects a draft when projected context changes", async ()
 			getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "unused" }),
 		},
 		sessionManager: {
+			getSessionFile: () => undefined,
 			buildSessionProjection: () => ({
 				entries: [{ sourceEntry, messages: [{ ...sourceEntry.message, content: projectedContent }] }],
 			}),

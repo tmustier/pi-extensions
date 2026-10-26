@@ -4,6 +4,7 @@
  */
 
 import assert from "node:assert/strict";
+import { statSync, utimesSync } from "node:fs";
 import type { Message } from "@earendil-works/pi-ai";
 import { complete, completeSimple } from "@earendil-works/pi-ai/compat";
 import {
@@ -445,7 +446,14 @@ export default function (pi: ExtensionAPI) {
 
 			// Save only between runs, so a recap drawn with --recap-during-active never
 			// lands between a running turn's own entries.
-			if (!agentActive) pi.appendEntry<SavedRecap>(RECAP_KEY, recap);
+			if (!agentActive) {
+				// Pi's append is synchronous. Preserve recency so an away recap doesn't
+				// change which session `pi -c` reopens. In-memory sessions have no file.
+				const file = ctx.sessionManager.getSessionFile();
+				const times = file ? statSync(file) : undefined;
+				pi.appendEntry<SavedRecap>(RECAP_KEY, recap);
+				if (file && times) utimesSync(file, times.atimeMs / 1000, times.mtimeMs / 1000);
+			}
 			showRecap(ctx, recap.text);
 		} catch (err) {
 			// Report through the UI, never console.*: pi installs no console interception, so
