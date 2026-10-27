@@ -31,6 +31,7 @@ async function recap(activeModel, available) {
 	const flags = new Map();
 	const commands = new Map();
 	sessionRecap({
+		appendEntry() {},
 		on() {},
 		registerFlag: (name, options) => flags.set(name, options.default),
 		getFlag: (name) => flags.get(name),
@@ -47,6 +48,7 @@ async function recap(activeModel, available) {
 			getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "unused" }),
 		},
 		sessionManager: {
+			getSessionFile: () => undefined,
 			buildSessionProjection: () => ({
 				entries: branch.map((sourceEntry) => ({ sourceEntry, messages: [sourceEntry.message] })),
 			}),

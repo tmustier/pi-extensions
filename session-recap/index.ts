@@ -410,7 +410,7 @@ export default function (pi: ExtensionAPI) {
 		if (reason !== "manual" && lastDraftedContext === startContext) return;
 
 		if (reason === "resume") {
-			const latest = branch.findLast((entry) =>
+			const latest = [...branch].reverse().find((entry) =>
 				(entry.type === "custom" && entry.customType === RECAP_KEY) ||
 				["message", "custom_message", "compaction", "branch_summary", "context_edit"].includes(entry.type),
 			);
