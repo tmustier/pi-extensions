@@ -2,6 +2,11 @@
 
 All notable changes to this extension will be documented in this file.
 
+## [0.2.3] - 2026-10-28
+
+### Fixed
+- Render Markdown with `glow` again. The viewer passed `glow` a pipe as standard input, and `glow` renders piped input in preference to its file argument, so it returned nothing and every Markdown file fell back to the raw view. Pressing `m` then appeared to do nothing, because each switch back to the rendered view fell back to raw again. Thanks to @ackalker for the report ([#111](https://github.com/tmustier/pi-extensions/issues/111)).
+
 ## [0.2.2] - 2026-10-28
 
 ### Fixed

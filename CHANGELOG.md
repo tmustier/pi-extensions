@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.74] - 2026-10-28
+
+### Fixed
+- Include files-widget 0.2.3, which renders Markdown with `glow` again, so Markdown files no longer always open raw and `m` switches between the rendered and raw views. Thanks to @ackalker for the report.
+
 ## [0.1.73] - 2026-10-28
 
 ### Changed

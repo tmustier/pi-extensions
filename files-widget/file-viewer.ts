@@ -2,8 +2,8 @@ import { visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { execSync } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
 
-import { isGitRepo } from "./git";
-import { hasCommand, isMarkdownPath, stripLeadingEmptyLines } from "./utils";
+import { isGitRepo } from "./git.ts";
+import { hasCommand, isMarkdownPath, stripLeadingEmptyLines } from "./utils.ts";
 
 const DIFF_CONTENT_PREFIXES = new Set(["+", "-", " "]);
 
@@ -234,7 +234,12 @@ export function loadFileContent(
 
     if (isMarkdown && renderMarkdown && hasCommand("glow")) {
       try {
-        const output = execSync(`glow -s dark -w ${termWidth} "${filePath}"`, { encoding: "utf-8", timeout: 10000 });
+        // glow renders piped standard input in preference to its file argument.
+        const output = execSync(`glow -s dark -w ${termWidth} "${filePath}"`, {
+          encoding: "utf-8",
+          timeout: 10000,
+          stdio: ["ignore", "pipe", "pipe"],
+        });
         if (output.trim()) {
           return { lines: stripLeadingEmptyLines(output.split("\n")), renderedMarkdown: true };
         }
