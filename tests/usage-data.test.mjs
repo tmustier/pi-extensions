@@ -6,7 +6,7 @@ import test from "node:test";
 
 import { homedir } from "node:os";
 
-import { collectUsageData, getSessionsDir, loadUsageCache, parseSessionBuffer, projectLabelFromCwd, saveUsageCache, TAB_ORDER } from "../usage-extension/data.ts";
+import { collectUsageData, loadUsageCache, parseSessionBuffer, projectLabelFromCwd, saveUsageCache, TAB_ORDER } from "../usage-extension/data.ts";
 
 // 2026-07-15 is a Wednesday. Week = Mon 13th 00:00 → …, last week = Mon 6th → Sun 12th.
 const NOW = new Date(2026, 6, 15, 12, 0, 0);
@@ -1157,26 +1157,43 @@ test("loadUsageCache returns empty for a missing cache file", async (t) => {
 	assert.equal((await loadUsageCache(join(root, "nope.json"))).size, 0);
 });
 
-test("getSessionsDir finds sessions where Pi keeps them", (t) => {
+test("collectUsageData reads sessions from where Pi keeps them", async (t) => {
 	const { root } = fixture(t);
 	const agentDir = join(root, "agent");
-	const cwd = join(root, "project");
-	mkdirSync(agentDir, { recursive: true });
-	mkdirSync(join(cwd, ".pi"), { recursive: true });
-	const argv = ["node", "pi"];
-	const env = { PI_CODING_AGENT_DIR: agentDir };
+	const project = join(root, "project");
+	const dirs = {
+		default: join(agentDir, "sessions"),
+		global: join(root, "home", "sessions"),
+		project: join(project, "relative"),
+		env: join(root, "from-env"),
+		flag: join(root, "from-flag"),
+	};
+	Object.values(dirs).forEach((dir, index) => {
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(join(dir, "s.jsonl"), [sessionLine(`s${index}`, TS_TODAY), assistantLine({ ts: TS_TODAY, cost: index + 1 })].join("\n") + "\n");
+	});
+	mkdirSync(join(project, ".pi"));
 
-	assert.equal(getSessionsDir({ argv, env, cwd }), join(agentDir, "sessions"));
+	const { cwd, argv } = { cwd: process.cwd(), argv: process.argv };
+	const env = { HOME: join(root, "home"), USERPROFILE: join(root, "home"), PI_CODING_AGENT_DIR: agentDir, PI_CODING_AGENT_SESSION_DIR: undefined };
+	const savedEnv = Object.fromEntries(Object.keys(env).map((key) => [key, process.env[key]]));
+	const setEnv = (values) => Object.entries(values).forEach(([key, value]) => (value === undefined ? delete process.env[key] : (process.env[key] = value)));
+	t.after(() => {
+		process.chdir(cwd);
+		process.argv = argv;
+		setEnv(savedEnv);
+	});
+	process.chdir(project);
+	setEnv(env);
+	const costRead = async () => (await collectUsageData({ cachePath: null, now: NOW })).allTime.totals.cost;
 
-	writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ sessionDir: "~/global-sessions" }));
-	assert.equal(getSessionsDir({ argv, env, cwd }), join(homedir(), "global-sessions"));
-
-	writeFileSync(join(cwd, ".pi", "settings.json"), JSON.stringify({ sessionDir: "shared/sessions" }));
-	assert.equal(getSessionsDir({ argv, env, cwd }), join(cwd, "shared", "sessions"));
-
-	const withEnv = { ...env, PI_CODING_AGENT_SESSION_DIR: join(root, "from-env") };
-	assert.equal(getSessionsDir({ argv, env: withEnv, cwd }), join(root, "from-env"));
-
-	const withFlag = [...argv, "--session-dir", join(root, "from-flag")];
-	assert.equal(getSessionsDir({ argv: withFlag, env: withEnv, cwd }), join(root, "from-flag"));
+	assert.equal(await costRead(), 1);
+	writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ sessionDir: "~/sessions" }));
+	assert.equal(await costRead(), 2);
+	writeFileSync(join(project, ".pi", "settings.json"), JSON.stringify({ sessionDir: "relative" }));
+	assert.equal(await costRead(), 3);
+	process.env.PI_CODING_AGENT_SESSION_DIR = dirs.env;
+	assert.equal(await costRead(), 4);
+	process.argv = [...argv, "--session-dir", dirs.flag];
+	assert.equal(await costRead(), 5);
 });
