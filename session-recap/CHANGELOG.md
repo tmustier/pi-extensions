@@ -4,8 +4,9 @@
 
 ### Fixed
 - Draw a recap in a session larger than the recap model's context window. pi-ai caps `max_tokens` to what fits in the window, and estimates the request from the usage of its last assistant message. The recap copies those messages from the session, so that usage described the whole session rather than the recap's own few thousand tokens. Past the recap model's window, the recap was capped at 1 token and nothing was shown. The recap now sizes the request from its own messages ([#125](https://github.com/tmustier/pi-extensions/issues/125), [#126](https://github.com/tmustier/pi-extensions/pull/126)).
+- Send the recap to the endpoint that comes with the login. Some logins, such as a GitHub Copilot enterprise account, route requests to their own endpoint. The recap used the model's standard endpoint instead, so those recaps failed with a 401 while Pi's own requests worked ([#118](https://github.com/tmustier/pi-extensions/issues/118), [#119](https://github.com/tmustier/pi-extensions/pull/119)).
 
-Thanks to @ferologics for the report, diagnosis, regression test, and fix.
+Thanks to @ferologics for the report, diagnosis, regression test, and fix for the context window, and to @gambtho for the report and fix for the endpoint.
 
 ## [0.5.4] - 2026-10-27
 
