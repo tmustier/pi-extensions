@@ -5,6 +5,10 @@
 ### Changed
 - Include session recap 0.6.0, which saves each recap in the session and shows a still-current saved recap at once when the session is reopened, with no model call.
 
+### Fixed
+- Include files-widget 0.2.2, which suggests `brew install` only on macOS when `bat`, `delta`, or `glow` is missing and points other systems to the README. Thanks to @curious2improve for the report.
+- Include usage 0.10.1, which reads sessions from the directory Pi uses, including a custom `--session-dir`, `PI_CODING_AGENT_SESSION_DIR`, or `sessionDir` setting. Thanks to @JeremieAlcaraz for the report.
+
 ## [0.1.72] - 2026-10-28
 
 ### Fixed
