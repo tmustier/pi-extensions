@@ -204,6 +204,8 @@ async function generateRecap(
 	// Ambient-auth providers can succeed without returning an API key.
 	const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
 	if (!auth?.ok) return undefined;
+	// OAuth credentials can route to an account-specific endpoint (e.g. Copilot enterprise).
+	const requestModel = auth.baseUrl ? { ...model, baseUrl: auth.baseUrl } : model;
 
 	const prompt =
 		(recapContext.broaderContext
@@ -237,8 +239,8 @@ async function generateRecap(
 	try {
 		// Recaps never need reasoning; skipping it keeps each away-timer fire cheap.
 		response = NEEDS_EXPLICIT_REASONING_OFF.has(model.api)
-			? await complete(model, context, { ...options, reasoningEffort: "none" })
-			: await completeSimple(model, context, options);
+			? await complete(requestModel, context, { ...options, reasoningEffort: "none" })
+			: await completeSimple(requestModel, context, options);
 	} catch (err) {
 		// completeSimple cannot route custom handlers registered only inside Pi.
 		if (err instanceof Error && err.message.startsWith("No API provider registered for api:")) {
