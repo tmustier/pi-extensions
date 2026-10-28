@@ -2,6 +2,11 @@
 
 All notable changes to this extension will be documented in this file.
 
+## [0.2.2] - 2026-10-28
+
+### Fixed
+- Suggest `brew install` only on macOS when `bat`, `delta`, or `glow` is missing, and list only the missing packages. Other systems are pointed to the install instructions in the README, which now cover Debian and Ubuntu, where `bat` installs as `batcat`. Thanks to @curious2improve for the report ([#115](https://github.com/tmustier/pi-extensions/issues/115)).
+
 ## [0.2.1] - 2026-09-22
 
 ### Changed
