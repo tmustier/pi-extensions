@@ -11,6 +11,7 @@
  *   re-parses files that changed since the last run.
  */
 
+import { readFileSync } from "node:fs";
 import { readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
@@ -239,8 +240,24 @@ export function getAgentDir(): string {
 	return process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
 }
 
-export function getSessionsDir(): string {
-	return join(getAgentDir(), "sessions");
+function sessionDirSetting(settingsPath: string): string | undefined {
+	try {
+		const { sessionDir } = JSON.parse(readFileSync(settingsPath, "utf8"));
+		return typeof sessionDir === "string" ? sessionDir : undefined;
+	} catch {
+		return undefined; // No settings file, or one Pi cannot read either.
+	}
+}
+
+/** Where Pi keeps sessions: `--session-dir`, `PI_CODING_AGENT_SESSION_DIR`, then `sessionDir` from project over global settings. */
+function getSessionsDir(): string {
+	const flag = process.argv.lastIndexOf("--session-dir");
+	const configured =
+		(flag >= 0 ? process.argv[flag + 1] : undefined) ||
+		process.env.PI_CODING_AGENT_SESSION_DIR ||
+		sessionDirSetting(join(".pi", "settings.json")) ||
+		sessionDirSetting(join(getAgentDir(), "settings.json"));
+	return configured ? resolve(configured.replace(/^~(?=\/|$)/, homedir())) : join(getAgentDir(), "sessions");
 }
 
 export function getDefaultCachePath(): string {
@@ -1387,7 +1404,7 @@ export interface CollectUsageOptions {
 	signal?: AbortSignal;
 	/** Called once before parsing begins and periodically while files are parsed. */
 	onProgress?: (progress: CollectProgress) => void;
-	/** Defaults to `<agentDir>/sessions`. */
+	/** Defaults to the directory where Pi keeps sessions. */
 	sessionsDir?: string;
 	/** Defaults to `<agentDir>/usage-extension-cache.json`. Pass `null` to disable the on-disk cache. */
 	cachePath?: string | null;

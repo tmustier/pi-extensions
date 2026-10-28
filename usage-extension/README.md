@@ -194,7 +194,7 @@ On narrow terminals, `/usage` automatically switches to a compact table instead 
 
 ## Performance & Caching
 
-`/usage` builds its stats from every session JSONL file under `<agentDir>/sessions`. To keep opens fast on large histories (multi-GB, thousands of files):
+`/usage` builds its stats from every session JSONL file in Pi's session directory (see [Data Source](#data-source)). To keep opens fast on large histories (multi-GB, thousands of files):
 
 - **On-disk cache.** Per-file extraction results are cached in `<agentDir>/usage-extension-cache.json` (respects `PI_CODING_AGENT_DIR`), keyed by file size + mtime. Warm opens only re-parse session files that changed since the last run — on a 5.2 GB / 3,310-file corpus that takes the open from ~17 s to ~0.3 s.
 - **First open** after install (or after deleting the cache) does a one-off full build, showing the usual cancellable loader. Cancelling saves partial progress, so the next open resumes where it left off.
@@ -226,11 +226,11 @@ The "Cache" column combines both read and write tokens.
 
 ## Data Source
 
-Statistics are parsed recursively from session files in `~/.pi/agent/sessions/`, including nested subagent runs such as `run-0/` directories. Each session is a JSONL file containing assistant messages and, on Pi 0.81.0+, optional usage on tool-result, compaction, and branch-summary entries.
+Statistics are parsed recursively from session files in Pi's session directory, including nested subagent runs such as `run-0/` directories. Each session is a JSONL file containing assistant messages and, on Pi 0.81.0+, optional usage on tool-result, compaction, and branch-summary entries.
 
 Assistant messages duplicated across branched session files are deduplicated by timestamp + total tokens. Auxiliary usage is deduplicated by its stable session entry id, which avoids collapsing parallel tools that happen to report identical usage. Nested-agent reports are suppressed when their child session files are part of the scan (resolved across all copies of the parent entry, since branch copies change runId-derived paths); reports whose children are missing stay under `Tools / summaries`. Tool and summary usage contributes cost and tokens to totals, graphs, project/session mix, and burn trend, but does not count as an assistant message or distort conversation context/cache insights.
 
-Respects the `PI_CODING_AGENT_DIR` environment variable if set.
+The session directory is the one Pi uses: `--session-dir`, then the `PI_CODING_AGENT_SESSION_DIR` environment variable, then the `sessionDir` setting (project `.pi/settings.json` over the global `settings.json`), and otherwise `~/.pi/agent/sessions/`. The agent directory respects the `PI_CODING_AGENT_DIR` environment variable if set.
 
 ## Changelog
 
