@@ -38,6 +38,19 @@ export function hasCommand(cmd: string, options: CommandLookupOptions = {}): boo
   return false;
 }
 
+export const REQUIRED_COMMANDS = ["bat", "delta", "glow"] as const;
+export type RequiredCommand = (typeof REQUIRED_COMMANDS)[number];
+
+const HOMEBREW_PACKAGES: Record<RequiredCommand, string> = { bat: "bat", delta: "git-delta", glow: "glow" };
+const INSTALL_DOCS_URL = "https://github.com/tmustier/pi-extensions/tree/main/files-widget#install";
+
+export function missingCommandsMessage(missing: readonly RequiredCommand[], platform: NodeJS.Platform = process.platform): string {
+  const install = platform === "darwin"
+    ? `Install: brew install ${missing.map((command) => HOMEBREW_PACKAGES[command]).join(" ")}`
+    : `Install with your package manager: ${INSTALL_DOCS_URL}`;
+  return `files-widget requires ${missing.join(", ")}. ${install}`;
+}
+
 export function isUntrackedStatus(status?: string): boolean {
   return status === "?" || status === "??";
 }

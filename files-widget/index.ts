@@ -12,7 +12,7 @@ import { isAbsolute, join, resolve } from "node:path";
 
 import { POLL_INTERVAL_MS } from "./constants";
 import { formatCommentMessage } from "./comment";
-import { hasCommand } from "./utils";
+import { hasCommand, missingCommandsMessage, REQUIRED_COMMANDS } from "./utils";
 
 function resolveInitialPath(arg: string | undefined, cwd: string): { path: string; error?: string } {
   if (!arg) return { path: cwd };
@@ -38,15 +38,14 @@ function resolveInitialPath(arg: string | undefined, cwd: string): { path: strin
 export default function editorExtension(pi: ExtensionAPI): void {
   const cwd = process.cwd();
   const agentModifiedFiles = new Set<string>();
-  const requiredDeps = ["bat", "delta", "glow"] as const;
-  const getMissingDeps = () => requiredDeps.filter((dep) => !hasCommand(dep));
+  const getMissingDeps = () => REQUIRED_COMMANDS.filter((dep) => !hasCommand(dep));
 
   pi.registerCommand("readfiles", {
     description: "Open file browser (optional: /readfiles <path> to start outside the current directory)",
     handler: async (args, ctx) => {
       const missing = getMissingDeps();
       if (missing.length > 0) {
-        ctx.ui.notify(`files-widget requires ${missing.join(", ")}. Install: brew install bat git-delta glow`, "error");
+        ctx.ui.notify(missingCommandsMessage(missing), "error");
         return;
       }
 
@@ -119,7 +118,7 @@ export default function editorExtension(pi: ExtensionAPI): void {
   pi.on("session_start", async (_event, ctx) => {
     const missing = getMissingDeps();
     if (missing.length > 0) {
-      ctx.ui.notify(`files-widget requires ${missing.join(", ")}. Install: brew install bat git-delta glow`, "error");
+      ctx.ui.notify(missingCommandsMessage(missing), "error");
     }
 
     agentModifiedFiles.clear();

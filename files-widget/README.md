@@ -22,9 +22,13 @@ Required deps (needed for /readfiles):
 # macOS (Homebrew)
 brew install bat git-delta glow
 
-# Ubuntu/Debian
+# Debian 13+ / Ubuntu 25.04+
 sudo apt-get install -y bat git-delta glow
+# Debian and Ubuntu install bat as batcat; files-widget looks for bat
+mkdir -p ~/.local/bin && ln -s /usr/bin/batcat ~/.local/bin/bat
 ```
+
+On other systems, install [bat](https://github.com/sharkdp/bat#installation), [delta](https://dandavison.github.io/delta/installation.html), and [glow](https://github.com/charmbracelet/glow#installation) with your package manager. The `bat`, `delta`, and `glow` commands must be on your `PATH`.
 
 ```bash
 pi install git:github.com/tmustier/pi-extensions

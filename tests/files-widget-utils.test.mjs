@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { hasCommand } from "../files-widget/utils.ts";
+import { hasCommand, missingCommandsMessage } from "../files-widget/utils.ts";
 
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), "files-widget-command-"));
@@ -71,4 +71,16 @@ test("Windows strips matching quotes around search directories", (t) => {
     path: `"${pathDirectory}"`,
     pathExt: ".EXE",
   }), true);
+});
+
+test("install advice suggests Homebrew only on macOS", () => {
+  assert.equal(
+    missingCommandsMessage(["delta", "glow"], "darwin"),
+    "files-widget requires delta, glow. Install: brew install git-delta glow",
+  );
+  for (const platform of ["linux", "win32"]) {
+    const message = missingCommandsMessage(["bat"], platform);
+    assert.equal(message.startsWith("files-widget requires bat. Install with your package manager: https://"), true);
+    assert.doesNotMatch(message, /brew/);
+  }
 });
