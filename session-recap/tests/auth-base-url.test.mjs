@@ -24,6 +24,7 @@ for (const api of ["openai-responses", "openai-codex-responses"]) {
 			const flags = new Map();
 			const commands = new Map();
 			sessionRecap({
+				appendEntry() {},
 				on() {},
 				registerFlag: (name, options) => flags.set(name, options.default),
 				getFlag: (name) => flags.get(name),
@@ -56,6 +57,7 @@ for (const api of ["openai-responses", "openai-codex-responses"]) {
 						entries: branch.map((sourceEntry) => ({ sourceEntry, messages: [sourceEntry.message] })),
 					}),
 					getBranch: () => branch,
+					getSessionFile: () => undefined,
 				},
 				ui: {
 					setStatus() {},

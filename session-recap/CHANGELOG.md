@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.6.0] - 2026-10-27
+## [0.6.0] - 2026-10-28
 
 ### Added
 - Save each recap in the session as a `session-recap` custom entry holding the recap text and the model that drafted it. When a session is reopened and nothing that would change the recap has landed since, the saved recap is shown at once with no model call; otherwise a new one is drafted and saved. Restoring many terminal tabs no longer costs a model call per tab when nothing has changed. Recaps drawn while the agent is running are shown but not saved. Saved recaps are never sent to the model and do not appear in the transcript.
