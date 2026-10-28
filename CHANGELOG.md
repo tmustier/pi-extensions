@@ -4,6 +4,7 @@
 
 ### Fixed
 - Include session recap 0.5.5, which draws a recap in a session larger than the recap model's context window. Before, the recap was capped at 1 token and nothing was shown. Thanks to @ferologics for the report and fix.
+- Session recap 0.5.5 also sends the recap to the endpoint that comes with the login, so recaps no longer fail with a 401 on a GitHub Copilot enterprise account. Thanks to @gambtho for the report and fix.
 
 ## [0.1.71] - 2026-10-27
 
