@@ -97,6 +97,15 @@ export function buildRecapContext(
 			.filter(({ sourceEntry }) => sourceEntry.type !== "compaction" && sourceEntry.type !== "branch_summary")
 			.flatMap((entry) => entry.messages),
 	).filter((message) => message.role !== "system").map((message) => {
+		// pi-ai sizes max_tokens from the last assistant message's usage, which here describes
+		// the session's whole context. Past the recap model's context window that caps the recap
+		// at one token, so the recap is sized by its own messages instead.
+		if (message.role === "assistant") {
+			return {
+				...message,
+				usage: { ...message.usage, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+			};
+		}
 		if (message.role !== "toolResult") return message;
 		return {
 			...message,
