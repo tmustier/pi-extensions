@@ -15,13 +15,17 @@ test("recap validation rejects a draft when projected context changes", async ()
 			result: async () => {
 				started.resolve();
 				await response.promise;
-				return { role: "assistant", content: [{ type: "text", text: "Stale recap." }] };
+				return { role: "assistant", content: [{ type: "text", text: "Stale recap." }], stopReason: "stop" };
 			},
 		}),
 	});
 
 	let recap;
+	let persisted = 0;
 	sessionRecap({
+		appendEntry() {
+			persisted++;
+		},
 		on() {},
 		registerCommand(name, command) {
 			if (name === "recap") recap = command.handler;
@@ -56,6 +60,7 @@ test("recap validation rejects a draft when projected context changes", async ()
 			getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "unused" }),
 		},
 		sessionManager: {
+			getSessionFile: () => undefined,
 			buildSessionProjection: () => ({
 				entries: [{ sourceEntry, messages: [{ ...sourceEntry.message, content: projectedContent }] }],
 			}),
@@ -63,8 +68,9 @@ test("recap validation rejects a draft when projected context changes", async ()
 		},
 		ui: {
 			setStatus() {},
-			setWidget() {
+			setWidget(_key, content) {
 				widgetUpdates += 1;
+				if (typeof content === "function") content({ mode: "regular", children: [] }, this.theme);
 			},
 			theme: { fg: (_name, text) => text, bold: (text) => text },
 		},
@@ -77,4 +83,5 @@ test("recap validation rejects a draft when projected context changes", async ()
 	await pending;
 
 	assert.equal(widgetUpdates, 0);
+	assert.equal(persisted, 0);
 });

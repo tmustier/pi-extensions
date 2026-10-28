@@ -6,6 +6,7 @@ function makePi() {
 	const flags = new Map();
 	return {
 		commands,
+		appendEntry() {},
 		on() {},
 		registerCommand(name, command) {
 			commands.set(name, command);
@@ -56,6 +57,7 @@ const ctx = {
 		getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "unused" }),
 	},
 	sessionManager: {
+		getSessionFile: () => undefined,
 		buildSessionProjection: () => ({
 			entries: branch.map((sourceEntry) => ({ sourceEntry, messages: [sourceEntry.message] })),
 		}),

@@ -3,6 +3,8 @@
  * See README.md for triggers, flags, and model selection.
  */
 
+import assert from "node:assert/strict";
+import { statSync, utimesSync } from "node:fs";
 import type { Message } from "@earendil-works/pi-ai";
 import { complete, completeSimple } from "@earendil-works/pi-ai/compat";
 import {
@@ -23,6 +25,11 @@ type RecapContext = {
 };
 
 type RecapReason = "idle" | "manual" | "resume" | "focus";
+
+type SavedRecap = {
+	text: string;
+	model: string;
+};
 
 const RECAP_KEY = "session-recap";
 
@@ -197,7 +204,7 @@ async function generateRecap(
 	ctx: ExtensionContext,
 	overrideSpec: string | undefined,
 	signal: AbortSignal | undefined,
-): Promise<string | undefined> {
+): Promise<SavedRecap | undefined> {
 	const model = selectRecapModel(ctx.model, overrideSpec, ctx.modelRegistry);
 	if (!model) return undefined;
 
@@ -265,7 +272,7 @@ async function generateRecap(
 		.replace(/\s+/g, " ")
 		.trim();
 
-	return text || undefined;
+	return text ? { text, model: `${model.provider}/${model.id}` } : undefined;
 }
 
 function clearRecap(ctx: ExtensionContext) {
@@ -395,11 +402,26 @@ export default function (pi: ExtensionAPI) {
 		const projection = ctx.sessionManager.buildSessionProjection();
 		if (reason !== "manual" && !hasMeaningfulActivity(projection.entries)) return;
 
-		const recapContext = buildRecapContext(projection.entries, ctx.sessionManager.getBranch());
+		const branch = ctx.sessionManager.getBranch();
+		const recapContext = buildRecapContext(projection.entries, branch);
 		if (recapContext.messages.length === 0 && !recapContext.broaderContext) return;
 
 		const startContext = JSON.stringify(recapContext);
 		if (reason !== "manual" && lastDraftedContext === startContext) return;
+
+		if (reason === "resume") {
+			const latest = [...branch].reverse().find((entry) =>
+				(entry.type === "custom" && entry.customType === RECAP_KEY) ||
+				["message", "custom_message", "compaction", "branch_summary", "context_edit"].includes(entry.type),
+			);
+			if (latest?.type === "custom") {
+				const data = latest.data;
+				assert(data && typeof data === "object" && "text" in data && typeof data.text === "string");
+				lastDraftedContext = startContext;
+				showRecap(ctx, data.text);
+				return;
+			}
+		}
 
 		cancelActive();
 		const controller = new AbortController();
@@ -422,7 +444,16 @@ export default function (pi: ExtensionAPI) {
 			clearIdleTimer();
 			clearPostTurnTimer();
 
-			showRecap(ctx, recap);
+			// Save only between runs, so a recap drawn with --recap-during-active never
+			// lands between a running turn's own entries.
+			if (!agentActive) {
+				// Preserve recency so an away recap doesn't change which session `pi -c` reopens.
+				const file = ctx.sessionManager.getSessionFile();
+				const previous = file ? { file, times: statSync(file) } : undefined;
+				pi.appendEntry<SavedRecap>(RECAP_KEY, recap);
+				if (previous) utimesSync(previous.file, previous.times.atimeMs / 1000, previous.times.mtimeMs / 1000);
+			}
+			showRecap(ctx, recap.text);
 		} catch (err) {
 			// Report through the UI, never console.*: pi installs no console interception, so
 			// an extension writing there puts raw text on the terminal mid-frame and mangles the

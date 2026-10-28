@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.73] - 2026-10-28
+
+### Changed
+- Include session recap 0.6.0, which saves each recap in the session and shows a still-current saved recap at once when the session is reopened, with no model call.
+
 ## [0.1.72] - 2026-10-28
 
 ### Fixed

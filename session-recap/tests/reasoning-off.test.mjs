@@ -34,6 +34,7 @@ function makePi() {
 	const flags = new Map();
 	return {
 		commands,
+		appendEntry() {},
 		on() {},
 		registerCommand(name, command) {
 			commands.set(name, command);
@@ -68,6 +69,7 @@ function makeCtx(model) {
 			getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "unused" }),
 		},
 		sessionManager: {
+			getSessionFile: () => undefined,
 			buildSessionProjection: () => ({
 				entries: branch.map((sourceEntry) => ({ sourceEntry, messages: [sourceEntry.message] })),
 			}),
