@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.10.1] - 2026-10-28
+
+### Fixed
+- Read sessions from the directory Pi uses. `/usage` always read `<agentDir>/sessions`, so with a custom session directory it showed sessions Pi no longer used and missed the ones it did. It now follows Pi's order: `--session-dir`, then `PI_CODING_AGENT_SESSION_DIR`, then the `sessionDir` setting (project over global). Thanks to @JeremieAlcaraz for the report ([#98](https://github.com/tmustier/pi-extensions/issues/98)).
+
 ## [0.10.0] - 2026-10-26
 
 ### Added

@@ -11,6 +11,7 @@
  *   re-parses files that changed since the last run.
  */
 
+import { readFileSync } from "node:fs";
 import { readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
@@ -234,13 +235,46 @@ export interface ParsedSessionFile {
 // Paths
 // =============================================================================
 
-export function getAgentDir(): string {
+export function getAgentDir(env: NodeJS.ProcessEnv = process.env): string {
 	// Replicate Pi's logic: respect PI_CODING_AGENT_DIR env var
-	return process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
+	return env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
 }
 
-export function getSessionsDir(): string {
-	return join(getAgentDir(), "sessions");
+function readSessionDirSetting(settingsPath: string): string | undefined {
+	let settings: { sessionDir?: unknown };
+	try {
+		settings = JSON.parse(readFileSync(settingsPath, "utf8"));
+	} catch {
+		return undefined; // No settings file, or one Pi would also fail to read.
+	}
+	return typeof settings.sessionDir === "string" && settings.sessionDir ? settings.sessionDir : undefined;
+}
+
+export interface SessionsDirOptions {
+	argv?: readonly string[];
+	env?: NodeJS.ProcessEnv;
+	cwd?: string;
+}
+
+/**
+ * Where Pi keeps sessions, resolved in Pi's order: `--session-dir`, then
+ * `PI_CODING_AGENT_SESSION_DIR`, then the `sessionDir` setting (project
+ * `.pi/settings.json` over the global one). Defaults to `<agentDir>/sessions`.
+ */
+export function getSessionsDir(options: SessionsDirOptions = {}): string {
+	const argv = options.argv ?? process.argv;
+	const env = options.env ?? process.env;
+	const cwd = options.cwd ?? process.cwd();
+	const flagIndex = argv.lastIndexOf("--session-dir");
+	const configured =
+		(flagIndex >= 0 ? argv[flagIndex + 1] : undefined) ||
+		env.PI_CODING_AGENT_SESSION_DIR ||
+		readSessionDirSetting(join(cwd, ".pi", "settings.json")) ||
+		readSessionDirSetting(join(getAgentDir(env), "settings.json"));
+	if (!configured) return join(getAgentDir(env), "sessions");
+	const home = homedir();
+	const expanded = configured === "~" ? home : configured.startsWith("~/") ? join(home, configured.slice(2)) : configured;
+	return resolve(cwd, expanded);
 }
 
 export function getDefaultCachePath(): string {

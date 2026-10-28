@@ -6,7 +6,7 @@ import test from "node:test";
 
 import { homedir } from "node:os";
 
-import { collectUsageData, loadUsageCache, parseSessionBuffer, projectLabelFromCwd, saveUsageCache, TAB_ORDER } from "../usage-extension/data.ts";
+import { collectUsageData, getSessionsDir, loadUsageCache, parseSessionBuffer, projectLabelFromCwd, saveUsageCache, TAB_ORDER } from "../usage-extension/data.ts";
 
 // 2026-07-15 is a Wednesday. Week = Mon 13th 00:00 → …, last week = Mon 6th → Sun 12th.
 const NOW = new Date(2026, 6, 15, 12, 0, 0);
@@ -1155,4 +1155,28 @@ test("projectLabelFromCwd collapses cwds to stable project labels", () => {
 test("loadUsageCache returns empty for a missing cache file", async (t) => {
 	const { root } = fixture(t);
 	assert.equal((await loadUsageCache(join(root, "nope.json"))).size, 0);
+});
+
+test("getSessionsDir finds sessions where Pi keeps them", (t) => {
+	const { root } = fixture(t);
+	const agentDir = join(root, "agent");
+	const cwd = join(root, "project");
+	mkdirSync(agentDir, { recursive: true });
+	mkdirSync(join(cwd, ".pi"), { recursive: true });
+	const argv = ["node", "pi"];
+	const env = { PI_CODING_AGENT_DIR: agentDir };
+
+	assert.equal(getSessionsDir({ argv, env, cwd }), join(agentDir, "sessions"));
+
+	writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ sessionDir: "~/global-sessions" }));
+	assert.equal(getSessionsDir({ argv, env, cwd }), join(homedir(), "global-sessions"));
+
+	writeFileSync(join(cwd, ".pi", "settings.json"), JSON.stringify({ sessionDir: "shared/sessions" }));
+	assert.equal(getSessionsDir({ argv, env, cwd }), join(cwd, "shared", "sessions"));
+
+	const withEnv = { ...env, PI_CODING_AGENT_SESSION_DIR: join(root, "from-env") };
+	assert.equal(getSessionsDir({ argv, env: withEnv, cwd }), join(root, "from-env"));
+
+	const withFlag = [...argv, "--session-dir", join(root, "from-flag")];
+	assert.equal(getSessionsDir({ argv: withFlag, env: withEnv, cwd }), join(root, "from-flag"));
 });
