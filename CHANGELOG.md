@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.72] - 2026-10-28
+
+### Fixed
+- Include session recap 0.5.5, which draws a recap in a session larger than the recap model's context window. Before, the recap was capped at 1 token and nothing was shown. Thanks to @ferologics for the report and fix.
+
 ## [0.1.71] - 2026-10-27
 
 ### Fixed
