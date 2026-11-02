@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1] - 2026-11-02
+
+### Fixed
+- Draw recaps on OpenCode and OpenCode Go models. OpenCode rejects any request that does not name its session, and the recap request did not, so every recap on those models failed with `400 MissingSessionID`. The recap now sends the session ID, as Pi's own requests do ([#133](https://github.com/tmustier/pi-extensions/issues/133)).
+
+Thanks to @mtford90 for the report and diagnosis.
+
 ## [0.6.0] - 2026-10-28
 
 ### Added

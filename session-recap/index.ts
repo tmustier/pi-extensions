@@ -240,6 +240,7 @@ async function generateRecap(
 		signal,
 		cacheRetention: "none" as const,
 		maxTokens: 256,
+		sessionId: ctx.sessionManager.getSessionId(),
 	};
 
 	let response;

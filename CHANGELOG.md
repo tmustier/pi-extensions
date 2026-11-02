@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.75] - 2026-11-02
+
+### Fixed
+- Include session recap 0.6.1, which draws recaps on OpenCode and OpenCode Go models again. Thanks to @mtford90 for the report.
+
 ## [0.1.74] - 2026-10-28
 
 ### Fixed
