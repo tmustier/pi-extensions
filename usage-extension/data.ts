@@ -271,15 +271,18 @@ export function getDefaultCachePath(): string {
 async function collectSessionFilesRecursively(dir: string, files: string[], signal?: AbortSignal): Promise<void> {
 	try {
 		const entries = await readdir(dir, { withFileTypes: true });
+		if (signal?.aborted) return;
+		// Sibling directories are read concurrently; callers sort the result.
+		const subdirs: Promise<void>[] = [];
 		for (const entry of entries) {
-			if (signal?.aborted) return;
 			const entryPath = join(dir, entry.name);
 			if (entry.isDirectory()) {
-				await collectSessionFilesRecursively(entryPath, files, signal);
+				subdirs.push(collectSessionFilesRecursively(entryPath, files, signal));
 			} else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
 				files.push(entryPath);
 			}
 		}
+		await Promise.all(subdirs);
 	} catch {
 		// Skip directories we can't read
 	}
@@ -1449,7 +1452,17 @@ export async function collectUsageData(options: CollectUsageOptions = {}): Promi
 	startOfLast30Days.setDate(startOfLast30Days.getDate() - 29);
 	const last30DaysStartMs = startOfLast30Days.getTime();
 
-	// 1. Discover session files.
+	// 1. Discover session files. The cache does not depend on discovery, so
+	// load it at the same time.
+	const cacheStatePromise = Promise.all([
+		cachePath
+			? stat(cachePath).then(
+					() => true,
+					() => false // No cache file yet — first run.
+				)
+			: false,
+		cachePath ? loadUsageCache(cachePath) : new Map<string, CachedFileState>(),
+	]);
 	const filePaths = await getAllSessionFiles(sessionsDir, signal);
 	if (signal?.aborted) return null;
 
@@ -1475,16 +1488,7 @@ export async function collectUsageData(options: CollectUsageOptions = {}): Promi
 	if (signal?.aborted) return null;
 
 	// 3. Load the cache and decide which files actually need parsing.
-	let cacheFileExists = false;
-	if (cachePath) {
-		try {
-			await stat(cachePath);
-			cacheFileExists = true;
-		} catch {
-			// No cache file yet — first run.
-		}
-	}
-	const previous = cachePath ? await loadUsageCache(cachePath) : new Map<string, CachedFileState>();
+	const [cacheFileExists, previous] = await cacheStatePromise;
 	if (signal?.aborted) return null;
 	const current = new Map<string, CachedFileState>();
 	const toParse: string[] = [];

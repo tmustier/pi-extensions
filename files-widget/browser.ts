@@ -460,14 +460,25 @@ export function createFileBrowser(
       const dirs: FileNode[] = [];
       const files: FileNode[] = [];
 
-      for (const entry of sorted) {
-        if (ignored.has(entry.name) || entry.name.startsWith(".")) continue;
+      const visible = sorted.filter(entry => !ignored.has(entry.name) && !entry.name.startsWith("."));
+      // Resolve every directory and symlink target at once rather than one
+      // entry at a time; nodes are still built below in sorted order.
+      const resolved = await Promise.all(
+        visible.map(entry => {
+          const fullPath = join(node.path, entry.name);
+          if (entry.isDirectory()) return realpath(fullPath).catch(() => resolve(fullPath));
+          if (entry.isSymbolicLink()) return getPathInfo(fullPath, true);
+          return undefined;
+        })
+      );
+      if (generation !== rootGeneration) return;
+
+      for (const [index, entry] of visible.entries()) {
         const fullPath = join(node.path, entry.name);
         const childDepth = depth + 1;
 
         if (entry.isDirectory()) {
-          const dirRealPath = await realpath(fullPath).catch(() => resolve(fullPath));
-          if (generation !== rootGeneration) return;
+          const dirRealPath = resolved[index] as string;
           const dirNode: FileNode = {
             name: entry.name,
             path: fullPath,
@@ -487,8 +498,7 @@ export function createFileBrowser(
         }
 
         if (entry.isSymbolicLink()) {
-          const pathInfo = await getPathInfo(fullPath, true);
-          if (generation !== rootGeneration) return;
+          const pathInfo = resolved[index] as Awaited<ReturnType<typeof getPathInfo>>;
           if (pathInfo.isDirectory) {
             const isCycle = pathInfo.realPath ? hasAncestorRealPath(node, pathInfo.realPath) : false;
             const dirNode: FileNode = {
@@ -560,10 +570,8 @@ export function createFileBrowser(
       return;
     }
 
-    for (const item of batch) {
-      await scanDirectory(item.node, item.depth, generation);
-      if (generation !== rootGeneration) return;
-    }
+    await Promise.all(batch.map(item => scanDirectory(item.node, item.depth, generation)));
+    if (generation !== rootGeneration) return;
 
     browser.scanState.pending = scanQueue.length;
     browser.scanState.isScanning = scanQueue.length > 0;
