@@ -58,6 +58,7 @@ for (const api of ["openai-responses", "openai-codex-responses"]) {
 					}),
 					getBranch: () => branch,
 					getSessionFile: () => undefined,
+					getSessionId: () => "test-session",
 				},
 				ui: {
 					setStatus() {},

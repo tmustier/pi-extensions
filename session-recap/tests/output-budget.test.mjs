@@ -65,6 +65,7 @@ test("a recap keeps its full output budget in a session larger than the recap mo
 				entries: branch.map((sourceEntry) => ({ sourceEntry, messages: [sourceEntry.message] })),
 			}),
 			getBranch: () => branch,
+			getSessionId: () => "test-session",
 		},
 		ui: {
 			setStatus() {},

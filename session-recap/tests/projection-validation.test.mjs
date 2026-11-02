@@ -61,6 +61,7 @@ test("recap validation rejects a draft when projected context changes", async ()
 		},
 		sessionManager: {
 			getSessionFile: () => undefined,
+			getSessionId: () => "test-session",
 			buildSessionProjection: () => ({
 				entries: [{ sourceEntry, messages: [{ ...sourceEntry.message, content: projectedContent }] }],
 			}),

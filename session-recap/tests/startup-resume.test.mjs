@@ -80,6 +80,7 @@ function makeCtx(branch) {
 		},
 		sessionManager: {
 			getSessionFile: () => undefined,
+			getSessionId: () => "test-session",
 			buildSessionProjection: () => ({
 				entries: branch.map((sourceEntry) => ({
 					sourceEntry,

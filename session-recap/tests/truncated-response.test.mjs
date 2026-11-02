@@ -71,6 +71,7 @@ const ctx = {
 	},
 	sessionManager: {
 		getSessionFile: () => undefined,
+		getSessionId: () => "test-session",
 		buildSessionProjection: () => ({
 			entries: branch.map((sourceEntry) => ({ sourceEntry, messages: [sourceEntry.message] })),
 		}),
