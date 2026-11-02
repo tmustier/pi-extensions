@@ -240,7 +240,6 @@ async function generateRecap(
 		signal,
 		cacheRetention: "none" as const,
 		maxTokens: 256,
-		// OpenCode rejects requests that don't name their session.
 		sessionId: ctx.sessionManager.getSessionId(),
 	};
 
