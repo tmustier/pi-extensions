@@ -460,19 +460,34 @@ export function createFileBrowser(
       const dirs: FileNode[] = [];
       const files: FileNode[] = [];
 
-      for (const entry of sorted) {
-        if (ignored.has(entry.name) || entry.name.startsWith(".")) continue;
-        const fullPath = join(node.path, entry.name);
+      // Resolve every directory and symlink target at once rather than one
+      // entry at a time; nodes are still built below in sorted order.
+      const children = await Promise.all(
+        sorted
+          .filter(entry => !ignored.has(entry.name) && !entry.name.startsWith("."))
+          .map(async entry => {
+            const fullPath = join(node.path, entry.name);
+            if (entry.isDirectory()) {
+              return { kind: "directory" as const, name: entry.name, fullPath, realPath: await realpath(fullPath).catch(() => resolve(fullPath)) };
+            }
+            if (entry.isSymbolicLink()) {
+              return { kind: "symlink" as const, name: entry.name, fullPath, pathInfo: await getPathInfo(fullPath, true) };
+            }
+            return { kind: "file" as const, name: entry.name, fullPath };
+          })
+      );
+      if (generation !== rootGeneration) return;
+
+      for (const child of children) {
+        const { name, fullPath } = child;
         const childDepth = depth + 1;
 
-        if (entry.isDirectory()) {
-          const dirRealPath = await realpath(fullPath).catch(() => resolve(fullPath));
-          if (generation !== rootGeneration) return;
+        if (child.kind === "directory") {
           const dirNode: FileNode = {
-            name: entry.name,
+            name,
             path: fullPath,
             isDirectory: true,
-            realPath: dirRealPath,
+            realPath: child.realPath,
             parent: node,
             children: undefined,
             expanded: childDepth < 1,
@@ -486,13 +501,12 @@ export function createFileBrowser(
           continue;
         }
 
-        if (entry.isSymbolicLink()) {
-          const pathInfo = await getPathInfo(fullPath, true);
-          if (generation !== rootGeneration) return;
+        if (child.kind === "symlink") {
+          const { pathInfo } = child;
           if (pathInfo.isDirectory) {
             const isCycle = pathInfo.realPath ? hasAncestorRealPath(node, pathInfo.realPath) : false;
             const dirNode: FileNode = {
-              name: entry.name,
+              name,
               path: fullPath,
               isDirectory: true,
               isSymlink: true,
@@ -511,7 +525,7 @@ export function createFileBrowser(
           }
 
           const symlinkFileNode: FileNode = {
-            name: entry.name,
+            name,
             path: fullPath,
             isDirectory: false,
             isSymlink: true,
@@ -525,7 +539,7 @@ export function createFileBrowser(
         }
 
         const fileNode: FileNode = {
-          name: entry.name,
+          name,
           path: fullPath,
           isDirectory: false,
           parent: node,
@@ -560,10 +574,8 @@ export function createFileBrowser(
       return;
     }
 
-    for (const item of batch) {
-      await scanDirectory(item.node, item.depth, generation);
-      if (generation !== rootGeneration) return;
-    }
+    await Promise.all(batch.map(item => scanDirectory(item.node, item.depth, generation)));
+    if (generation !== rootGeneration) return;
 
     browser.scanState.pending = scanQueue.length;
     browser.scanState.isScanning = scanQueue.length > 0;
