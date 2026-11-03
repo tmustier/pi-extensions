@@ -280,6 +280,7 @@ export function createFileBrowser(
   let gitStatus = new Map<string, string>();
   let diffStats = new Map<string, DiffStats>();
   let gitBranch = "";
+  let gitLoad: Promise<void> | null = null;
 
   const viewer = createViewer({ getRoot: () => rootPath, projectCwd }, theme, requestComment);
   const textInput = createTextInputBuffer();
@@ -721,6 +722,49 @@ export function createFileBrowser(
     }
   }
 
+  /**
+   * Runs one git load at a time. Results for a root the user has since left are
+   * dropped, and the next poll waits a full interval after this load finishes.
+   */
+  function startGitLoad(load: (isCurrent: () => boolean) => Promise<void>): void {
+    const generation = rootGeneration;
+    const isCurrent = () => generation === rootGeneration;
+    const pending = load(isCurrent).finally(() => {
+      if (gitLoad === pending) gitLoad = null;
+      browser.lastPollTime = Date.now();
+    });
+    gitLoad = pending;
+  }
+
+  async function loadGitRoot(isCurrent: () => boolean): Promise<void> {
+    const [status, stats, branch, filePaths] = await Promise.all([
+      getGitStatus(rootPath),
+      getGitDiffStats(rootPath),
+      getGitBranch(rootPath),
+      getGitFileList(rootPath),
+    ]);
+    if (!isCurrent()) return;
+    gitStatus = status;
+    diffStats = stats;
+    gitBranch = branch;
+    browser.root = buildFileTreeFromPaths(rootPath, filePaths, gitStatus, diffStats, ignored, agentModifiedFiles);
+    browser.scanState.isScanning = false;
+    indexNodes(browser.root, browser.nodeByPath);
+    refreshLists();
+    browser.stats = getTreeStats(browser.root);
+    queueLineCountsForTree(browser.root);
+    requestRender();
+  }
+
+  async function refreshGitMetadata(isCurrent: () => boolean): Promise<void> {
+    const [status, stats] = await Promise.all([getGitStatus(rootPath), getGitDiffStats(rootPath)]);
+    if (!isCurrent()) return;
+    gitStatus = status;
+    diffStats = stats;
+    refreshMetadata();
+    requestRender();
+  }
+
   function refreshMetadata(): void {
     if (!browser.root) return;
     const previousDisplayList = getDisplayList();
@@ -728,12 +772,8 @@ export function createFileBrowser(
     const viewingFile = viewer.getFile();
     const viewingFilePath = viewingFile?.path;
 
-    if (repo) {
-      gitStatus = getGitStatus(rootPath);
-      diffStats = getGitDiffStats(rootPath);
-      applyGitUpdates();
-      addUntrackedNodes();
-    }
+    applyGitUpdates();
+    addUntrackedNodes();
 
     applyAgentModified();
     updateTreeStats(browser.root);
@@ -766,27 +806,24 @@ export function createFileBrowser(
     rootPath = resolve(newRoot);
 
     repo = isGitRepo(rootPath);
-    gitStatus = repo ? getGitStatus(rootPath) : new Map<string, string>();
-    diffStats = repo ? getGitDiffStats(rootPath) : new Map<string, DiffStats>();
-    gitBranch = repo ? getGitBranch(rootPath) : "";
+    gitStatus = new Map<string, string>();
+    diffStats = new Map<string, DiffStats>();
+    gitBranch = "";
 
-    const newRootNode: FileNode = repo
-      ? buildFileTreeFromPaths(rootPath, getGitFileList(rootPath), gitStatus, diffStats, ignored, agentModifiedFiles)
-      : {
-        name: ".",
-        path: rootPath,
-        isDirectory: true,
-        realPath: safeRealPathSync(rootPath),
-        children: undefined,
-        expanded: true,
-        hasChangedChildren: false,
-      };
-
-    browser.root = newRootNode;
+    // Git repositories start empty and fill in when loadGitRoot finishes.
+    browser.root = {
+      name: ".",
+      path: rootPath,
+      isDirectory: true,
+      realPath: safeRealPathSync(rootPath),
+      children: repo ? [] : undefined,
+      expanded: true,
+      hasChangedChildren: false,
+    };
 
     const safeMode = !repo && shouldSafeMode(rootPath);
     browser.scanState.mode = repo ? "none" : safeMode ? "safe" : "full";
-    browser.scanState.isScanning = false;
+    browser.scanState.isScanning = repo;
     browser.scanState.isPartial = safeMode;
     browser.scanState.pending = 0;
 
@@ -801,8 +838,8 @@ export function createFileBrowser(
     browser.lastPollTime = Date.now();
 
     if (repo) {
-      queueLineCountsForTree(browser.root);
-    } else if (browser.root) {
+      startGitLoad(loadGitRoot);
+    } else {
       enqueueScan(browser.root, 0, true);
     }
   }
@@ -1136,9 +1173,8 @@ export function createFileBrowser(
   return {
     render(width: number): string[] {
       const now = Date.now();
-      if (repo && now - browser.lastPollTime > POLL_INTERVAL_MS) {
-        browser.lastPollTime = now;
-        refreshMetadata();
+      if (repo && !gitLoad && now - browser.lastPollTime > POLL_INTERVAL_MS) {
+        startGitLoad(refreshGitMetadata);
       }
 
       if (viewer.isOpen()) {
