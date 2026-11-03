@@ -100,8 +100,8 @@ export default function (pi: ExtensionAPI) {
 	let currentLoop: string | null = null;
 	// Runtime-only: the persisted iteration may already name a queued successor.
 	let iterationPhase: IterationPhase = { kind: "idle" };
-	// Last assistant text of the current run; null until an attempt ends.
-	let lastRunText: string | null = null;
+	// Outcome of the current run's latest attempt; null until an attempt ends.
+	let lastRun: { text: string; aborted: boolean } | null = null;
 
 	// --- File helpers ---
 
@@ -264,7 +264,7 @@ export default function (pi: ExtensionAPI) {
 		if (message && ctx.hasUI) ctx.ui.notify(message, "info");
 	}
 
-	function completeLoop(ctx: ExtensionContext, state: LoopState, banner: string): void {
+	function completeLoop(ctx: ExtensionContext, state: LoopState, banner: string, aborted = false): void {
 		state.status = "completed";
 		state.completedAt = new Date().toISOString();
 		state.active = false;
@@ -272,7 +272,12 @@ export default function (pi: ExtensionAPI) {
 		currentLoop = null;
 		iterationPhase = { kind: "idle" };
 		updateUI(ctx);
-		pi.sendUserMessage(banner, { deliverAs: "followUp" });
+		// A prompt after the user aborted would restart the model they just stopped.
+		if (aborted) {
+			if (ctx.hasUI) ctx.ui.notify(banner, "info");
+		} else {
+			pi.sendUserMessage(banner, { deliverAs: "followUp" });
+		}
 	}
 
 	function stopLoop(ctx: ExtensionContext, state: LoopState, message?: string): void {
@@ -859,32 +864,35 @@ Examples:
 	// only record the attempt here and decide completion once the run settles.
 	pi.on("agent_end", async (event) => {
 		const lastAssistant = [...event.messages].reverse().find((m) => m.role === "assistant");
-		lastRunText =
-			lastAssistant && Array.isArray(lastAssistant.content)
+		lastRun = {
+			text: lastAssistant
 				? lastAssistant.content
 						.filter((c): c is { type: "text"; text: string } => c.type === "text")
 						.map((c) => c.text)
 						.join("\n")
-				: "";
+				: "",
+			aborted: lastAssistant?.stopReason === "aborted",
+		};
 	});
 
 	pi.on("agent_settled", async (_event, ctx) => {
-		const text = lastRunText;
-		lastRunText = null;
+		const run = lastRun;
+		lastRun = null;
 		const executing = iterationPhase.kind === "executing" ? iterationPhase.executing : null;
 		const state = getCurrentOwnedState(ctx);
-		if (text === null || !state || state.status !== "active" || !executing || !matchesLoop(ctx, state, executing)) {
+		if (!run || !state || state.status !== "active" || !executing || !matchesLoop(ctx, state, executing)) {
 			updateUI(ctx);
 			return;
 		}
 
-		if (text.includes(COMPLETE_MARKER)) {
+		if (run.text.includes(COMPLETE_MARKER)) {
 			completeLoop(
 				ctx,
 				state,
 				`───────────────────────────────────────────────────────────────────────
 ✅ RALPH LOOP COMPLETE: ${state.name} | ${executing.iteration} iterations
 ───────────────────────────────────────────────────────────────────────`,
+				run.aborted,
 			);
 			return;
 		}
@@ -897,6 +905,7 @@ Examples:
 				`───────────────────────────────────────────────────────────────────────
 ⚠️ RALPH LOOP STOPPED: ${state.name} | Max iterations (${state.maxIterations}) reached
 ───────────────────────────────────────────────────────────────────────`,
+				run.aborted,
 			);
 			return;
 		}
@@ -908,7 +917,7 @@ Examples:
 	pi.on("session_start", async (_event, ctx) => {
 		currentLoop = null;
 		iterationPhase = { kind: "idle" };
-		lastRunText = null;
+		lastRun = null;
 		const active = listLoops(ctx).filter((l) => l.status === "active");
 		const owned = active.filter((state) => isOwnedByCurrentSession(ctx, state));
 
