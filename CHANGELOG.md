@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.77] - 2026-11-03
+
+- Use separate startup notes for Pi 1.5. Bundle notices now cover only changes
+  affecting every extension, instead of displaying the mixed release history ([#143](https://github.com/tmustier/pi-extensions/pull/143)).
+
 ## [0.1.76] - 2026-11-03
 
 ### Changed
