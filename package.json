@@ -7,6 +7,7 @@
     "pi-package"
   ],
   "pi": {
+    "changelogPath": "./UPDATE_NOTES.md",
     "extensions": [
       "./agent-guidance/agent-guidance.ts",
       "./arcade/spice-invaders.ts",

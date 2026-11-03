@@ -35,6 +35,7 @@
     "index.ts",
     "README.md",
     "CHANGELOG.md",
+    "UPDATE_NOTES.md",
     "LICENSE",
     "native/weathr-bridge/build.rs",
     "native/weathr-bridge/Cargo.toml",
@@ -44,6 +45,7 @@
     "native/weathr-bridge/src/lib.rs"
   ],
   "pi": {
+    "changelogPath": "./UPDATE_NOTES.md",
     "extensions": [
       "index.ts"
     ],

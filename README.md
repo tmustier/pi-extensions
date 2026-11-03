@@ -42,6 +42,16 @@ To enable only a subset, replace the package entry in `~/.pi/agent/settings.json
 }
 ```
 
+## Update notices
+
+Pi 1.5 and later show short startup notices from the installed package's
+`UPDATE_NOTES.md`. The first launch is silent; `collapseChangelog` reduces
+notices to one line per package. The full history stays in `CHANGELOG.md`.
+
+The root bundle and Arcade announce only changes affecting all their extensions,
+because Pi cannot filter notes by which extensions you load. Standalone packages
+have their own notes, which do not appear through the root bundle or Vibes.
+
 ## Quick Setup
 
 If you keep a local clone, add extensions to your `~/.pi/agent/settings.json`:

@@ -5,13 +5,12 @@ All notable changes to this extension will be documented in this file.
 ## [0.2.4] - 2026-11-03
 
 ### Changed
-- Load git information without freezing Pi. In a git repository, `/readfiles` ran its git commands one after another on the UI thread when opening and on every 3-second refresh, so Pi froze while they ran. They now run in the background and at the same time. In an 11,700-file repository, opening no longer blocks Pi (9 ms instead of 444 ms), the tree is ready in 181 ms instead of 444 ms, and each refresh takes 77 ms in the background instead of 212 ms on the UI thread ([#136](https://github.com/tmustier/pi-extensions/pull/136)).
-- Scan folders outside git faster. Folders and symlinks in a directory are resolved at the same time, and only one background batch runs at a time per queue, so the scanning indicator stays accurate ([#135](https://github.com/tmustier/pi-extensions/pull/135), [#139](https://github.com/tmustier/pi-extensions/pull/139)).
+- `/readfiles` no longer freezes Pi while it loads git information, and the file tree appears sooner in large repositories ([#136](https://github.com/tmustier/pi-extensions/pull/136)).
+- Folders outside git are scanned faster ([#135](https://github.com/tmustier/pi-extensions/pull/135), [#139](https://github.com/tmustier/pi-extensions/pull/139)).
 
 ### Fixed
-- Show git status for renamed files and for files with spaces or non-ASCII characters in their names. The source name of a staged rename is no longer listed as a file that does not exist ([#136](https://github.com/tmustier/pi-extensions/pull/136)).
-- Stop background work when the browser closes. Scans, line counts and git loads that were still running kept updating the tree and redrawing after close ([#136](https://github.com/tmustier/pi-extensions/pull/136)).
-- Keep a search after pressing Enter in the file viewer, so `n` and `N` move between matches. Escape still clears the search ([#137](https://github.com/tmustier/pi-extensions/pull/137)).
+- Renamed files and files with spaces or non-ASCII characters in their names show their git status ([#136](https://github.com/tmustier/pi-extensions/pull/136)).
+- After you press Enter in a search, `n` and `N` move between matches ([#137](https://github.com/tmustier/pi-extensions/pull/137)).
 
 ## [0.2.3] - 2026-10-28
 

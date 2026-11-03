@@ -3,8 +3,8 @@
 ## [0.1.8] - 2026-11-03
 
 ### Fixed
-- Tetris ignores hold and drop while full rows are clearing. Before, these could act on the piece that had just locked. Swapping in a held piece now checks it fits, like a normal spawn ([#138](https://github.com/tmustier/pi-extensions/pull/138)).
-- sPIce Invaders no longer locks up when a game saved during the boss intro is reopened, or when the cheat is entered after game over or while paused. Pause, resume and restart now work in every phase ([#138](https://github.com/tmustier/pi-extensions/pull/138)).
+- Tetris ignores hold and drop while rows are clearing ([#138](https://github.com/tmustier/pi-extensions/pull/138)).
+- sPIce Invaders no longer locks up after you reopen a game saved during the boss intro, or enter the cheat after game over ([#138](https://github.com/tmustier/pi-extensions/pull/138)).
 
 ## [0.1.7] - 2026-09-22
 
