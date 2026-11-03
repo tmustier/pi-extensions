@@ -44,20 +44,13 @@ To enable only a subset, replace the package entry in `~/.pi/agent/settings.json
 
 ## Update notices
 
-Pi 1.5 and later use each package's `UPDATE_NOTES.md` for short startup notices.
-The first launch records the version without showing old notes. Pi's
-`collapseChangelog` setting reduces notices to one line per package.
+Pi 1.5 and later show short startup notices from the installed package's
+`UPDATE_NOTES.md`. The first launch is silent; `collapseChangelog` reduces
+notices to one line per package. The full history stays in `CHANGELOG.md`.
 
-Pi cannot filter a package's notes by the extensions you load. The root bundle
-and Arcade therefore include only changes that affect every extension in that
-package. A change to Tetris alone will not notify someone who loads only Ping.
-Individual npm packages, such as `@tmustier/pi-files-widget`, have their own
-notes and version history. Their notes do not appear when loaded through the
-root bundle or a wrapper in another package such as Vibes.
-
-The full history stays in `CHANGELOG.md` and each extension's `CHANGELOG.md`.
-Releases with no meaningful change for the relevant users have no startup entry.
-No additional prompts, notifications or model messages are registered.
+The root bundle and Arcade announce only changes affecting all their extensions,
+because Pi cannot filter notes by which extensions you load. Standalone packages
+have their own notes, which do not appear through the root bundle or Vibes.
 
 ## Quick Setup
 
