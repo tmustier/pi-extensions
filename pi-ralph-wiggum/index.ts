@@ -100,9 +100,8 @@ export default function (pi: ExtensionAPI) {
 	let currentLoop: string | null = null;
 	// Runtime-only: the persisted iteration may already name a queued successor.
 	let iterationPhase: IterationPhase = { kind: "idle" };
-	// The current run's latest attempt; null until an attempt ends. `finished` is
-	// set at agent_before_settle, which Pi skips when the user cancels the run.
-	let lastRun: { text: string; finished: boolean } | null = null;
+	// Last assistant text of the current run; null until an attempt ends.
+	let lastRunText: string | null = null;
 
 	// --- File helpers ---
 
@@ -265,7 +264,7 @@ export default function (pi: ExtensionAPI) {
 		if (message && ctx.hasUI) ctx.ui.notify(message, "info");
 	}
 
-	function completeLoop(ctx: ExtensionContext, state: LoopState, banner: string, cancelled = false): void {
+	function completeLoop(ctx: ExtensionContext, state: LoopState, banner: string): void {
 		state.status = "completed";
 		state.completedAt = new Date().toISOString();
 		state.active = false;
@@ -273,12 +272,9 @@ export default function (pi: ExtensionAPI) {
 		currentLoop = null;
 		iterationPhase = { kind: "idle" };
 		updateUI(ctx);
-		// A prompt after the user cancelled would restart the model they just stopped.
-		if (cancelled) {
-			if (ctx.hasUI) ctx.ui.notify(banner, "info");
-		} else {
-			pi.sendUserMessage(banner, { deliverAs: "followUp" });
-		}
+		// Show the banner without starting a turn: the loop is over, and a prompt sent
+		// after the user cancelled the run would restart the model they just stopped.
+		pi.sendMessage({ customType: "ralph-loop", content: banner, display: true });
 	}
 
 	function stopLoop(ctx: ExtensionContext, state: LoopState, message?: string): void {
@@ -865,40 +861,31 @@ Examples:
 	// only record the attempt here and decide completion once the run settles.
 	pi.on("agent_end", async (event) => {
 		const lastAssistant = [...event.messages].reverse().find((m) => m.role === "assistant");
-		lastRun = {
-			text: lastAssistant
-				? lastAssistant.content
-						.filter((c): c is { type: "text"; text: string } => c.type === "text")
-						.map((c) => c.text)
-						.join("\n")
-				: "",
-			finished: false,
-		};
-	});
-
-	// Not emitted for a cancelled run, including one cancelled during a retry backoff.
-	pi.on("agent_before_settle", async () => {
-		if (lastRun) lastRun.finished = true;
+		lastRunText = lastAssistant
+			? lastAssistant.content
+					.filter((c): c is { type: "text"; text: string } => c.type === "text")
+					.map((c) => c.text)
+					.join("\n")
+			: "";
 	});
 
 	pi.on("agent_settled", async (_event, ctx) => {
-		const run = lastRun;
-		lastRun = null;
+		const text = lastRunText;
+		lastRunText = null;
 		const executing = iterationPhase.kind === "executing" ? iterationPhase.executing : null;
 		const state = getCurrentOwnedState(ctx);
-		if (!run || !state || state.status !== "active" || !executing || !matchesLoop(ctx, state, executing)) {
+		if (text === null || !state || state.status !== "active" || !executing || !matchesLoop(ctx, state, executing)) {
 			updateUI(ctx);
 			return;
 		}
 
-		if (run.text.includes(COMPLETE_MARKER)) {
+		if (text.includes(COMPLETE_MARKER)) {
 			completeLoop(
 				ctx,
 				state,
 				`───────────────────────────────────────────────────────────────────────
 ✅ RALPH LOOP COMPLETE: ${state.name} | ${executing.iteration} iterations
 ───────────────────────────────────────────────────────────────────────`,
-				!run.finished,
 			);
 			return;
 		}
@@ -911,7 +898,6 @@ Examples:
 				`───────────────────────────────────────────────────────────────────────
 ⚠️ RALPH LOOP STOPPED: ${state.name} | Max iterations (${state.maxIterations}) reached
 ───────────────────────────────────────────────────────────────────────`,
-				!run.finished,
 			);
 			return;
 		}
@@ -923,7 +909,7 @@ Examples:
 	pi.on("session_start", async (_event, ctx) => {
 		currentLoop = null;
 		iterationPhase = { kind: "idle" };
-		lastRun = null;
+		lastRunText = null;
 		const active = listLoops(ctx).filter((l) => l.status === "active");
 		const owned = active.filter((state) => isOwnedByCurrentSession(ctx, state));
 
