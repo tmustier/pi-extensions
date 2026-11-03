@@ -44,9 +44,15 @@ function harness(t) {
 			message: { role: "user", content: [{ type: "text", text: prompt }] },
 		}, ctx),
 		begin: () => events.get("before_agent_start")({ systemPrompt: "base" }, ctx),
-		end: (text = "Progress made") => events.get("agent_end")({
+		// One attempt; Pi emits agent_end again if it retries a failed attempt.
+		attempt: (text = "Progress made") => events.get("agent_end")({
 			messages: [{ role: "assistant", content: [{ type: "text", text }] }],
 		}, ctx),
+		// A whole run: its final attempt, then settlement.
+		end: async (text = "Progress made") => {
+			await events.get("agent_end")({ messages: [{ role: "assistant", content: [{ type: "text", text }] }] }, ctx);
+			await events.get("agent_settled")?.({}, ctx);
+		},
 		read: (name) => JSON.parse(fs.readFileSync(path.join(cwd, ".ralph", `${name}.state.json`), "utf8")),
 		taskPath: (name) => path.join(cwd, ".ralph", `${name}.md`),
 		statePath: (name) => path.join(cwd, ".ralph", `${name}.state.json`),
@@ -122,10 +128,22 @@ test("ralph_done still works after a retryable error ends the run and Pi continu
 	const h = harness(t);
 	await h.command("start task --max-iterations 3");
 	await h.begin();
-	await h.end("API error, retrying"); // Pi 0.87 emits agent_end, then agent.continue() without before_agent_start.
+	await h.attempt("API error, retrying"); // Pi 0.87 emits agent_end, then agent.continue() without before_agent_start.
 	await h.tool("ralph_done");
 	assert.equal(h.read("task").iteration, 2);
 	assert.equal(h.messages.length, 2);
+});
+
+test("a retried final iteration completes only after the retry, not on the failed attempt", async (t) => {
+	const h = harness(t);
+	await h.command("start task --max-iterations 1");
+	await h.begin();
+	await h.attempt("API error, retrying"); // Retryable failure: Pi continues the same run.
+	assert.equal(h.read("task").status, "active", "the final iteration has not finished yet");
+	assert.equal(h.messages.length, 1, "no stop banner while Pi is retrying");
+	await h.end("Work done on retry");
+	assert.equal(h.read("task").status, "completed");
+	assert.equal(h.messages.length, 2, "exactly one stop banner");
 });
 
 test("ralph_done cannot advance the same executing iteration twice", async (t) => {

@@ -100,6 +100,8 @@ export default function (pi: ExtensionAPI) {
 	let currentLoop: string | null = null;
 	// Runtime-only: the persisted iteration may already name a queued successor.
 	let iterationPhase: IterationPhase = { kind: "idle" };
+	// Last assistant text of the current run; null until an attempt ends.
+	let lastRunText: string | null = null;
 
 	// --- File helpers ---
 
@@ -853,25 +855,28 @@ Examples:
 		};
 	});
 
-	pi.on("agent_end", async (event, ctx) => {
-		// Keep the phase: after a retryable error Pi emits agent_end and then continues
-		// the same iteration without before_agent_start or redelivering its prompt.
-		const executing = iterationPhase.kind === "executing" ? iterationPhase.executing : null;
-		const state = getCurrentOwnedState(ctx);
-		if (!state || state.status !== "active" || !executing || !matchesLoop(ctx, state, executing)) {
-			updateUI(ctx);
-			return;
-		}
-
-		// Check for completion marker
+	// A retryable error emits agent_end and then continues the same iteration, so
+	// only record the attempt here and decide completion once the run settles.
+	pi.on("agent_end", async (event) => {
 		const lastAssistant = [...event.messages].reverse().find((m) => m.role === "assistant");
-		const text =
+		lastRunText =
 			lastAssistant && Array.isArray(lastAssistant.content)
 				? lastAssistant.content
 						.filter((c): c is { type: "text"; text: string } => c.type === "text")
 						.map((c) => c.text)
 						.join("\n")
 				: "";
+	});
+
+	pi.on("agent_settled", async (_event, ctx) => {
+		const text = lastRunText;
+		lastRunText = null;
+		const executing = iterationPhase.kind === "executing" ? iterationPhase.executing : null;
+		const state = getCurrentOwnedState(ctx);
+		if (text === null || !state || state.status !== "active" || !executing || !matchesLoop(ctx, state, executing)) {
+			updateUI(ctx);
+			return;
+		}
 
 		if (text.includes(COMPLETE_MARKER)) {
 			completeLoop(
@@ -903,6 +908,7 @@ Examples:
 	pi.on("session_start", async (_event, ctx) => {
 		currentLoop = null;
 		iterationPhase = { kind: "idle" };
+		lastRunText = null;
 		const active = listLoops(ctx).filter((l) => l.status === "active");
 		const owned = active.filter((state) => isOwnedByCurrentSession(ctx, state));
 
