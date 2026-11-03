@@ -22,6 +22,7 @@
     "postinstall": "node -e \"console.log('pi-files-widget: required deps: bat, delta, glow. ' + (process.platform === 'darwin' ? 'Install with: brew install bat git-delta glow' : 'Install instructions: https://github.com/tmustier/pi-extensions/tree/main/files-widget#install'))\""
   },
   "pi": {
+    "changelogPath": "./UPDATE_NOTES.md",
     "extensions": [
       "index.ts"
     ],

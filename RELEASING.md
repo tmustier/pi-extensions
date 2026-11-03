@@ -8,18 +8,26 @@ Use `extension-name/vX.Y.Z` (example: `usage-extension/v0.1.2`).
 
 ## Changelog entries
 
-Pi 1.5.0 and later shows each package's new changelog entries when Pi starts after the package updates. A user sees every entry newer than the version they last saw, so a user who skips releases sees several entries at once. Write entries for that screen:
+Pi 1.5.0 and later show each package's new `UPDATE_NOTES.md` entries when Pi starts after an update. A user sees every entry newer than the version they last saw, so a user who skips releases can see several entries at once. Keep the release history in `CHANGELOG.md`, and write startup notes for that screen:
 
 - Write one plain sentence per change, saying what a user notices. Add a second sentence only when the user needs it, e.g. to know about a changed default.
-- Leave out how the fix works, internal names and measurements. Put those in the pull request and the GitHub release notes.
+- Leave out how the fix works, internal names and measurements from startup notes. Keep that detail in the changelog, pull request or GitHub release notes.
 - End each bullet with one link to the pull request or issue.
 - Release changes from the same day as one version, so users see one entry instead of several.
 
-Pi reads `CHANGELOG.md` from each package root by default, so no `pi.changelogPath` setting is needed.
+Each extension package sets `pi.changelogPath` to `./UPDATE_NOTES.md`, rather than Pi's default `CHANGELOG.md`. The root bundle and Arcade show notes only for changes that affect every extension in that package. Pi cannot filter a package's notes by the extensions a user loads. A standalone extension package has its own notes, which do not appear when it is loaded through the root bundle.
 
 ## Steps
 
-1. Update the extension's `CHANGELOG.md`.
+1. Update the extension's `CHANGELOG.md`. Review its `UPDATE_NOTES.md` for a short
+   user-facing startup note when the release changes behaviour or requires action.
+   Use released package versions in `## [x.y.z]` headings, and skip internal,
+   metadata-only or otherwise unimportant changes. Keep the full changelog.
+   Pi shows notes for the installed package, not each loaded extension. In the
+   root and Arcade `UPDATE_NOTES.md` files, include only changes that affect every
+   extension in that package. Do not copy individual extension notes into them.
+   Do not add empty version headings or an Unreleased section. Check whether a
+   standalone package needs its own note even when the root bundle stays silent.
 2. Optionally refresh compatibility notes in the extension README.
 3. Bump the extension version in its `package.json` and bump the repo version in the root `package.json` (ensure it is not marked `private` when publishing).
 4. Run the extension tests and inspect the exact npm package contents before publishing:
