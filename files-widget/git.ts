@@ -51,13 +51,16 @@ function stripPathPrefix(filePath: string, prefix: string): string | null {
 export async function getGitStatus(cwd: string): Promise<Map<string, string>> {
   const status = new Map<string, string>();
   try {
-    const [prefix, output] = await Promise.all([getGitPathPrefix(cwd), git(cwd, ["status", "--porcelain"])]);
-    for (const line of output.split("\n")) {
-      if (line.length < 3) continue;
-      const statusCode = line.slice(0, 2).trim() || "?";
-      const filePath = stripPathPrefix(line.slice(3), prefix);
-      if (filePath === null || !filePath) continue;
-      status.set(filePath, statusCode);
+    // -z keeps paths unquoted and puts a rename's source in its own field.
+    const [prefix, output] = await Promise.all([getGitPathPrefix(cwd), git(cwd, ["status", "--porcelain", "-z"])]);
+    const entries = output.split("\0");
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i];
+      if (entry.length < 3) continue;
+      const statusCode = entry.slice(0, 2).trim() || "?";
+      if (statusCode.startsWith("R") || statusCode.startsWith("C")) i += 1; // Skip the source path.
+      const filePath = stripPathPrefix(entry.slice(3), prefix);
+      if (filePath) status.set(filePath, statusCode);
     }
   } catch {}
   return status;
