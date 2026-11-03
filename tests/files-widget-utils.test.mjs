@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { hasCommand, missingCommandsMessage } from "../files-widget/utils.ts";
+import { findCommand, hasCommand, missingCommandsMessage } from "../files-widget/utils.ts";
 
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), "files-widget-command-"));
@@ -41,6 +41,14 @@ test("POSIX treats quotes in PATH entries literally", (t) => {
   createFile(join(root, "present"));
 
   assert.equal(hasCommand("present", { platform: "linux", path: `"${root}"` }), false);
+});
+
+test("POSIX lookup returns an absolute path for relative PATH entries", { skip: process.platform === "win32" }, (t) => {
+  const root = fixture(t);
+  mkdirSync(join(root, "bin"));
+  createFile(join(root, "bin", "tool"));
+
+  assert.equal(findCommand("tool", { platform: "linux", path: "bin", cwd: root }), join(root, "bin", "tool"));
 });
 
 test("Windows lookup searches cwd before PATH and applies PATHEXT", (t) => {

@@ -1,5 +1,5 @@
 import { accessSync, constants, statSync } from "node:fs";
-import { extname, join } from "node:path";
+import { extname, join, resolve } from "node:path";
 
 export interface CommandLookupOptions {
   platform?: NodeJS.Platform;
@@ -8,7 +8,8 @@ export interface CommandLookupOptions {
   cwd?: string;
 }
 
-export function hasCommand(cmd: string, options: CommandLookupOptions = {}): boolean {
+/** Absolute path of `cmd` on PATH, or null when it is not installed. */
+export function findCommand(cmd: string, options: CommandLookupOptions = {}): string | null {
   const platform = options.platform ?? process.platform;
   const pathValue = options.path ?? process.env.PATH ?? "";
   const pathEntries = pathValue.split(platform === "win32" ? ";" : ":");
@@ -26,16 +27,20 @@ export function hasCommand(cmd: string, options: CommandLookupOptions = {}): boo
       : rawDirectory;
     for (const extension of extensions) {
       try {
-        const candidate = join(directory || ".", `${cmd}${extension}`);
+        const candidate = resolve(options.cwd ?? process.cwd(), directory || ".", `${cmd}${extension}`);
         accessSync(candidate, accessMode);
-        if (statSync(candidate).isFile()) return true;
+        if (statSync(candidate).isFile()) return candidate;
       } catch {
         // Continue searching PATH.
       }
     }
   }
 
-  return false;
+  return null;
+}
+
+export function hasCommand(cmd: string, options: CommandLookupOptions = {}): boolean {
+  return findCommand(cmd, options) !== null;
 }
 
 export const REQUIRED_COMMANDS = ["bat", "delta", "glow"] as const;
@@ -53,10 +58,6 @@ export function missingCommandsMessage(missing: readonly RequiredCommand[], plat
 
 export function isUntrackedStatus(status?: string): boolean {
   return status === "?" || status === "??";
-}
-
-export function isIgnoredStatus(status?: string): boolean {
-  return status === "!" || status === "!!";
 }
 
 export function isMarkdownPath(path: string): boolean {
