@@ -3,6 +3,7 @@
  * Port of Geoffrey Huntley's approach.
  */
 
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -80,10 +81,25 @@ interface LoopState {
 	ownerSessionId?: string; // Session that currently owns automatic prompt injection for this loop
 }
 
+interface IterationIdentity {
+	name: string;
+	iteration: number;
+	ownerSessionId?: string;
+	cwd: string;
+}
+
+type QueuedIteration = IterationIdentity & { marker: string };
+type IterationPhase =
+	| { kind: "idle" }
+	| { kind: "queued"; queued: QueuedIteration }
+	| { kind: "executing"; executing: IterationIdentity; queued?: QueuedIteration };
+
 const STATUS_ICONS: Record<LoopStatus, string> = { active: "▶", paused: "⏸", completed: "✓" };
 
 export default function (pi: ExtensionAPI) {
 	let currentLoop: string | null = null;
+	// Runtime-only: the persisted iteration may already name a queued successor.
+	let iterationPhase: IterationPhase = { kind: "idle" };
 
 	// --- File helpers ---
 
@@ -198,11 +214,50 @@ export default function (pi: ExtensionAPI) {
 
 	// --- Loop state transitions ---
 
+	function iterationIdentity(ctx: ExtensionContext, state: LoopState): IterationIdentity {
+		return { name: state.name, iteration: state.iteration, ownerSessionId: state.ownerSessionId, cwd: ctx.cwd };
+	}
+
+	function matchesLoop(ctx: ExtensionContext, state: LoopState, iteration: IterationIdentity): boolean {
+		return iteration.name === state.name && iteration.ownerSessionId === sessionId(ctx) && iteration.cwd === ctx.cwd;
+	}
+
+	function queueIteration(ctx: ExtensionContext, state: LoopState, content: string, reflection: boolean): void {
+		const marker = `<!-- ralph-prompt:${randomUUID()} -->`;
+		const prompt = `${buildPrompt(state, content, reflection)}\n\n${marker}`;
+		const queued = { ...iterationIdentity(ctx, state), marker };
+		iterationPhase =
+			iterationPhase.kind === "executing" ? { ...iterationPhase, queued } : { kind: "queued", queued };
+		pi.sendUserMessage(prompt, { deliverAs: "followUp" });
+	}
+
+	function pauseOtherOwnedLoops(ctx: ExtensionContext, name: string): void {
+		for (const other of listLoops(ctx)) {
+			if (other.name !== name && other.status === "active" && isOwnedByCurrentSession(ctx, other)) {
+				other.status = "paused";
+				saveState(ctx, other);
+			}
+		}
+	}
+
+	// Call only after task content is available, before changing ownership or selection.
+	function activateLoop(ctx: ExtensionContext, state: LoopState, content: string, reflection: boolean): void {
+		pauseOtherOwnedLoops(ctx, state.name);
+		state.status = "active";
+		state.ownerSessionId = sessionId(ctx);
+		saveState(ctx, state);
+		currentLoop = state.name;
+		iterationPhase = { kind: "idle" };
+		updateUI(ctx);
+		queueIteration(ctx, state, content, reflection);
+	}
+
 	function pauseLoop(ctx: ExtensionContext, state: LoopState, message?: string): void {
 		state.status = "paused";
 		state.active = false;
 		saveState(ctx, state);
 		currentLoop = null;
+		iterationPhase = { kind: "idle" };
 		updateUI(ctx);
 		if (message && ctx.hasUI) ctx.ui.notify(message, "info");
 	}
@@ -213,6 +268,7 @@ export default function (pi: ExtensionAPI) {
 		state.active = false;
 		saveState(ctx, state);
 		currentLoop = null;
+		iterationPhase = { kind: "idle" };
 		updateUI(ctx);
 		pi.sendUserMessage(banner, { deliverAs: "followUp" });
 	}
@@ -223,6 +279,7 @@ export default function (pi: ExtensionAPI) {
 		state.active = false;
 		saveState(ctx, state);
 		currentLoop = null;
+		iterationPhase = { kind: "idle" };
 		updateUI(ctx);
 		if (message && ctx.hasUI) ctx.ui.notify(message, "info");
 	}
@@ -358,6 +415,12 @@ export default function (pi: ExtensionAPI) {
 				ctx.ui.notify(`Created task file: ${taskFile}`, "info");
 			}
 
+			const content = tryRead(fullPath);
+			if (!content) {
+				ctx.ui.notify(`Could not read task file: ${taskFile}`, "error");
+				return;
+			}
+
 			const state: LoopState = {
 				name: loopName,
 				taskFile,
@@ -373,16 +436,7 @@ export default function (pi: ExtensionAPI) {
 				ownerSessionId: sessionId(ctx),
 			};
 
-			saveState(ctx, state);
-			currentLoop = loopName;
-			updateUI(ctx);
-
-			const content = tryRead(fullPath);
-			if (!content) {
-				ctx.ui.notify(`Could not read task file: ${taskFile}`, "error");
-				return;
-			}
-			pi.sendUserMessage(buildPrompt(state, content, false), { deliverAs: "followUp" });
+			activateLoop(ctx, state, content, false);
 		},
 
 		stop(_rest, ctx) {
@@ -412,32 +466,17 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
-			// Pause this session's current loop if different. A loop transferred to
-			// another session must not be mutated from the stale former owner.
-			if (currentLoop && currentLoop !== loopName) {
-				const curr = getCurrentOwnedState(ctx);
-				if (curr) pauseLoop(ctx, curr);
-			}
-
-			state.status = "active";
-			state.active = true;
-			state.ownerSessionId = sessionId(ctx);
-			state.iteration++;
-			saveState(ctx, state);
-			currentLoop = loopName;
-			updateUI(ctx);
-
-			ctx.ui.notify(`Resumed: ${loopName} (iteration ${state.iteration})`, "info");
-
 			const content = tryRead(path.resolve(ctx.cwd, state.taskFile));
 			if (!content) {
 				ctx.ui.notify(`Could not read task file: ${state.taskFile}`, "error");
 				return;
 			}
 
+			state.iteration++;
 			const needsReflection =
 				state.reflectEvery > 0 && state.iteration > 1 && (state.iteration - 1) % state.reflectEvery === 0;
-			pi.sendUserMessage(buildPrompt(state, content, needsReflection), { deliverAs: "followUp" });
+			activateLoop(ctx, state, content, needsReflection);
+			ctx.ui.notify(`Resumed: ${loopName} (iteration ${state.iteration})`, "info");
 		},
 
 		status(_rest, ctx) {
@@ -658,6 +697,10 @@ Examples:
 				return { content: [{ type: "text", text: `Loop "${loopName}" already active.` }], details: {} };
 			}
 
+			if (!params.taskContent) {
+				return { content: [{ type: "text", text: "Cannot start a loop with an empty task." }], details: {} };
+			}
+
 			const fullPath = path.resolve(ctx.cwd, taskFile);
 			ensureDir(fullPath);
 			fs.writeFileSync(fullPath, params.taskContent, "utf-8");
@@ -677,11 +720,7 @@ Examples:
 				ownerSessionId: sessionId(ctx),
 			};
 
-			saveState(ctx, state);
-			currentLoop = loopName;
-			updateUI(ctx);
-
-			pi.sendUserMessage(buildPrompt(state, params.taskContent, false), { deliverAs: "followUp" });
+			activateLoop(ctx, state, params.taskContent, false);
 
 			return {
 				content: [{ type: "text", text: `Started loop "${loopName}" (max ${state.maxIterations} iterations).` }],
@@ -715,11 +754,19 @@ Examples:
 				};
 			}
 
-			// Increment iteration
-			state.iteration++;
+			if (
+				iterationPhase.kind !== "executing" ||
+				!matchesLoop(ctx, state, iterationPhase.executing) ||
+				iterationPhase.executing.iteration !== state.iteration
+			) {
+				return {
+					content: [{ type: "text", text: "Wait for the queued Ralph iteration before calling ralph_done." }],
+					details: {},
+				};
+			}
 
-			// Check max iterations
-			if (state.maxIterations > 0 && state.iteration > state.maxIterations) {
+			// Only the executing iteration can exhaust the limit; never count a queued successor.
+			if (state.maxIterations > 0 && iterationPhase.executing.iteration >= state.maxIterations) {
 				completeLoop(
 					ctx,
 					state,
@@ -730,6 +777,7 @@ Examples:
 				return { content: [{ type: "text", text: "Max iterations reached. Loop stopped." }], details: {} };
 			}
 
+			state.iteration++;
 			const needsReflection = state.reflectEvery > 0 && (state.iteration - 1) % state.reflectEvery === 0;
 			if (needsReflection) state.lastReflectionAt = state.iteration;
 
@@ -743,7 +791,7 @@ Examples:
 			}
 
 			// Queue next iteration - use followUp so user can still interrupt
-			pi.sendUserMessage(buildPrompt(state, content, needsReflection), { deliverAs: "followUp" });
+			queueIteration(ctx, state, content, needsReflection);
 
 			return {
 				content: [{ type: "text", text: `Iteration ${state.iteration - 1} complete. Next iteration queued.` }],
@@ -754,13 +802,39 @@ Examples:
 
 	// --- Event handlers ---
 
+	// Pi may deliver follow-ups inside the same run, without another before_agent_start.
+	pi.on("message_start", async (event, ctx) => {
+		const queued = iterationPhase.kind !== "idle" ? iterationPhase.queued : undefined;
+		if (!queued || event.message.role !== "user") return;
+		const content = event.message.content;
+		const text =
+			typeof content === "string"
+				? content
+				: content
+						.filter((c): c is { type: "text"; text: string } => c.type === "text")
+						.map((c) => c.text)
+						.join("\n");
+		const state = getCurrentOwnedState(ctx);
+		// Match the unique marker, not the whole prompt: input handlers may append context.
+		if (
+			text.includes(queued.marker) &&
+			state?.status === "active" &&
+			matchesLoop(ctx, state, queued) &&
+			state.iteration === queued.iteration
+		) {
+			iterationPhase = { kind: "executing", executing: queued };
+		}
+	});
+
 	pi.on("before_agent_start", async (event, ctx) => {
+		iterationPhase = { kind: "idle" };
 		const state = getCurrentOwnedState(ctx);
 		if (!state || state.status !== "active") {
 			updateUI(ctx);
 			return;
 		}
 
+		iterationPhase = { kind: "executing", executing: iterationIdentity(ctx, state) };
 		const iterStr = `${state.iteration}${state.maxIterations > 0 ? `/${state.maxIterations}` : ""}`;
 
 		let instructions = `You are in a Ralph loop working on: ${state.taskFile}\n`;
@@ -780,8 +854,11 @@ Examples:
 	});
 
 	pi.on("agent_end", async (event, ctx) => {
+		// Keep the phase: after a retryable error Pi emits agent_end and then continues
+		// the same iteration without before_agent_start or redelivering its prompt.
+		const executing = iterationPhase.kind === "executing" ? iterationPhase.executing : null;
 		const state = getCurrentOwnedState(ctx);
-		if (!state || state.status !== "active") {
+		if (!state || state.status !== "active" || !executing || !matchesLoop(ctx, state, executing)) {
 			updateUI(ctx);
 			return;
 		}
@@ -801,14 +878,14 @@ Examples:
 				ctx,
 				state,
 				`───────────────────────────────────────────────────────────────────────
-✅ RALPH LOOP COMPLETE: ${state.name} | ${state.iteration} iterations
+✅ RALPH LOOP COMPLETE: ${state.name} | ${executing.iteration} iterations
 ───────────────────────────────────────────────────────────────────────`,
 			);
 			return;
 		}
 
 		// Check max iterations
-		if (state.maxIterations > 0 && state.iteration >= state.maxIterations) {
+		if (state.maxIterations > 0 && executing.iteration >= state.maxIterations) {
 			completeLoop(
 				ctx,
 				state,
@@ -824,18 +901,21 @@ Examples:
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
+		currentLoop = null;
+		iterationPhase = { kind: "idle" };
 		const active = listLoops(ctx).filter((l) => l.status === "active");
 		const owned = active.filter((state) => isOwnedByCurrentSession(ctx, state));
 
 		// Rehydrate only loops that are owned by this Pi session. Older state
 		// files do not have ownerSessionId, so a new unrelated session must use
 		// /ralph resume <name> before Ralph injects loop instructions.
-		if (!currentLoop && owned.length > 0) {
+		if (owned.length > 0) {
 			const mostRecent = owned.reduce((best, candidate) => {
 				const bestMtime = safeMtimeMs(getPath(ctx, best.name, ".state.json"));
 				const candidateMtime = safeMtimeMs(getPath(ctx, candidate.name, ".state.json"));
 				return candidateMtime > bestMtime ? candidate : best;
 			});
+			pauseOtherOwnedLoops(ctx, mostRecent.name);
 			currentLoop = mostRecent.name;
 		}
 
