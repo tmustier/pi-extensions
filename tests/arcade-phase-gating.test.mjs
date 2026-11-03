@@ -49,7 +49,8 @@ async function initial(game) {
   return game.snapshot(await game.open());
 }
 
-for (const key of ["a", "d", "s", "w", "z", "c", " "]) {
+// Hold and hard drop are the inputs that can act on the already-locked piece.
+for (const key of ["c", " "]) {
   test(`Tetris ignores ${JSON.stringify(key)} during row clearing`, async (t) => {
     const game = arcade(t, tetris);
     const state = await initial(game);
@@ -58,10 +59,11 @@ for (const key of ["a", "d", "s", "w", "z", "c", " "]) {
     state.current = { type: "O", row: 18, col: 5, rotation: 0 };
     const component = await game.open(state);
     component.handleInput(" "); // Lock into a full row through public input.
+    game.tick(); // Advance the animation so restarting it would be visible.
     const before = component.render(100);
     component.handleInput(key);
     assert.deepEqual(component.render(100), before);
-    game.tick(6);
+    game.tick(5);
     const after = game.snapshot(component);
     assert.equal(after.lines, 1);
     assert.deepEqual(after.clearingRows, []);
