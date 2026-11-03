@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.10.2] - 2026-11-03
+
+### Changed
+- Open `/usage` faster. Session folders are read at the same time instead of one after another, and the usage cache loads while session files are found. On about 8,700 session files, a warm `/usage` went from 1.3 to 1.0 seconds, with the same results ([#135](https://github.com/tmustier/pi-extensions/pull/135)).
+
 ## [0.10.1] - 2026-10-28
 
 ### Fixed

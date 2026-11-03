@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.1.76] - 2026-11-03
+
+### Changed
+- Include usage 0.10.2, which opens `/usage` faster.
+- Include files-widget 0.2.4. In git repositories, `/readfiles` loads git information in the background instead of freezing Pi, and the tree is ready sooner.
+
+### Fixed
+- Files-widget 0.2.4 shows git status for renamed files and for files with spaces or non-ASCII names, stops background work when the browser closes, and keeps a confirmed search so `n` and `N` work.
+- Include arcade 0.1.8, which fixes Tetris input while rows clear and sPIce Invaders lock-ups after reopening during the boss intro or entering the cheat after game over.
+- Include Ralph 0.2.5, which runs the final iteration before completing the loop, keeps one active loop per session, and copes with Pi retrying a failed request. Its stop banner is now a message, not a prompt to the model.
+
 ## [0.1.75] - 2026-11-02
 
 ### Fixed
