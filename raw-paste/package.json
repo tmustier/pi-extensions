@@ -15,6 +15,7 @@
   "bugs": "https://github.com/tmustier/pi-extensions/issues",
   "homepage": "https://github.com/tmustier/pi-extensions/tree/main/raw-paste",
   "pi": {
+    "changelogPath": "./UPDATE_NOTES.md",
     "extensions": [
       "index.ts"
     ],

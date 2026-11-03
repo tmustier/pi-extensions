@@ -8,7 +8,15 @@ Use `extension-name/vX.Y.Z` (example: `usage-extension/v0.1.2`).
 
 ## Steps
 
-1. Update the extension's `CHANGELOG.md`.
+1. Update the extension's `CHANGELOG.md`. Review its `UPDATE_NOTES.md` for a short
+   user-facing startup note when the release changes behaviour or requires action.
+   Use released package versions in `## [x.y.z]` headings, and skip internal,
+   metadata-only or otherwise unimportant changes. Keep the full changelog.
+   Pi shows notes for the installed package, not each loaded extension. In the
+   root and Arcade `UPDATE_NOTES.md` files, include only changes that affect every
+   extension in that package. Do not copy individual extension notes into them.
+   Do not add empty version headings or an Unreleased section. Check whether a
+   standalone package needs its own note even when the root bundle stays silent.
 2. Optionally refresh compatibility notes in the extension README.
 3. Bump the extension version in its `package.json` and bump the repo version in the root `package.json` (ensure it is not marked `private` when publishing).
 4. Run the extension tests and inspect the exact npm package contents before publishing:
