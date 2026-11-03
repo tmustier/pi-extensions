@@ -88,7 +88,7 @@ interface IterationIdentity {
 	cwd: string;
 }
 
-type QueuedIteration = IterationIdentity & { prompt: string };
+type QueuedIteration = IterationIdentity & { marker: string };
 type IterationPhase =
 	| { kind: "idle" }
 	| { kind: "queued"; queued: QueuedIteration }
@@ -223,8 +223,9 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	function queueIteration(ctx: ExtensionContext, state: LoopState, content: string, reflection: boolean): void {
-		const prompt = `${buildPrompt(state, content, reflection)}\n\n<!-- ralph-prompt:${randomUUID()} -->`;
-		const queued = { ...iterationIdentity(ctx, state), prompt };
+		const marker = `<!-- ralph-prompt:${randomUUID()} -->`;
+		const prompt = `${buildPrompt(state, content, reflection)}\n\n${marker}`;
+		const queued = { ...iterationIdentity(ctx, state), marker };
 		iterationPhase =
 			iterationPhase.kind === "executing" ? { ...iterationPhase, queued } : { kind: "queued", queued };
 		pi.sendUserMessage(prompt, { deliverAs: "followUp" });
@@ -814,9 +815,9 @@ Examples:
 						.map((c) => c.text)
 						.join("\n");
 		const state = getCurrentOwnedState(ctx);
-		// Exact, uniquely tagged prompt identity, not a match on the human-readable header.
+		// Match the unique marker, not the whole prompt: input handlers may append context.
 		if (
-			text === queued.prompt &&
+			text.includes(queued.marker) &&
 			state?.status === "active" &&
 			matchesLoop(ctx, state, queued) &&
 			state.iteration === queued.iteration
@@ -853,10 +854,9 @@ Examples:
 	});
 
 	pi.on("agent_end", async (event, ctx) => {
+		// Keep the phase: after a retryable error Pi emits agent_end and then continues
+		// the same iteration without before_agent_start or redelivering its prompt.
 		const executing = iterationPhase.kind === "executing" ? iterationPhase.executing : null;
-		if (iterationPhase.kind === "executing") {
-			iterationPhase = iterationPhase.queued ? { kind: "queued", queued: iterationPhase.queued } : { kind: "idle" };
-		}
 		const state = getCurrentOwnedState(ctx);
 		if (!state || state.status !== "active" || !executing || !matchesLoop(ctx, state, executing)) {
 			updateUI(ctx);

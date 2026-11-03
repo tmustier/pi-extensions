@@ -106,6 +106,28 @@ test("undelivered or lookalike queued prompts cannot exhaust the limit", async (
 	assert.equal(h.read("task").status, "completed");
 });
 
+test("a queued prompt with context appended by an input handler still counts as delivered", async (t) => {
+	const h = harness(t);
+	await h.begin();
+	await h.tool("ralph_start", { name: "task", taskContent: "# Task", maxIterations: 3 });
+	await h.deliver(`${h.messages.at(-1)}\n\n[context appended by another extension]`);
+	await h.tool("ralph_done");
+	assert.equal(h.read("task").iteration, 2);
+	await h.deliver(h.messages.at(-1).replace(/ralph-prompt:[^ ]+/, "ralph-prompt:wrong-uuid"));
+	await h.tool("ralph_done");
+	assert.equal(h.read("task").iteration, 2, "a different marker must not advance the loop");
+});
+
+test("ralph_done still works after a retryable error ends the run and Pi continues it", async (t) => {
+	const h = harness(t);
+	await h.command("start task --max-iterations 3");
+	await h.begin();
+	await h.end("API error, retrying"); // Pi 0.87 emits agent_end, then agent.continue() without before_agent_start.
+	await h.tool("ralph_done");
+	assert.equal(h.read("task").iteration, 2);
+	assert.equal(h.messages.length, 2);
+});
+
 test("ralph_done cannot advance the same executing iteration twice", async (t) => {
 	const h = harness(t);
 	await h.command("start task --max-iterations 2");
