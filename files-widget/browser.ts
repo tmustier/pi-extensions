@@ -592,6 +592,8 @@ export function createFileBrowser(
   }
 
   function stopBackgroundTasks(): void {
+    // Invalidate in-flight scans, line counts and git loads, not just timers.
+    rootGeneration += 1;
     if (lineCountTimer) {
       clearTimeout(lineCountTimer);
       lineCountTimer = null;
