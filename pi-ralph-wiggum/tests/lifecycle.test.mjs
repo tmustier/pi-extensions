@@ -48,14 +48,12 @@ function harness(t) {
 		attempt: (text = "Progress made") => events.get("agent_end")({
 			messages: [{ role: "assistant", content: [{ type: "text", text }] }],
 		}, ctx),
-		// The user aborts the run (Esc): Pi still settles it.
-		abort: async () => {
-			await events.get("agent_end")({ messages: [{ role: "assistant", stopReason: "aborted", content: [] }] }, ctx);
-			await events.get("agent_settled")?.({}, ctx);
-		},
+		// The user cancels the run (Esc): Pi skips agent_before_settle but still settles.
+		cancel: () => events.get("agent_settled")?.({}, ctx),
 		// A whole run: its final attempt, then settlement.
 		end: async (text = "Progress made") => {
 			await events.get("agent_end")({ messages: [{ role: "assistant", content: [{ type: "text", text }] }] }, ctx);
+			await events.get("agent_before_settle")?.({}, ctx);
 			await events.get("agent_settled")?.({}, ctx);
 		},
 		read: (name) => JSON.parse(fs.readFileSync(path.join(cwd, ".ralph", `${name}.state.json`), "utf8")),
@@ -151,15 +149,18 @@ test("a retried final iteration completes only after the retry, not on the faile
 	assert.equal(h.messages.length, 2, "exactly one stop banner");
 });
 
-test("aborting the final iteration completes the loop without prompting the model again", async (t) => {
-	const h = harness(t);
-	await h.command("start task --max-iterations 1");
-	await h.begin();
-	await h.abort();
-	assert.equal(h.read("task").status, "completed");
-	assert.equal(h.messages.length, 1, "no banner prompt that would restart the aborted model");
-	assert.match(h.notifications.at(-1), /Max iterations \(1\) reached/);
-});
+for (const when of ["mid-response", "during a retry backoff"]) {
+	test(`cancelling the final iteration ${when} completes the loop without prompting the model again`, async (t) => {
+		const h = harness(t);
+		await h.command("start task --max-iterations 1");
+		await h.begin();
+		await h.attempt(when === "mid-response" ? "partial" : "API error, retrying");
+		await h.cancel();
+		assert.equal(h.read("task").status, "completed");
+		assert.equal(h.messages.length, 1, "no banner prompt that would restart the cancelled model");
+		assert.match(h.notifications.at(-1), /Max iterations \(1\) reached/);
+	});
+}
 
 test("ralph_done cannot advance the same executing iteration twice", async (t) => {
 	const h = harness(t);

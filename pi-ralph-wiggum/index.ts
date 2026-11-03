@@ -100,8 +100,9 @@ export default function (pi: ExtensionAPI) {
 	let currentLoop: string | null = null;
 	// Runtime-only: the persisted iteration may already name a queued successor.
 	let iterationPhase: IterationPhase = { kind: "idle" };
-	// Outcome of the current run's latest attempt; null until an attempt ends.
-	let lastRun: { text: string; aborted: boolean } | null = null;
+	// The current run's latest attempt; null until an attempt ends. `finished` is
+	// set at agent_before_settle, which Pi skips when the user cancels the run.
+	let lastRun: { text: string; finished: boolean } | null = null;
 
 	// --- File helpers ---
 
@@ -264,7 +265,7 @@ export default function (pi: ExtensionAPI) {
 		if (message && ctx.hasUI) ctx.ui.notify(message, "info");
 	}
 
-	function completeLoop(ctx: ExtensionContext, state: LoopState, banner: string, aborted = false): void {
+	function completeLoop(ctx: ExtensionContext, state: LoopState, banner: string, cancelled = false): void {
 		state.status = "completed";
 		state.completedAt = new Date().toISOString();
 		state.active = false;
@@ -272,8 +273,8 @@ export default function (pi: ExtensionAPI) {
 		currentLoop = null;
 		iterationPhase = { kind: "idle" };
 		updateUI(ctx);
-		// A prompt after the user aborted would restart the model they just stopped.
-		if (aborted) {
+		// A prompt after the user cancelled would restart the model they just stopped.
+		if (cancelled) {
 			if (ctx.hasUI) ctx.ui.notify(banner, "info");
 		} else {
 			pi.sendUserMessage(banner, { deliverAs: "followUp" });
@@ -871,8 +872,13 @@ Examples:
 						.map((c) => c.text)
 						.join("\n")
 				: "",
-			aborted: lastAssistant?.stopReason === "aborted",
+			finished: false,
 		};
+	});
+
+	// Not emitted for a cancelled run, including one cancelled during a retry backoff.
+	pi.on("agent_before_settle", async () => {
+		if (lastRun) lastRun.finished = true;
 	});
 
 	pi.on("agent_settled", async (_event, ctx) => {
@@ -892,7 +898,7 @@ Examples:
 				`───────────────────────────────────────────────────────────────────────
 ✅ RALPH LOOP COMPLETE: ${state.name} | ${executing.iteration} iterations
 ───────────────────────────────────────────────────────────────────────`,
-				run.aborted,
+				!run.finished,
 			);
 			return;
 		}
@@ -905,7 +911,7 @@ Examples:
 				`───────────────────────────────────────────────────────────────────────
 ⚠️ RALPH LOOP STOPPED: ${state.name} | Max iterations (${state.maxIterations}) reached
 ───────────────────────────────────────────────────────────────────────`,
-				run.aborted,
+				!run.finished,
 			);
 			return;
 		}
