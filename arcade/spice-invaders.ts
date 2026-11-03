@@ -832,26 +832,6 @@ class SpaceInvadersComponent {
 	}
 
 	handleInput(data: string): void {
-		if (this.state.bossIntroPhase) {
-			if (matchesKey(data, "escape")) {
-				this.dispose();
-				this.onSave(cloneState(this.state));
-				this.onClose();
-				return;
-			}
-			if (data === "q" || data === "Q") {
-				this.dispose();
-				this.onSave(null);
-				this.onClose();
-				return;
-			}
-			return;
-		}
-
-		if (this.registerCheatInput(data)) {
-			return;
-		}
-
 		if (this.paused) {
 			if (matchesKey(data, "escape") || data === "q" || data === "Q") {
 				this.dispose();
@@ -878,8 +858,8 @@ class SpaceInvadersComponent {
 			return;
 		}
 
-		if (this.state.gameOver && (data === "r" || data === "R" || data === " ")) {
-			this.restartGame();
+		if (this.state.gameOver) {
+			if (data === "r" || data === "R" || data === " ") this.restartGame();
 			return;
 		}
 
@@ -887,6 +867,11 @@ class SpaceInvadersComponent {
 			this.togglePause();
 			return;
 		}
+
+		// Session controls must remain available throughout the boss intro.
+		if (this.state.bossIntroPhase) return;
+
+		if (this.registerCheatInput(data)) return;
 
 		if (matchesKey(data, "left") || data === "a" || data === "A") {
 			this.queuePlayerMove(-1);

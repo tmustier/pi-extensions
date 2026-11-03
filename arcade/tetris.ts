@@ -364,14 +364,18 @@ class TetrisComponent {
 			this.state.queue.push(...generateBag());
 		}
 
+		this.spawnPiece(this.state.queue.shift()!);
+		this.state.canHold = true;
+	}
+
+	private spawnPiece(type: string): void {
 		this.state.current = {
-			type: this.state.queue.shift()!,
+			type,
 			rotation: 0,
 			row: 0,
 			col: Math.floor(BOARD_WIDTH / 2),
 		};
 		this.state.lockDelay = 0;
-		this.state.canHold = true;
 
 		// Check game over
 		if (!isValidPosition(this.state.board, this.state.current)) {
@@ -392,12 +396,7 @@ class TetrisComponent {
 		} else {
 			const heldType = this.state.held;
 			this.state.held = currentType;
-			this.state.current = {
-				type: heldType,
-				rotation: 0,
-				row: 0,
-				col: Math.floor(BOARD_WIDTH / 2),
-			};
+			this.spawnPiece(heldType);
 		}
 		this.state.canHold = false;
 	}
@@ -443,6 +442,9 @@ class TetrisComponent {
 			this.tui.requestRender();
 			return;
 		}
+
+		// The retained current piece is already locked into the board during clearing.
+		if (this.state.clearingRows.length > 0) return;
 
 		// Movement - left
 		if (matchesKey(data, "left") || data === "a" || data === "A" || data === "h" || data === "H") {
