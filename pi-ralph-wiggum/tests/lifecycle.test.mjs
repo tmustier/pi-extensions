@@ -13,12 +13,15 @@ function harness(t) {
 	const commands = new Map();
 	const tools = new Map();
 	const messages = [];
+	const prompts = [];
+	const banners = [];
 	const notifications = [];
 	const pi = {
 		on: (name, handler) => events.set(name, handler),
 		registerCommand: (name, command) => commands.set(name, command),
 		registerTool: (tool) => tools.set(tool.name, tool),
-		sendUserMessage: (message) => messages.push(message),
+		sendUserMessage: (message) => { messages.push(message); prompts.push(message); },
+		sendMessage: (message, options) => { messages.push(message.content); banners.push({ message, options }); },
 	};
 	ralphExtension(pi);
 	const ctx = {
@@ -35,7 +38,7 @@ function harness(t) {
 		hasPendingMessages: () => false,
 	};
 	return {
-		cwd, ctx, messages, notifications,
+		cwd, ctx, messages, prompts, banners, notifications,
 		command: (args) => commands.get("ralph").handler(args, ctx),
 		stop: () => commands.get("ralph-stop").handler("", ctx),
 		tool: (name, params = {}) => tools.get(name).execute("call", params, undefined, undefined, ctx),
@@ -44,9 +47,17 @@ function harness(t) {
 			message: { role: "user", content: [{ type: "text", text: prompt }] },
 		}, ctx),
 		begin: () => events.get("before_agent_start")({ systemPrompt: "base" }, ctx),
-		end: (text = "Progress made") => events.get("agent_end")({
+		// One attempt; Pi emits agent_end again if it retries a failed attempt.
+		attempt: (text = "Progress made") => events.get("agent_end")({
 			messages: [{ role: "assistant", content: [{ type: "text", text }] }],
 		}, ctx),
+		// The user cancels the run (Esc), e.g. during a retry backoff: Pi still settles it.
+		cancel: () => events.get("agent_settled")?.({}, ctx),
+		// A whole run: its final attempt, then settlement.
+		end: async (text = "Progress made") => {
+			await events.get("agent_end")({ messages: [{ role: "assistant", content: [{ type: "text", text }] }] }, ctx);
+			await events.get("agent_settled")?.({}, ctx);
+		},
 		read: (name) => JSON.parse(fs.readFileSync(path.join(cwd, ".ralph", `${name}.state.json`), "utf8")),
 		taskPath: (name) => path.join(cwd, ".ralph", `${name}.md`),
 		statePath: (name) => path.join(cwd, ".ralph", `${name}.state.json`),
@@ -122,10 +133,36 @@ test("ralph_done still works after a retryable error ends the run and Pi continu
 	const h = harness(t);
 	await h.command("start task --max-iterations 3");
 	await h.begin();
-	await h.end("API error, retrying"); // Pi 0.87 emits agent_end, then agent.continue() without before_agent_start.
+	await h.attempt("API error, retrying"); // Pi 0.87 emits agent_end, then agent.continue() without before_agent_start.
 	await h.tool("ralph_done");
 	assert.equal(h.read("task").iteration, 2);
 	assert.equal(h.messages.length, 2);
+});
+
+test("a retried final iteration completes only after the retry, not on the failed attempt", async (t) => {
+	const h = harness(t);
+	await h.command("start task --max-iterations 1");
+	await h.begin();
+	await h.attempt("API error, retrying"); // Retryable failure: Pi continues the same run.
+	assert.equal(h.read("task").status, "active", "the final iteration has not finished yet");
+	assert.equal(h.messages.length, 1, "no stop banner while Pi is retrying");
+	await h.end("Work done on retry");
+	assert.equal(h.read("task").status, "completed");
+	assert.equal(h.messages.length, 2, "exactly one stop banner");
+});
+
+test("cancelling the final iteration completes the loop without starting another model turn", async (t) => {
+	const h = harness(t);
+	await h.command("start task --max-iterations 1");
+	await h.begin();
+	await h.attempt("API error, retrying");
+	await h.cancel(); // Cancelled during the retry backoff.
+	assert.equal(h.read("task").status, "completed");
+	assert.equal(h.prompts.length, 1, "only the initial prompt; the banner must not prompt the model");
+	assert.equal(h.banners.length, 1);
+	assert.match(h.banners[0].message.content, /Max iterations \(1\) reached/);
+	assert.equal(h.banners[0].message.display, true);
+	assert.notEqual(h.banners[0].options?.triggerTurn, true);
 });
 
 test("ralph_done cannot advance the same executing iteration twice", async (t) => {
