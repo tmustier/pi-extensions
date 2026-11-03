@@ -37,6 +37,11 @@ interface BrowserStats {
   deletions: number;
 }
 
+type BatchPump =
+  | { kind: "idle" }
+  | { kind: "scheduled"; timer: ReturnType<typeof setTimeout> }
+  | { kind: "running" };
+
 type ScanMode = "full" | "safe" | "none";
 
 interface ScanState {
@@ -307,11 +312,11 @@ export function createFileBrowser(
   const lineCountCache = new Map<string, { size: number; mtimeMs: number; count: number }>();
   const lineCountQueue: FileNode[] = [];
   const lineCountPending = new Set<string>();
-  let lineCountTimer: ReturnType<typeof setTimeout> | null = null;
+  let lineCountPump: BatchPump = { kind: "idle" };
 
   const scanQueue: Array<{ node: FileNode; depth: number }> = [];
   const scanQueued = new Set<string>();
-  let scanTimer: ReturnType<typeof setTimeout> | null = null;
+  let scanPump: BatchPump = { kind: "idle" };
   // Incremented on every (re-)root. In-flight async scan/line-count batches
   // capture the value when they start and bail after each await if it changed,
   // so work belonging to an old root can never mutate state for the new one.
@@ -330,9 +335,7 @@ export function createFileBrowser(
     if (lineCountPending.has(node.path)) return;
     lineCountPending.add(node.path);
     lineCountQueue.push(node);
-    if (!lineCountTimer) {
-      lineCountTimer = setTimeout(processLineCountBatch, LINE_COUNT_BATCH_DELAY_MS);
-    }
+    scheduleLineCountBatch();
   }
 
   function queueLineCountsForTree(rootNode: FileNode | null): void {
@@ -374,30 +377,40 @@ export function createFileBrowser(
     }
   }
 
+  function scheduleLineCountBatch(): void {
+    if (lineCountPump.kind === "idle" && lineCountQueue.length > 0) {
+      lineCountPump = { kind: "scheduled", timer: setTimeout(processLineCountBatch, LINE_COUNT_BATCH_DELAY_MS) };
+    }
+  }
+
   async function processLineCountBatch(): Promise<void> {
-    lineCountTimer = null;
-    if (!browser.root) return;
+    lineCountPump = { kind: "running" };
     const generation = rootGeneration;
-    const batch = lineCountQueue.splice(0, LINE_COUNT_BATCH_SIZE);
-    if (batch.length === 0) return;
+    try {
+      if (!browser.root) return;
+      const batch = lineCountQueue.splice(0, LINE_COUNT_BATCH_SIZE);
+      if (batch.length === 0) return;
 
-    await Promise.all(
-      batch.map(async node => {
-        await updateLineCount(node);
-        if (generation === rootGeneration) {
-          lineCountPending.delete(node.path);
-        }
-      })
-    );
-    if (generation !== rootGeneration) return;
+      await Promise.all(
+        batch.map(async node => {
+          await updateLineCount(node);
+          if (generation === rootGeneration) {
+            lineCountPending.delete(node.path);
+          }
+        })
+      );
+      if (generation !== rootGeneration) return;
 
-    updateTreeStats(browser.root);
-    browser.stats = getTreeStats(browser.root);
-    refreshLists();
-    requestRender();
-
-    if (lineCountQueue.length > 0) {
-      lineCountTimer = setTimeout(processLineCountBatch, LINE_COUNT_BATCH_DELAY_MS);
+      updateTreeStats(browser.root);
+      browser.stats = getTreeStats(browser.root);
+      refreshLists();
+      requestRender();
+    } finally {
+      // A stopped generation no longer owns this pump.
+      if (generation === rootGeneration) {
+        lineCountPump = { kind: "idle" };
+        scheduleLineCountBatch();
+      }
     }
   }
 
@@ -433,12 +446,8 @@ export function createFileBrowser(
     node.loading = true;
     scanQueued.add(node.path);
     scanQueue.push({ node, depth });
-    browser.scanState.pending = scanQueue.length;
-    browser.scanState.isScanning = true;
-
-    if (!scanTimer) {
-      scanTimer = setTimeout(processScanBatch, getScanDelay());
-    }
+    updateScanActivity();
+    scheduleScanBatch();
   }
 
   async function scanDirectory(node: FileNode, depth: number, generation: number): Promise<void> {
@@ -560,44 +569,53 @@ export function createFileBrowser(
     }
   }
 
-  async function processScanBatch(): Promise<void> {
-    scanTimer = null;
-    if (!browser.root) return;
-    const generation = rootGeneration;
-    const batch = scanQueue.splice(0, getScanBatchSize());
-    if (batch.length === 0) {
-      browser.scanState.isScanning = false;
-      browser.scanState.pending = 0;
-      return;
-    }
-
-    await Promise.all(batch.map(item => scanDirectory(item.node, item.depth, generation)));
-    if (generation !== rootGeneration) return;
-
+  function updateScanActivity(): void {
     browser.scanState.pending = scanQueue.length;
-    browser.scanState.isScanning = scanQueue.length > 0;
+    browser.scanState.isScanning = scanQueue.length > 0 || scanPump.kind === "running";
+  }
 
-    updateTreeStats(browser.root);
-    browser.stats = getTreeStats(browser.root);
-    refreshLists();
-    requestRender();
+  function scheduleScanBatch(): void {
+    if (scanPump.kind === "idle" && scanQueue.length > 0) {
+      scanPump = { kind: "scheduled", timer: setTimeout(processScanBatch, getScanDelay()) };
+    }
+  }
 
-    if (scanQueue.length > 0) {
-      scanTimer = setTimeout(processScanBatch, getScanDelay());
+  async function processScanBatch(): Promise<void> {
+    scanPump = { kind: "running" };
+    const generation = rootGeneration;
+    try {
+      if (!browser.root) return;
+      const batch = scanQueue.splice(0, getScanBatchSize());
+      updateScanActivity();
+      if (batch.length === 0) return;
+
+      await Promise.all(batch.map(item => scanDirectory(item.node, item.depth, generation)));
+      if (generation !== rootGeneration) return;
+
+      updateTreeStats(browser.root);
+      browser.stats = getTreeStats(browser.root);
+      refreshLists();
+    } finally {
+      if (generation === rootGeneration) {
+        scanPump = { kind: "idle" };
+        updateScanActivity();
+        scheduleScanBatch();
+        requestRender();
+      }
     }
   }
 
   function stopBackgroundTasks(): void {
     // Invalidate in-flight scans, line counts and git loads, not just timers.
     rootGeneration += 1;
-    if (lineCountTimer) {
-      clearTimeout(lineCountTimer);
-      lineCountTimer = null;
+    if (lineCountPump.kind === "scheduled") {
+      clearTimeout(lineCountPump.timer);
     }
-    if (scanTimer) {
-      clearTimeout(scanTimer);
-      scanTimer = null;
+    if (scanPump.kind === "scheduled") {
+      clearTimeout(scanPump.timer);
     }
+    lineCountPump = { kind: "idle" };
+    scanPump = { kind: "idle" };
   }
 
   function applyAgentModified(): void {
