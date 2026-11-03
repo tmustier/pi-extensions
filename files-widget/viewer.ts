@@ -8,11 +8,11 @@ import {
   MAX_VIEWER_HEIGHT,
   MIN_PANEL_HEIGHT,
   SEARCH_SCROLL_OFFSET,
-} from "./constants";
-import { loadFileContent } from "./file-viewer";
-import type { FileNode } from "./types";
-import { isMarkdownPath, isUntrackedStatus } from "./utils";
-import { createTextInputBuffer } from "./input-utils";
+} from "./constants.ts";
+import { loadFileContent } from "./file-viewer.ts";
+import type { FileNode } from "./types.ts";
+import { isMarkdownPath, isUntrackedStatus } from "./utils.ts";
+import { createTextInputBuffer } from "./input-utils.ts";
 
 const COMMENT_EDITOR_MAX_VISIBLE_LINES = 4;
 
@@ -132,14 +132,14 @@ export function createViewer(
     state.selectEnd = 0;
   }
 
-  function setMode(mode: ViewerMode): void {
+  function setMode(mode: ViewerMode, options: { preserveSearch?: boolean } = {}): void {
     if (mode !== state.mode) {
       searchInput.reset();
       commentInput.reset();
     }
 
     state.mode = mode;
-    if (mode !== "search") resetSearch();
+    if (mode !== "search" && !options.preserveSearch) resetSearch();
     if (mode !== "comment") resetComment();
     if (mode === "normal") {
       clearSelection();
@@ -463,7 +463,7 @@ export function createViewer(
 
       if (state.mode === "search") {
         if (matchesKey(data, Key.enter)) {
-          setMode("normal");
+          setMode("normal", { preserveSearch: true });
         } else if (matchesKey(data, Key.escape)) {
           setMode("normal");
         } else if (matchesKey(data, Key.backspace)) {
