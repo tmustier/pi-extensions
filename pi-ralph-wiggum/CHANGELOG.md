@@ -3,12 +3,12 @@
 ## [0.2.5] - 2026-11-03
 
 ### Fixed
-- Run the final iteration before completing the loop. With a limit of N iterations, calling `ralph_done` in iteration N-1 completed the loop before iteration N ran ([#140](https://github.com/tmustier/pi-extensions/pull/140)).
-- A session now owns at most one active loop: starting or resuming a loop pauses the session's other active loop. Start and resume check the task file before marking a loop active, so an empty or unreadable task no longer leaves an active loop with nothing to do ([#140](https://github.com/tmustier/pi-extensions/pull/140)).
-- Keep going after Pi retries a failed request. The loop no longer waits forever for an iteration that is already running, and an error during the final iteration no longer completes the loop before Pi retries ([#140](https://github.com/tmustier/pi-extensions/pull/140), [#141](https://github.com/tmustier/pi-extensions/pull/141)).
+- A loop with a limit of N iterations now runs iteration N before it completes ([#140](https://github.com/tmustier/pi-extensions/pull/140)).
+- Starting or resuming a loop pauses the session's other active loop, and an empty task file no longer leaves a loop active ([#140](https://github.com/tmustier/pi-extensions/pull/140)).
+- Loops keep going when Pi retries a failed request ([#141](https://github.com/tmustier/pi-extensions/pull/141)).
 
 ### Changed
-- Show the stop banner as a message instead of sending it to the model as a prompt. The model no longer takes an extra turn to acknowledge the banner, and cancelling the final iteration no longer restarts the model. The model still sees the banner on its next turn ([#141](https://github.com/tmustier/pi-extensions/pull/141)).
+- The stop banner is shown as a message, so the model no longer takes an extra turn to reply to it ([#141](https://github.com/tmustier/pi-extensions/pull/141)).
 
 ## [0.2.4] - 2026-09-22
 

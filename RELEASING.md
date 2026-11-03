@@ -6,6 +6,17 @@ This repo hosts multiple extensions. Releases are per extension, not per repo.
 
 Use `extension-name/vX.Y.Z` (example: `usage-extension/v0.1.2`).
 
+## Changelog entries
+
+Pi 1.5.0 and later shows each package's new changelog entries when Pi starts after the package updates. A user sees every entry newer than the version they last saw, so a user who skips releases sees several entries at once. Write entries for that screen:
+
+- Write one plain sentence per change, saying what a user notices. Add a second sentence only when the user needs it, e.g. to know about a changed default.
+- Leave out how the fix works, internal names and measurements. Put those in the pull request and the GitHub release notes.
+- End each bullet with one link to the pull request or issue.
+- Release changes from the same day as one version, so users see one entry instead of several.
+
+Pi reads `CHANGELOG.md` from each package root by default, so no `pi.changelogPath` setting is needed.
+
 ## Steps
 
 1. Update the extension's `CHANGELOG.md`.
@@ -41,5 +52,5 @@ git tag -a usage-extension/v0.1.2 -m "usage-extension v0.1.2"
 git push origin usage-extension/v0.1.2
 ```
 
-7. Create a GitHub release from the tag and paste the notes from the changelog.
+7. Create a GitHub release from the tag. Use the changelog entry, and add any detail that is too long for the changelog.
 
