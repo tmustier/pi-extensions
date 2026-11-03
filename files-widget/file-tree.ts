@@ -116,12 +116,11 @@ export function buildFileTreeFromPaths(
   ignored: Set<string>,
   agentModified: Set<string>
 ): FileNode {
-  const rootRealPath = safeRealPathSync(cwd);
   const root: FileNode = {
     name: ".",
     path: cwd,
     isDirectory: true,
-    realPath: rootRealPath,
+    realPath: safeRealPathSync(cwd),
     children: [],
     expanded: true,
     hasChangedChildren: false,
@@ -162,8 +161,7 @@ export function buildFileTreeFromPaths(
           name: part,
           path: join(cwd, relPath),
           isDirectory: true,
-          // Git never descends into symlinks, so plain directories resolve under the root.
-          realPath: join(rootRealPath, relPath),
+          realPath: safeRealPathSync(join(cwd, relPath)),
           parent: current,
           children: [],
           expanded: depth < 1,

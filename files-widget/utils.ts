@@ -1,5 +1,5 @@
 import { accessSync, constants, statSync } from "node:fs";
-import { extname, join } from "node:path";
+import { extname, join, resolve } from "node:path";
 
 export interface CommandLookupOptions {
   platform?: NodeJS.Platform;
@@ -27,7 +27,7 @@ export function findCommand(cmd: string, options: CommandLookupOptions = {}): st
       : rawDirectory;
     for (const extension of extensions) {
       try {
-        const candidate = join(directory || ".", `${cmd}${extension}`);
+        const candidate = resolve(options.cwd ?? process.cwd(), directory || ".", `${cmd}${extension}`);
         accessSync(candidate, accessMode);
         if (statSync(candidate).isFile()) return candidate;
       } catch {

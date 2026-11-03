@@ -63,36 +63,10 @@ export async function getGitStatus(cwd: string): Promise<Map<string, string>> {
   return status;
 }
 
+/** Tracked and untracked (not ignored) files, relative to `cwd`. */
 export async function getGitFileList(cwd: string): Promise<string[]> {
-  const [tracked, prefix, statusOutput] = await Promise.all([
-    git(cwd, ["ls-files", "-z"]).catch(() => ""),
-    getGitPathPrefix(cwd),
-    git(cwd, ["status", "--porcelain", "-uall", "-z"]).catch(() => ""),
-  ]);
-  const files = new Set<string>();
-  for (const entry of tracked.split("\0")) {
-    if (entry) files.add(entry);
-  }
-
-  const entries = statusOutput.split("\0");
-  for (let i = 0; i < entries.length; i++) {
-    const entry = entries[i];
-    if (!entry) continue;
-    const statusCode = entry.slice(0, 2).trim();
-    let filePath = entry.slice(3);
-    if ((statusCode.startsWith("R") || statusCode.startsWith("C")) && entries[i + 1]) {
-      i += 1;
-      filePath = entries[i];
-    } else if (filePath.includes(" -> ")) {
-      filePath = filePath.split(" -> ").pop() || filePath;
-    }
-    const relPath = filePath ? stripPathPrefix(filePath, prefix) : null;
-    if (relPath) {
-      files.add(relPath);
-    }
-  }
-
-  return Array.from(files);
+  const output = await git(cwd, ["ls-files", "--cached", "--others", "--exclude-standard", "-z"]).catch(() => "");
+  return [...new Set(output.split("\0").filter(Boolean))];
 }
 
 export async function getGitBranch(cwd: string): Promise<string> {

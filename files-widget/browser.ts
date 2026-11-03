@@ -728,8 +728,9 @@ export function createFileBrowser(
     const generation = rootGeneration;
     const isCurrent = () => generation === rootGeneration;
     const pending = load(isCurrent).finally(() => {
-      if (gitLoad === pending) gitLoad = null;
-      browser.lastPollTime = Date.now();
+      if (gitLoad !== pending) return;
+      gitLoad = null;
+      if (isCurrent()) browser.lastPollTime = Date.now();
     });
     gitLoad = pending;
   }
@@ -745,7 +746,9 @@ export function createFileBrowser(
     gitStatus = status;
     diffStats = stats;
     gitBranch = branch;
-    browser.root = buildFileTreeFromPaths(rootPath, filePaths, gitStatus, diffStats, ignored, agentModifiedFiles);
+    // ls-files omits staged deletions; keep showing them as deleted files.
+    const stagedDeletions = [...status].filter(([, code]) => code === "D").map(([path]) => path);
+    browser.root = buildFileTreeFromPaths(rootPath, [...filePaths, ...stagedDeletions], gitStatus, diffStats, ignored, agentModifiedFiles);
     browser.scanState.isScanning = false;
     indexNodes(browser.root, browser.nodeByPath);
     refreshLists();
@@ -756,15 +759,10 @@ export function createFileBrowser(
 
   async function refreshGitMetadata(isCurrent: () => boolean): Promise<void> {
     const [status, stats] = await Promise.all([getGitStatus(rootPath), getGitDiffStats(rootPath)]);
-    if (!isCurrent()) return;
+    if (!isCurrent() || !browser.root) return;
     gitStatus = status;
     diffStats = stats;
-    refreshMetadata();
-    requestRender();
-  }
 
-  function refreshMetadata(): void {
-    if (!browser.root) return;
     const previousDisplayList = getDisplayList();
     const currentPath = previousDisplayList[browser.selectedIndex]?.node.path;
     const viewingFile = viewer.getFile();
@@ -797,6 +795,7 @@ export function createFileBrowser(
         viewer.updateFileRef(newNode);
       }
     }
+    requestRender();
   }
 
   function loadRoot(newRoot: string): void {
