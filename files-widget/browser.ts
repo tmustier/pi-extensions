@@ -21,7 +21,7 @@ import {
 import { getGitBranch, getGitDiffStats, getGitFileList, getGitStatus, isGitRepo } from "./git";
 import { buildFileTreeFromPaths, flattenTree, getIgnoredNames, sortChildren, updateTreeStats } from "./file-tree";
 import type { DiffStats, FileNode, FlatNode } from "./types";
-import { isIgnoredStatus, isUntrackedStatus } from "./utils";
+import { isUntrackedStatus } from "./utils";
 import { createViewer, type CommentPayload, type ViewerAction } from "./viewer";
 import { createTextInputBuffer } from "./input-utils";
 
@@ -194,7 +194,6 @@ function getTreeStats(root: FileNode | null): BrowserStats {
 }
 
 function formatNodeStatus(node: FileNode, theme: Theme): string {
-  if (isIgnoredStatus(node.gitStatus)) return "";
   if (node.agentModified) return theme.fg("accent", " 🤖");
   if (node.gitStatus === "M" || node.gitStatus === "MM") return theme.fg("warning", " M");
   if (isUntrackedStatus(node.gitStatus)) return theme.fg("dim", " ?");
@@ -204,8 +203,6 @@ function formatNodeStatus(node: FileNode, theme: Theme): string {
 }
 
 function formatNodeMeta(node: FileNode, theme: Theme): string {
-  if (isIgnoredStatus(node.gitStatus)) return "";
-
   const parts: string[] = [];
 
   if (node.isDirectory && !node.expanded) {
@@ -242,7 +239,6 @@ function withSymlinkMarker(label: string, node: FileNode, theme: Theme): string 
 }
 
 function formatNodeName(node: FileNode, theme: Theme): string {
-  if (isIgnoredStatus(node.gitStatus)) return withSymlinkMarker(theme.fg("dim", node.name), node, theme);
   if (node.isDirectory) {
     const label = node.hasChangedChildren ? theme.fg("warning", node.name) : theme.fg("accent", node.name);
     const rendered = withSymlinkMarker(label, node, theme);

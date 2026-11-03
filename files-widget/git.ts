@@ -2,6 +2,7 @@ import { execFile, execSync } from "node:child_process";
 import { promisify } from "node:util";
 
 import type { DiffStats } from "./types";
+import { findCommand } from "./utils.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -14,9 +15,15 @@ export function isGitRepo(cwd: string): boolean {
   }
 }
 
+// Spawning by absolute path matters: libuv searches PATH while the parent
+// waits, and each miss costs several milliseconds on macOS. With a long PATH
+// that blocked the event loop for ~50ms per git call.
+let gitPath: string | undefined;
+
 /** Run git without blocking the event loop. */
 async function git(cwd: string, args: string[], timeout = 5000): Promise<string> {
-  const { stdout } = await execFileAsync("git", args, { cwd, encoding: "utf-8", timeout });
+  gitPath ??= findCommand("git") ?? "git";
+  const { stdout } = await execFileAsync(gitPath, args, { cwd, encoding: "utf-8", timeout });
   return stdout;
 }
 
@@ -44,7 +51,7 @@ function stripPathPrefix(filePath: string, prefix: string): string | null {
 export async function getGitStatus(cwd: string): Promise<Map<string, string>> {
   const status = new Map<string, string>();
   try {
-    const [prefix, output] = await Promise.all([getGitPathPrefix(cwd), git(cwd, ["status", "--porcelain", "--ignored"])]);
+    const [prefix, output] = await Promise.all([getGitPathPrefix(cwd), git(cwd, ["status", "--porcelain"])]);
     for (const line of output.split("\n")) {
       if (line.length < 3) continue;
       const statusCode = line.slice(0, 2).trim() || "?";
