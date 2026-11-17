@@ -470,7 +470,7 @@ export function createFileBrowser(
       // entry at a time; nodes are still built below in sorted order.
       const children = await Promise.all(
         sorted
-          .filter(entry => !ignored.has(entry.name) && !entry.name.startsWith("."))
+          .filter(entry => !ignored.has(entry.name))
           .map(async entry => {
             const fullPath = join(node.path, entry.name);
             if (entry.isDirectory()) {
@@ -651,7 +651,7 @@ export function createFileBrowser(
 
     for (let i = 0; i < parts.length - 1; i++) {
       const part = parts[i];
-      if (ignored.has(part) || part.startsWith(".")) return null;
+      if (ignored.has(part)) return null;
       currentRel = currentRel ? `${currentRel}/${part}` : part;
       const dirPath = join(rootPath, currentRel);
       let dirNode = browser.nodeByPath.get(dirPath);
@@ -676,7 +676,7 @@ export function createFileBrowser(
     }
 
     const fileName = parts[parts.length - 1];
-    if (ignored.has(fileName) || fileName.startsWith(".")) return null;
+    if (ignored.has(fileName)) return null;
 
     const filePath = join(rootPath, normalized);
     const existing = browser.nodeByPath.get(filePath);
