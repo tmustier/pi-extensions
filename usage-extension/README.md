@@ -55,6 +55,18 @@ In Pi, run:
 /usage
 ```
 
+To avoid a slash-command name collision, override the command name in the global `~/.pi/agent/settings.json`:
+
+```json
+{
+	"usage-extension": {
+		"commandName": "us"
+	}
+}
+```
+
+After changing `commandName`, run `/reload`. The value must be a bare lowercase command name without the leading `/`; letters, digits, `_`, and `-` are supported. Invalid values fall back to `usage`.
+
 ## Features
 
 ### Views
