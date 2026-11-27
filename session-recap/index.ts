@@ -296,9 +296,10 @@ export function showRecap(ctx: ExtensionContext, recap: string) {
 		{ placement: "belowEditor" },
 	);
 
-	// Pi mounts the scrollable document as its first TUI child.
-	const document = tui.children[0];
-	if (tui.mode !== "fullscreen" || !(document instanceof Container)) {
+	// Pi mounts the scrollable document as its first TUI child. A widget factory
+	// can be deferred to the next render, so `tui` may still be unset here.
+	const document = tui?.children[0];
+	if (!tui || tui.mode !== "fullscreen" || !(document instanceof Container)) {
 		ctx.ui.setWidget(RECAP_KEY, [header, body], { placement: "aboveEditor" });
 		return;
 	}

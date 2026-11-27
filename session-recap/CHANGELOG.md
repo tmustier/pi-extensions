@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.6.2] - 2026-11-27
+
+### Fixed
+- Keep Pi running when a recap is drawn before the terminal is ready. `showRecap` read the TUI straight after `setWidget`, and the widget factory is what assigns it, so a host that defers the factory made that read throw inside the recap timer and ended the whole process. The recap now falls back to the editor widget ([#148](https://github.com/tmustier/pi-extensions/pull/148)).
+
 ## [0.6.1] - 2026-11-02
 
 ### Fixed

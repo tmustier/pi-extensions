@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.78] - 2026-11-27
+
+### Fixed
+- Include session recap 0.6.2, which no longer takes Pi down when a recap is drawn before the terminal is ready ([#148](https://github.com/tmustier/pi-extensions/pull/148)).
+
 ## [0.1.77] - 2026-11-03
 
 - Use separate startup notes for Pi 1.5. Bundle notices now cover only changes
