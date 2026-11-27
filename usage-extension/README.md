@@ -81,7 +81,7 @@ By default, `/usage` opens on **Graphs** and **All Time**. You can independently
 ```
 
 - `rememberView` restores the last **Graphs / Table / Insights** selection.
-- `rememberPeriod` restores the last **Today / This Week / Last Week / Last 30 Days / All Time** selection.
+- `rememberPeriod` restores the last **Today / This Week / Last Week / This Month / Last 30 Days / All Time** selection.
 
 Both settings are optional and default to `false`. The selections are stored separately in `<agentDir>/usage-extension-state.json`; the extension never writes runtime state back into `settings.json`.
 

@@ -54,6 +54,10 @@ test("resolveUsageSelection restores each enabled dimension independently", () =
 });
 
 test("parseUsageSelectionState ignores unknown or malformed selections", () => {
+	assert.deepEqual(parseUsageSelectionState('{"view":"insights","period":"thisMonth"}'), {
+		view: "insights",
+		period: "thisMonth",
+	});
 	assert.deepEqual(parseUsageSelectionState('{"view":"table","period":"lastWeek"}'), {
 		view: "table",
 		period: "lastWeek",

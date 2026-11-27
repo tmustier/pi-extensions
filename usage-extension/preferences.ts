@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { TabName } from "./data.ts";
+import { TAB_ORDER, type TabName } from "./data.ts";
 
 export type ViewMode = "table" | "insights" | "graph";
 
@@ -26,7 +26,7 @@ const DEFAULT_PREFERENCES: UsagePreferences = {
 };
 
 const VIEW_MODES = new Set<ViewMode>(["graph", "table", "insights"]);
-const PERIODS = new Set<TabName>(["today", "thisWeek", "lastWeek", "last30Days", "allTime"]);
+const PERIODS = new Set<TabName>(TAB_ORDER);
 
 export function parseUsagePreferences(settingsJson: string): UsagePreferences {
 	try {
