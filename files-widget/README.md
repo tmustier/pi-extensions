@@ -123,6 +123,7 @@ Diff viewing is built into the file viewer: open a changed tracked file and pres
 
 ## Notes
 
+- Hidden files and folders (such as `.gitignore` and `.github`) are shown. Explicit exclusions for Git internals, dependencies, caches, build output, and `.env` still apply; Git-backed browsing also respects Git ignore rules for untracked files.
 - Untracked files show as `[UNTRACKED]` and open in normal view.
 - Searching in rendered Markdown switches to raw mode first, and selecting from rendered Markdown first switches you back to raw so line-based matches and comments stay aligned with the source file.
 - When you browse outside the current project directory, inline comments on those files use absolute paths so the agent can still locate them. Files inside the project continue to use project-relative paths.

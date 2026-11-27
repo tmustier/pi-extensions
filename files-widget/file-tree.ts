@@ -37,7 +37,7 @@ function compareNodes(a: FileNode, b: FileNode): number {
 }
 
 function shouldIgnoreSegment(segment: string, ignored: Set<string>): boolean {
-  return ignored.has(segment) || segment.startsWith(".");
+  return ignored.has(segment);
 }
 
 export function sortChildren(node: FileNode): void {
